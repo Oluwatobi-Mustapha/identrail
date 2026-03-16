@@ -54,8 +54,7 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 	svc.OnAlertError = func(alertErr error) {
 		logger.Warn("scan alert delivery failed", telemetry.ZapError(alertErr))
 	}
-	auditSink := api.AuditSink(api.NopAuditSink{})
-	auditClose := func() error { return nil }
+	auditSinks := []api.AuditSink{}
 	if cfg.AuditLogFile != "" {
 		fileSink, sinkErr := api.NewFileAuditSink(cfg.AuditLogFile)
 		if sinkErr != nil {
@@ -63,9 +62,27 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 			_ = logger.Sync()
 			return Bootstrap{}, fmt.Errorf("initialize audit sink: %w", sinkErr)
 		}
-		auditSink = fileSink
-		auditClose = fileSink.Close
+		auditSinks = append(auditSinks, fileSink)
 	}
+	if cfg.AuditForwardURL != "" {
+		forwardSink, sinkErr := api.NewHTTPAuditSink(cfg.AuditForwardURL, cfg.AuditForwardTimeout, cfg.AuditForwardHMACSecret)
+		if sinkErr != nil {
+			for _, sink := range auditSinks {
+				_ = sink.Close()
+			}
+			_ = closeStore()
+			_ = logger.Sync()
+			return Bootstrap{}, fmt.Errorf("initialize audit forward sink: %w", sinkErr)
+		}
+		auditSinks = append(auditSinks, forwardSink)
+	}
+	auditSink := api.AuditSink(api.NopAuditSink{})
+	if len(auditSinks) == 1 {
+		auditSink = auditSinks[0]
+	} else if len(auditSinks) > 1 {
+		auditSink = api.NewMultiAuditSink(auditSinks...)
+	}
+
 	router := api.NewRouter(logger, metrics, svc, api.RouterOptions{
 		APIKeys:        cfg.APIKeys,
 		WriteAPIKeys:   cfg.WriteAPIKeys,
@@ -80,7 +97,7 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		Router:        router,
 		TraceShutdown: traceShutdown,
 		StoreClose:    closeStore,
-		AuditClose:    auditClose,
+		AuditClose:    auditSink.Close,
 	}, nil
 }
 
