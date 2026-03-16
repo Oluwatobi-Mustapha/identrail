@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestValidateSecurityWriteKeyMustBeInAPIKeys(t *testing.T) {
 	cfg := Config{
@@ -66,6 +69,24 @@ func TestValidateSecurityRejectsInvalidAlertSeverity(t *testing.T) {
 	}
 	if err := ValidateSecurity(cfg); err == nil {
 		t.Fatal("expected alert severity validation error")
+	}
+}
+
+func TestValidateSecurityRejectsLargeAlertRetries(t *testing.T) {
+	cfg := Config{
+		AlertMaxRetries: maxAlertRetriesLimit + 1,
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected alert retries validation error")
+	}
+}
+
+func TestValidateSecurityRejectsLargeAlertBackoff(t *testing.T) {
+	cfg := Config{
+		AlertRetryBackoff: time.Duration(maxAlertBackoffLimit+1) * time.Second,
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected alert backoff validation error")
 	}
 }
 
