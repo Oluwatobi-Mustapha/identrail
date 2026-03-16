@@ -10,6 +10,9 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
 - Storage layer (`internal/db`):
   - `MemoryStore` for local/dev execution
   - `PostgresStore` for production persistence
+- Startup migration runner:
+  - applies `*.up.sql` files in order
+  - enabled by default in Postgres mode
 - API service orchestration:
   - creates scan records
   - runs scanner
@@ -25,11 +28,22 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
   - keyed in-memory scan lock
   - periodic runner abstraction
   - worker binary (`cmd/worker`) for scheduled scans
-- Config wiring:
-  - `IDENTRAIL_DATABASE_URL`
-  - `IDENTRAIL_AWS_FIXTURES`
-  - `IDENTRAIL_SCAN_INTERVAL`
-  - `IDENTRAIL_WORKER_RUN_NOW`
+- API hardening:
+  - API key auth middleware
+  - per-IP rate limiting
+  - request timeout and security headers
+
+## Config wiring
+
+- `IDENTRAIL_DATABASE_URL`
+- `IDENTRAIL_AWS_FIXTURES`
+- `IDENTRAIL_SCAN_INTERVAL`
+- `IDENTRAIL_WORKER_RUN_NOW`
+- `IDENTRAIL_API_KEYS`
+- `IDENTRAIL_RATE_LIMIT_RPM`
+- `IDENTRAIL_RATE_LIMIT_BURST`
+- `IDENTRAIL_RUN_MIGRATIONS`
+- `IDENTRAIL_MIGRATIONS_DIR`
 
 ## Idempotency approach
 
@@ -39,6 +53,6 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
 
 ## Next milestones
 
-1. API authentication and authorization
-2. API rate limiter and audit logging
-3. Migration runner during startup/deploy
+1. API authorization model (role/scope checks)
+2. audit logging stream and alert hooks
+3. production deploy docs for migration/rollback runbook

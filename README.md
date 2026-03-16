@@ -21,6 +21,11 @@ It discovers machine and workload identities across cloud environments, maps who
   - PostgreSQL mode (`IDENTRAIL_DATABASE_URL`)
 - Security basics:
   - scan lock
+  - API key auth (`IDENTRAIL_API_KEYS`)
+  - per-IP rate limiting (`IDENTRAIL_RATE_LIMIT_RPM`, `IDENTRAIL_RATE_LIMIT_BURST`)
   - bounded list limits
   - scan timeout
   - security response headers
+- Startup migration support:
+  - `IDENTRAIL_RUN_MIGRATIONS`
+  - `IDENTRAIL_MIGRATIONS_DIR`

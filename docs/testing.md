@@ -11,7 +11,9 @@
 
 - Config defaults and env parsing
 - API routes and scan trigger behavior
+- API auth and rate-limit middleware behavior
 - Memory/Postgres persistence logic
+- Migration runner behavior
 - Artifact and finding idempotent upserts
 - Scheduler lock/runner behavior
 - Worker startup and cancellation behavior

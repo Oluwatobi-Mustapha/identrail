@@ -3,8 +3,9 @@
 Updated only at major milestones.
 
 - Scanner pipeline: working end-to-end in fixture mode.
-- Persistence: scans + full artifacts + findings saved idempotently.
-- API: scan/list endpoints working with core hardening.
-- Scheduler/Worker: periodic worker process added (`cmd/worker`).
+- Persistence: scans + artifacts + findings saved idempotently.
+- API: scan/list endpoints now have auth, rate limiting, timeout, and security headers.
+- Worker: scheduled process runs scans with shared runtime bootstrap.
+- Migrations: startup migration runner added for Postgres mode.
 - Test health: `go test ./... -cover` passing, coverage above 80%.
-- Next focus: API auth, rate limiting, and production migration runner.
+- Next focus: authorization model and audit log stream.
