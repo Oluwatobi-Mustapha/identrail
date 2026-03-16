@@ -42,6 +42,20 @@ func BuildScanService(cfg config.Config) (*api.Service, func() error, error) {
 	}
 
 	svc := api.NewService(store, scanner, cfg.Provider)
+	if cfg.AlertWebhookURL != "" {
+		alerter, alertErr := api.NewWebhookAlerter(
+			cfg.AlertWebhookURL,
+			cfg.AlertTimeout,
+			cfg.AlertMinSeverity,
+			cfg.AlertHMACSecret,
+			cfg.AlertMaxFindings,
+		)
+		if alertErr != nil {
+			_ = store.Close()
+			return nil, nil, fmt.Errorf("initialize alert webhook: %w", alertErr)
+		}
+		svc.Alerter = alerter
+	}
 	return svc, store.Close, nil
 }
 
