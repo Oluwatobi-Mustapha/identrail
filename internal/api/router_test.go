@@ -88,6 +88,15 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 	if postW.Code != http.StatusAccepted {
 		t.Fatalf("expected status 202, got %d", postW.Code)
 	}
+	var postBody struct {
+		Scan db.ScanRecord `json:"scan"`
+	}
+	if err := json.Unmarshal(postW.Body.Bytes(), &postBody); err != nil {
+		t.Fatalf("decode post body: %v", err)
+	}
+	if postBody.Scan.ID == "" {
+		t.Fatal("expected scan id in post response")
+	}
 
 	findingsReq := httptest.NewRequest(http.MethodGet, "/v1/findings", nil)
 	findingsW := httptest.NewRecorder()
@@ -105,6 +114,27 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 	if scansW.Code != http.StatusOK {
 		t.Fatalf("expected scans 200, got %d", scansW.Code)
 	}
+
+	summaryReq := httptest.NewRequest(http.MethodGet, "/v1/findings/summary", nil)
+	summaryW := httptest.NewRecorder()
+	r.ServeHTTP(summaryW, summaryReq)
+	if summaryW.Code != http.StatusOK {
+		t.Fatalf("expected summary 200, got %d", summaryW.Code)
+	}
+
+	diffReq := httptest.NewRequest(http.MethodGet, "/v1/scans/"+postBody.Scan.ID+"/diff", nil)
+	diffW := httptest.NewRecorder()
+	r.ServeHTTP(diffW, diffReq)
+	if diffW.Code != http.StatusOK {
+		t.Fatalf("expected diff 200, got %d", diffW.Code)
+	}
+
+	eventsReq := httptest.NewRequest(http.MethodGet, "/v1/scans/"+postBody.Scan.ID+"/events", nil)
+	eventsW := httptest.NewRecorder()
+	r.ServeHTTP(eventsW, eventsReq)
+	if eventsW.Code != http.StatusOK {
+		t.Fatalf("expected events 200, got %d", eventsW.Code)
+	}
 }
 
 func TestRouterUnavailableWhenServiceMissing(t *testing.T) {
@@ -117,6 +147,13 @@ func TestRouterUnavailableWhenServiceMissing(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected status 503, got %d", w.Code)
+	}
+
+	summaryReq := httptest.NewRequest(http.MethodGet, "/v1/findings/summary", nil)
+	summaryW := httptest.NewRecorder()
+	r.ServeHTTP(summaryW, summaryReq)
+	if summaryW.Code != http.StatusOK {
+		t.Fatalf("expected summary 200 without service, got %d", summaryW.Code)
 	}
 }
 
@@ -350,5 +387,27 @@ func TestRouterWritesAuditSink(t *testing.T) {
 	}
 	if event.APIKeyID == "reader-key" {
 		t.Fatal("expected fingerprint instead of raw api key")
+	}
+}
+
+func TestRouterScanDiffAndEventsNotFound(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+
+	diffReq := httptest.NewRequest(http.MethodGet, "/v1/scans/missing/diff", nil)
+	diffW := httptest.NewRecorder()
+	r.ServeHTTP(diffW, diffReq)
+	if diffW.Code != http.StatusNotFound {
+		t.Fatalf("expected diff 404 for missing scan, got %d", diffW.Code)
+	}
+
+	eventsReq := httptest.NewRequest(http.MethodGet, "/v1/scans/missing/events", nil)
+	eventsW := httptest.NewRecorder()
+	r.ServeHTTP(eventsW, eventsReq)
+	if eventsW.Code != http.StatusNotFound {
+		t.Fatalf("expected events 404 for missing scan, got %d", eventsW.Code)
 	}
 }

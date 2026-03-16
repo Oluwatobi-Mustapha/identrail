@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
@@ -20,6 +21,7 @@ import (
 const (
 	defaultFindingsLimit = 100
 	defaultScansLimit    = 20
+	defaultEventsLimit   = 100
 	maxListLimit         = 500
 	scanRequestTimeout   = 2 * time.Minute
 	scopeRead            = "read"
@@ -66,7 +68,20 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		v1.GET("/findings", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"items": []any{}})
 		})
+		v1.GET("/findings/summary", func(c *gin.Context) {
+			c.JSON(http.StatusOK, FindingsSummary{
+				Total:      0,
+				BySeverity: map[string]int{},
+				ByType:     map[string]int{},
+			})
+		})
 		v1.GET("/scans", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"items": []any{}})
+		})
+		v1.GET("/scans/:scan_id/diff", func(c *gin.Context) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
+		})
+		v1.GET("/scans/:scan_id/events", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"items": []any{}})
 		})
 		v1.POST("/scans", func(c *gin.Context) {
@@ -86,12 +101,53 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		c.JSON(http.StatusOK, gin.H{"items": items})
 	})
 
+	v1.GET("/findings/summary", func(c *gin.Context) {
+		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
+		summary, err := svc.GetFindingsSummary(c.Request.Context(), limit)
+		if err != nil {
+			logger.Error("findings summary", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build findings summary"})
+			return
+		}
+		c.JSON(http.StatusOK, summary)
+	})
+
 	v1.GET("/scans", func(c *gin.Context) {
 		limit := parseLimit(c.Query("limit"), defaultScansLimit, maxListLimit)
 		items, err := svc.ListScans(c.Request.Context(), limit)
 		if err != nil {
 			logger.Error("list scans", telemetry.ZapError(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list scans"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items})
+	})
+
+	v1.GET("/scans/:scan_id/diff", func(c *gin.Context) {
+		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
+		diff, err := svc.GetScanDiff(c.Request.Context(), strings.TrimSpace(c.Param("scan_id")), limit)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "scan not found"})
+				return
+			}
+			logger.Error("scan diff", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build scan diff"})
+			return
+		}
+		c.JSON(http.StatusOK, diff)
+	})
+
+	v1.GET("/scans/:scan_id/events", func(c *gin.Context) {
+		limit := parseLimit(c.Query("limit"), defaultEventsLimit, maxListLimit)
+		items, err := svc.ListScanEvents(c.Request.Context(), strings.TrimSpace(c.Param("scan_id")), limit)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "scan not found"})
+				return
+			}
+			logger.Error("scan events", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list scan events"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"items": items})
