@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Oluwatobi-Mustapha/identrail/internal/db/sqlcdb"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
 	"github.com/google/uuid"
@@ -16,7 +17,8 @@ import (
 
 // PostgresStore persists scans/findings in PostgreSQL.
 type PostgresStore struct {
-	db *sql.DB
+	db      *sql.DB
+	queries *sqlcdb.Queries
 }
 
 // NewPostgresStore opens a PostgreSQL connection and validates connectivity.
@@ -34,12 +36,12 @@ func NewPostgresStore(databaseURL string) (*PostgresStore, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
-	return &PostgresStore{db: db}, nil
+	return &PostgresStore{db: db, queries: sqlcdb.New(db)}, nil
 }
 
 // NewPostgresStoreWithDB builds a store around an existing sql.DB (tests).
 func NewPostgresStoreWithDB(db *sql.DB) *PostgresStore {
-	return &PostgresStore{db: db}
+	return &PostgresStore{db: db, queries: sqlcdb.New(db)}
 }
 
 // CreateScan inserts a new scan row.
@@ -67,21 +69,14 @@ func (p *PostgresStore) CreateScan(ctx context.Context, provider string, started
 
 // GetScan returns one scan by id.
 func (p *PostgresStore) GetScan(ctx context.Context, scanID string) (ScanRecord, error) {
-	var record ScanRecord
-	err := p.db.QueryRowContext(
-		ctx,
-		`SELECT id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
-		 FROM scans
-		 WHERE id = $1`,
-		scanID,
-	).Scan(&record.ID, &record.Provider, &record.Status, &record.StartedAt, &record.FinishedAt, &record.AssetCount, &record.FindingCount, &record.ErrorMessage)
+	row, err := p.queries.GetScan(ctx, scanID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return ScanRecord{}, ErrNotFound
 		}
 		return ScanRecord{}, fmt.Errorf("query scan: %w", err)
 	}
-	return record, nil
+	return scanRecordFromRow(row), nil
 }
 
 // CompleteScan updates scan completion metadata.
@@ -200,29 +195,13 @@ func (p *PostgresStore) ListScans(ctx context.Context, limit int) ([]ScanRecord,
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := p.db.QueryContext(
-		ctx,
-		`SELECT id, provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, '')
-		 FROM scans
-		 ORDER BY started_at DESC
-		 LIMIT $1`,
-		limit,
-	)
+	rows, err := p.queries.ListScans(ctx, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query scans: %w", err)
 	}
-	defer rows.Close()
-
-	result := []ScanRecord{}
-	for rows.Next() {
-		var record ScanRecord
-		if err := rows.Scan(&record.ID, &record.Provider, &record.Status, &record.StartedAt, &record.FinishedAt, &record.AssetCount, &record.FindingCount, &record.ErrorMessage); err != nil {
-			return nil, fmt.Errorf("scan row: %w", err)
-		}
-		result = append(result, record)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("scan rows: %w", err)
+	result := make([]ScanRecord, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, scanRecordFromRow(row))
 	}
 	return result, nil
 }
@@ -232,47 +211,11 @@ func (p *PostgresStore) ListFindings(ctx context.Context, limit int) ([]domain.F
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := p.db.QueryContext(
-		ctx,
-		`SELECT scan_id, finding_id, type, severity, title, human_summary, path, evidence, remediation, created_at
-		 FROM findings
-		 ORDER BY created_at DESC
-		 LIMIT $1`,
-		limit,
-	)
+	rows, err := p.queries.ListFindings(ctx, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query findings: %w", err)
 	}
-	defer rows.Close()
-
-	result := []domain.Finding{}
-	for rows.Next() {
-		var finding domain.Finding
-		var findingType string
-		var severity string
-		var pathJSON []byte
-		var evidenceJSON []byte
-		if err := rows.Scan(&finding.ScanID, &finding.ID, &findingType, &severity, &finding.Title, &finding.HumanSummary, &pathJSON, &evidenceJSON, &finding.Remediation, &finding.CreatedAt); err != nil {
-			return nil, fmt.Errorf("finding row: %w", err)
-		}
-		finding.Type = domain.FindingType(findingType)
-		finding.Severity = domain.FindingSeverity(severity)
-		if len(pathJSON) > 0 {
-			if err := json.Unmarshal(pathJSON, &finding.Path); err != nil {
-				return nil, fmt.Errorf("decode finding path: %w", err)
-			}
-		}
-		if len(evidenceJSON) > 0 {
-			if err := json.Unmarshal(evidenceJSON, &finding.Evidence); err != nil {
-				return nil, fmt.Errorf("decode finding evidence: %w", err)
-			}
-		}
-		result = append(result, finding)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("finding rows: %w", err)
-	}
-	return result, nil
+	return findingsFromRows(rows)
 }
 
 // ListFindingsByScan returns latest findings first for one scan id.
@@ -280,49 +223,11 @@ func (p *PostgresStore) ListFindingsByScan(ctx context.Context, scanID string, l
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := p.db.QueryContext(
-		ctx,
-		`SELECT scan_id, finding_id, type, severity, title, human_summary, path, evidence, remediation, created_at
-		 FROM findings
-		 WHERE scan_id = $1
-		 ORDER BY created_at DESC
-		 LIMIT $2`,
-		scanID,
-		limit,
-	)
+	rows, err := p.queries.ListFindingsByScan(ctx, scanID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query findings by scan: %w", err)
 	}
-	defer rows.Close()
-
-	result := []domain.Finding{}
-	for rows.Next() {
-		var finding domain.Finding
-		var findingType string
-		var severity string
-		var pathJSON []byte
-		var evidenceJSON []byte
-		if err := rows.Scan(&finding.ScanID, &finding.ID, &findingType, &severity, &finding.Title, &finding.HumanSummary, &pathJSON, &evidenceJSON, &finding.Remediation, &finding.CreatedAt); err != nil {
-			return nil, fmt.Errorf("finding row: %w", err)
-		}
-		finding.Type = domain.FindingType(findingType)
-		finding.Severity = domain.FindingSeverity(severity)
-		if len(pathJSON) > 0 {
-			if err := json.Unmarshal(pathJSON, &finding.Path); err != nil {
-				return nil, fmt.Errorf("decode finding path: %w", err)
-			}
-		}
-		if len(evidenceJSON) > 0 {
-			if err := json.Unmarshal(evidenceJSON, &finding.Evidence); err != nil {
-				return nil, fmt.Errorf("decode finding evidence: %w", err)
-			}
-		}
-		result = append(result, finding)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("finding rows: %w", err)
-	}
-	return result, nil
+	return findingsFromRows(rows)
 }
 
 // ListIdentities returns identities filtered by scan/provider/type/name prefix.
@@ -456,37 +361,25 @@ func (p *PostgresStore) ListScanEvents(ctx context.Context, scanID string, limit
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := p.db.QueryContext(
-		ctx,
-		`SELECT id, scan_id, level, message, metadata, created_at
-		 FROM scan_events
-		 WHERE scan_id = $1
-		 ORDER BY created_at DESC
-		 LIMIT $2`,
-		scanID,
-		limit,
-	)
+	rows, err := p.queries.ListScanEvents(ctx, scanID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query scan events: %w", err)
 	}
-	defer rows.Close()
-
 	result := []ScanEvent{}
-	for rows.Next() {
-		var event ScanEvent
-		var metadataJSON []byte
-		if err := rows.Scan(&event.ID, &event.ScanID, &event.Level, &event.Message, &metadataJSON, &event.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan event row: %w", err)
+	for _, row := range rows {
+		event := ScanEvent{
+			ID:        row.ID,
+			ScanID:    row.ScanID,
+			Level:     row.Level,
+			Message:   row.Message,
+			CreatedAt: row.CreatedAt,
 		}
-		if len(metadataJSON) > 0 {
-			if err := json.Unmarshal(metadataJSON, &event.Metadata); err != nil {
+		if len(row.Metadata) > 0 {
+			if err := json.Unmarshal(row.Metadata, &event.Metadata); err != nil {
 				return nil, fmt.Errorf("decode scan event metadata: %w", err)
 			}
 		}
 		result = append(result, event)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("scan event rows: %w", err)
 	}
 	return result, nil
 }
@@ -666,4 +559,45 @@ func upsertPermissions(ctx context.Context, tx *sql.Tx, scanID string, permissio
 		}
 	}
 	return nil
+}
+
+func scanRecordFromRow(row sqlcdb.ScanRow) ScanRecord {
+	return ScanRecord{
+		ID:           row.ID,
+		Provider:     row.Provider,
+		Status:       row.Status,
+		StartedAt:    row.StartedAt,
+		FinishedAt:   row.FinishedAt,
+		AssetCount:   row.AssetCount,
+		FindingCount: row.FindingCount,
+		ErrorMessage: row.ErrorMessage,
+	}
+}
+
+func findingsFromRows(rows []sqlcdb.FindingRow) ([]domain.Finding, error) {
+	result := make([]domain.Finding, 0, len(rows))
+	for _, row := range rows {
+		finding := domain.Finding{
+			ScanID:       row.ScanID,
+			ID:           row.FindingID,
+			Type:         domain.FindingType(row.Type),
+			Severity:     domain.FindingSeverity(row.Severity),
+			Title:        row.Title,
+			HumanSummary: row.HumanSummary,
+			Remediation:  row.Remediation,
+			CreatedAt:    row.CreatedAt,
+		}
+		if len(row.Path) > 0 {
+			if err := json.Unmarshal(row.Path, &finding.Path); err != nil {
+				return nil, fmt.Errorf("decode finding path: %w", err)
+			}
+		}
+		if len(row.Evidence) > 0 {
+			if err := json.Unmarshal(row.Evidence, &finding.Evidence); err != nil {
+				return nil, fmt.Errorf("decode finding evidence: %w", err)
+			}
+		}
+		result = append(result, finding)
+	}
+	return result, nil
 }
