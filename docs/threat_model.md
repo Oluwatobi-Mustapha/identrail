@@ -162,6 +162,11 @@ Simple threat list for current system.
 - Fix: Validate `previous_scan_id` strictly and reject invalid baselines with `400`.
 - Status: Implemented.
 
+## 33) Namespace/Subject Drift in Kubernetes Role Bindings
+- Threat: A role binding subject with missing namespace/name can map privileges to the wrong identity or produce noisy graph edges.
+- Fix: Normalize only valid service account subjects and skip malformed subjects/bindings.
+- Status: Implemented.
+
 ## Current Gaps (Next)
 - Add encrypted secret management and external KMS guidance.
 - Add audit sink forwarding guide for centralized log pipelines.

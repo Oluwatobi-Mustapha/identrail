@@ -199,3 +199,9 @@ This file tracks major decisions in simple terms.
 - Decision: Allow `previous_scan_id` on scan diff endpoint to compare against a chosen earlier scan.
 - Why: Operators need deterministic historical comparisons, not only auto-previous scan behavior.
 - Tradeoff: Additional validation logic for provider match and scan ordering.
+
+## ADR-034: Add Kubernetes Fixture Pipeline Before Live Cluster Collector
+- Date: 2026-03-16
+- Decision: Implement Kubernetes support first with fixture collector + normalized pipeline, then add live API collector.
+- Why: Keep scope narrow, stabilize domain mapping/rules, and ship deterministic tests before cluster auth/network complexity.
+- Tradeoff: Early Kubernetes mode is simulation-first and does not yet pull from live clusters.

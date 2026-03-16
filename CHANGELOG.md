@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Added Kubernetes phase-4 foundation:
+  - fixture collector for service accounts, role bindings, and pods
+  - normalizer, permission resolver, graph resolver, and deterministic risk rules
+  - findings for overprivileged, escalation-path, and ownerless service accounts
+- Added provider-aware runtime/CLI wiring:
+  - runtime scanner builder now supports `aws` and `kubernetes`
+  - CLI `scan` command now supports Kubernetes provider execution
+  - config support for `IDENTRAIL_K8S_FIXTURES`
 - Standardized API domain payload fields to explicit `snake_case` JSON tags.
 - Added optional scan diff baseline selection:
   - API: `GET /v1/scans/:scan_id/diff?previous_scan_id=...`
