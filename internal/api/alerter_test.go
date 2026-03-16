@@ -13,19 +13,19 @@ import (
 )
 
 func TestNewWebhookAlerterURLValidation(t *testing.T) {
-	if _, err := NewWebhookAlerter("http://example.com/hook", 2*time.Second, "high", "", 10); err == nil {
+	if _, err := NewWebhookAlerter("http://example.com/hook", 2*time.Second, "high", "", 10, 0, 10*time.Millisecond); err == nil {
 		t.Fatal("expected non-localhost http URL to fail")
 	}
-	if _, err := NewWebhookAlerter("https://example.com/hook", 2*time.Second, "high", "", 10); err != nil {
+	if _, err := NewWebhookAlerter("https://example.com/hook", 2*time.Second, "high", "", 10, 0, 10*time.Millisecond); err != nil {
 		t.Fatalf("expected https URL to pass: %v", err)
 	}
-	if _, err := NewWebhookAlerter("http://127.0.0.1:9999/hook", 2*time.Second, "high", "", 10); err != nil {
+	if _, err := NewWebhookAlerter("http://127.0.0.1:9999/hook", 2*time.Second, "high", "", 10, 0, 10*time.Millisecond); err != nil {
 		t.Fatalf("expected localhost http URL to pass: %v", err)
 	}
 }
 
 func TestWebhookAlerterSeverityValidation(t *testing.T) {
-	if _, err := NewWebhookAlerter("https://example.com/hook", 2*time.Second, "unknown", "", 10); err == nil {
+	if _, err := NewWebhookAlerter("https://example.com/hook", 2*time.Second, "unknown", "", 10, 0, 10*time.Millisecond); err == nil {
 		t.Fatal("expected invalid severity to fail")
 	}
 }
@@ -47,7 +47,7 @@ func TestWebhookAlerterNotifyScanSendsFilteredPayload(t *testing.T) {
 	}))
 	defer server.Close()
 
-	alerter, err := NewWebhookAlerter(server.URL, 2*time.Second, "high", "secret", 10)
+	alerter, err := NewWebhookAlerter(server.URL, 2*time.Second, "high", "secret", 10, 0, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("new webhook alerter: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestWebhookAlerterNotifyScanNoMatchNoRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	alerter, err := NewWebhookAlerter(server.URL, 2*time.Second, "critical", "", 10)
+	alerter, err := NewWebhookAlerter(server.URL, 2*time.Second, "critical", "", 10, 0, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("new webhook alerter: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestWebhookAlerterNotifyScanNon2xx(t *testing.T) {
 	}))
 	defer server.Close()
 
-	alerter, err := NewWebhookAlerter(server.URL, 2*time.Second, "high", "", 10)
+	alerter, err := NewWebhookAlerter(server.URL, 2*time.Second, "high", "", 10, 0, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("new webhook alerter: %v", err)
 	}
@@ -123,5 +123,57 @@ func TestWebhookAlerterNotifyScanNon2xx(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected webhook failure")
+	}
+}
+
+func TestWebhookAlerterRetriesOnServerError(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("retry"))
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	alerter, err := NewWebhookAlerter(server.URL, 2*time.Second, "high", "", 10, 3, 1*time.Millisecond)
+	if err != nil {
+		t.Fatalf("new webhook alerter: %v", err)
+	}
+	err = alerter.NotifyScan(context.Background(), "aws", db.ScanRecord{ID: "scan-1"}, []domain.Finding{
+		{ID: "f1", Severity: domain.SeverityHigh},
+	})
+	if err != nil {
+		t.Fatalf("expected retry success, got %v", err)
+	}
+	if requests != 3 {
+		t.Fatalf("expected 3 requests, got %d", requests)
+	}
+}
+
+func TestWebhookAlerterDoesNotRetryOnClientError(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("bad request"))
+	}))
+	defer server.Close()
+
+	alerter, err := NewWebhookAlerter(server.URL, 2*time.Second, "high", "", 10, 3, 1*time.Millisecond)
+	if err != nil {
+		t.Fatalf("new webhook alerter: %v", err)
+	}
+	err = alerter.NotifyScan(context.Background(), "aws", db.ScanRecord{ID: "scan-1"}, []domain.Finding{
+		{ID: "f1", Severity: domain.SeverityHigh},
+	})
+	if err == nil {
+		t.Fatal("expected client error")
+	}
+	if requests != 1 {
+		t.Fatalf("expected 1 request for non-retryable 4xx, got %d", requests)
 	}
 }
