@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/aurelius/internal/domain"
-	"github.com/Oluwatobi-Mustapha/aurelius/internal/providers"
+	"github.com/Oluwatobi-Mustapha/accessloom/internal/domain"
+	"github.com/Oluwatobi-Mustapha/accessloom/internal/providers"
 )
 
 // ScanResult bundles one collection and analysis cycle.

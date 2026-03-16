@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Oluwatobi-Mustapha/aurelius/internal/domain"
-	"github.com/Oluwatobi-Mustapha/aurelius/internal/providers"
+	"github.com/Oluwatobi-Mustapha/accessloom/internal/domain"
+	"github.com/Oluwatobi-Mustapha/accessloom/internal/providers"
 )
 
 type stubCollector struct{ err error }

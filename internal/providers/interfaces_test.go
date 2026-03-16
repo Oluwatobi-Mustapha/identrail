@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Oluwatobi-Mustapha/aurelius/internal/domain"
+	"github.com/Oluwatobi-Mustapha/accessloom/internal/domain"
 )
 
 type fakeCollector struct{ err error }

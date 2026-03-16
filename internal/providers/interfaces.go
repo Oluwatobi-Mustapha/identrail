@@ -3,7 +3,7 @@ package providers
 import (
 	"context"
 
-	"github.com/Oluwatobi-Mustapha/aurelius/internal/domain"
+	"github.com/Oluwatobi-Mustapha/accessloom/internal/domain"
 )
 
 // RawAsset is a provider-native JSON payload captured during read-only collection.

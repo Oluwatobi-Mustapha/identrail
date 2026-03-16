@@ -5,24 +5,24 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Oluwatobi-Mustapha/aurelius/internal/config"
+	"github.com/Oluwatobi-Mustapha/accessloom/internal/config"
 )
 
 func TestExecuteScan(t *testing.T) {
-	cfg := config.Config{ServiceName: "aurelius-test", Provider: "aws"}
+	cfg := config.Config{ServiceName: "accessloom-test", Provider: "aws"}
 	var out bytes.Buffer
 
 	err := Execute(cfg, []string{"scan"}, &out)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if !strings.Contains(out.String(), "Starting scan with service aurelius-test on aws") {
+	if !strings.Contains(out.String(), "Starting scan with service accessloom-test on aws") {
 		t.Fatalf("unexpected output: %q", out.String())
 	}
 }
 
 func TestExecuteFindings(t *testing.T) {
-	cfg := config.Config{ServiceName: "aurelius-test", Provider: "aws"}
+	cfg := config.Config{ServiceName: "accessloom-test", Provider: "aws"}
 	var out bytes.Buffer
 
 	err := Execute(cfg, []string{"findings"}, &out)
@@ -35,7 +35,7 @@ func TestExecuteFindings(t *testing.T) {
 }
 
 func TestExecuteUnknownCommand(t *testing.T) {
-	cfg := config.Config{ServiceName: "aurelius-test", Provider: "aws"}
+	cfg := config.Config{ServiceName: "accessloom-test", Provider: "aws"}
 	var out bytes.Buffer
 
 	err := Execute(cfg, []string{"unknown"}, &out)

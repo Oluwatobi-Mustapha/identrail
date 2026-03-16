@@ -8,9 +8,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/aurelius/internal/api"
-	"github.com/Oluwatobi-Mustapha/aurelius/internal/config"
-	"github.com/Oluwatobi-Mustapha/aurelius/internal/telemetry"
+	"github.com/Oluwatobi-Mustapha/accessloom/internal/api"
+	"github.com/Oluwatobi-Mustapha/accessloom/internal/config"
+	"github.com/Oluwatobi-Mustapha/accessloom/internal/telemetry"
 	"go.uber.org/zap"
 )
 

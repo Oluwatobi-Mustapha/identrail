@@ -9,7 +9,7 @@ const (
 	defaultHTTPAddr    = ":8080"
 	defaultLogLevel    = "info"
 	defaultProvider    = "aws"
-	defaultServiceName = "aurelius"
+	defaultServiceName = "accessloom"
 )
 
 // Config centralizes process-level configuration. It keeps module wiring simple
@@ -24,10 +24,10 @@ type Config struct {
 // Load reads environment variables and applies safe defaults for local and CI use.
 func Load() Config {
 	return Config{
-		HTTPAddr:    getEnv("AURELIUS_HTTP_ADDR", defaultHTTPAddr),
-		LogLevel:    strings.ToLower(getEnv("AURELIUS_LOG_LEVEL", defaultLogLevel)),
-		Provider:    strings.ToLower(getEnv("AURELIUS_PROVIDER", defaultProvider)),
-		ServiceName: getEnv("AURELIUS_SERVICE_NAME", defaultServiceName),
+		HTTPAddr:    getEnv("ACCESSLOOM_HTTP_ADDR", defaultHTTPAddr),
+		LogLevel:    strings.ToLower(getEnv("ACCESSLOOM_LOG_LEVEL", defaultLogLevel)),
+		Provider:    strings.ToLower(getEnv("ACCESSLOOM_PROVIDER", defaultProvider)),
+		ServiceName: getEnv("ACCESSLOOM_SERVICE_NAME", defaultServiceName),
 	}
 }
 

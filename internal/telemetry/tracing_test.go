@@ -6,7 +6,7 @@ import (
 )
 
 func TestSetupTracing(t *testing.T) {
-	shutdown, err := SetupTracing(context.Background(), "aurelius")
+	shutdown, err := SetupTracing(context.Background(), "accessloom")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
