@@ -1,7 +1,9 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/api"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/app"
@@ -12,9 +14,23 @@ import (
 
 // BuildScanService constructs store + scanner + API service from runtime config.
 func BuildScanService(cfg config.Config) (*api.Service, func() error, error) {
-	store, err := NewStore(cfg.DatabaseURL)
-	if err != nil {
-		return nil, nil, err
+	var store db.Store
+	if cfg.DatabaseURL == "" {
+		store = db.NewMemoryStore()
+	} else {
+		pgStore, pgErr := db.NewPostgresStore(cfg.DatabaseURL)
+		if pgErr != nil {
+			return nil, nil, fmt.Errorf("initialize postgres store: %w", pgErr)
+		}
+		if cfg.RunMigrations {
+			migrateCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if migrateErr := pgStore.ApplyMigrations(migrateCtx, cfg.MigrationsDir); migrateErr != nil {
+				_ = pgStore.Close()
+				return nil, nil, fmt.Errorf("apply migrations: %w", migrateErr)
+			}
+		}
+		store = pgStore
 	}
 
 	scanner := app.Scanner{
