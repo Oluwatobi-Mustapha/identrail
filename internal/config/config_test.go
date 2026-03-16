@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestLoadDefaults(t *testing.T) {
@@ -12,6 +13,8 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_SERVICE_NAME", "")
 	t.Setenv("IDENTRAIL_DATABASE_URL", "")
 	t.Setenv("IDENTRAIL_AWS_FIXTURES", "")
+	t.Setenv("IDENTRAIL_SCAN_INTERVAL", "")
+	t.Setenv("IDENTRAIL_WORKER_RUN_NOW", "")
 
 	cfg := Load()
 	if cfg.HTTPAddr != defaultHTTPAddr {
@@ -32,6 +35,12 @@ func TestLoadDefaults(t *testing.T) {
 	if len(cfg.AWSFixturePath) != 2 {
 		t.Fatalf("expected 2 default fixture paths, got %d", len(cfg.AWSFixturePath))
 	}
+	if cfg.ScanInterval != defaultScanInterval {
+		t.Fatalf("expected default scan interval %v, got %v", defaultScanInterval, cfg.ScanInterval)
+	}
+	if !cfg.WorkerRunNow {
+		t.Fatal("expected default worker run now true")
+	}
 }
 
 func TestLoadFromEnv(t *testing.T) {
@@ -41,6 +50,8 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_SERVICE_NAME", "identrail-dev")
 	t.Setenv("IDENTRAIL_DATABASE_URL", "postgres://example")
 	t.Setenv("IDENTRAIL_AWS_FIXTURES", "fixtures/a.json,fixtures/b.json")
+	t.Setenv("IDENTRAIL_SCAN_INTERVAL", "30m")
+	t.Setenv("IDENTRAIL_WORKER_RUN_NOW", "false")
 
 	cfg := Load()
 	if cfg.HTTPAddr != "127.0.0.1:9090" {
@@ -61,6 +72,12 @@ func TestLoadFromEnv(t *testing.T) {
 	if len(cfg.AWSFixturePath) != 2 || cfg.AWSFixturePath[0] != "fixtures/a.json" || cfg.AWSFixturePath[1] != "fixtures/b.json" {
 		t.Fatalf("unexpected fixture paths: %+v", cfg.AWSFixturePath)
 	}
+	if cfg.ScanInterval != 30*time.Minute {
+		t.Fatalf("unexpected scan interval: %v", cfg.ScanInterval)
+	}
+	if cfg.WorkerRunNow {
+		t.Fatal("expected worker run now false")
+	}
 }
 
 func TestGetEnvTrimmedFallback(t *testing.T) {
@@ -80,5 +97,23 @@ func TestParseCommaSeparated(t *testing.T) {
 	parsed := parseCommaSeparated("a,, b , ,c")
 	if len(parsed) != 3 || parsed[0] != "a" || parsed[1] != "b" || parsed[2] != "c" {
 		t.Fatalf("unexpected parsed values: %+v", parsed)
+	}
+}
+
+func TestParseDuration(t *testing.T) {
+	if got := parseDuration("10m", defaultScanInterval); got != 10*time.Minute {
+		t.Fatalf("expected 10m, got %v", got)
+	}
+	if got := parseDuration("bad", defaultScanInterval); got != defaultScanInterval {
+		t.Fatalf("expected fallback, got %v", got)
+	}
+}
+
+func TestParseBool(t *testing.T) {
+	if got := parseBool("true", false); !got {
+		t.Fatal("expected true")
+	}
+	if got := parseBool("bad", true); !got {
+		t.Fatal("expected fallback true")
 	}
 }
