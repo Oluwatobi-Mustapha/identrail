@@ -1,9 +1,12 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -17,7 +20,7 @@ type AuditEvent struct {
 	ClientIP   string    `json:"client_ip"`
 	DurationMS int64     `json:"duration_ms"`
 	UserAgent  string    `json:"user_agent"`
-	APIKey     string    `json:"api_key,omitempty"`
+	APIKeyID   string    `json:"api_key_id,omitempty"`
 }
 
 // AuditSink defines the export target for API audit events.
@@ -69,4 +72,14 @@ func (s *FileAuditSink) Close() error {
 	err := s.file.Close()
 	s.file = nil
 	return err
+}
+
+func fingerprintAPIKey(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(trimmed))
+	// Truncated, deterministic identifier for correlation without exposing key material.
+	return "sha256:" + hex.EncodeToString(sum[:6])
 }
