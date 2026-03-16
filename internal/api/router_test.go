@@ -149,6 +149,41 @@ func TestRouterRequiresAPIKeyForV1(t *testing.T) {
 	}
 }
 
+func TestRouterWriteAuthorization(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:      []string{"read-key", "write-key"},
+		WriteAPIKeys: []string{"write-key"},
+	})
+
+	readReq := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	readReq.Header.Set("X-API-Key", "read-key")
+	readW := httptest.NewRecorder()
+	r.ServeHTTP(readW, readReq)
+	if readW.Code != http.StatusOK {
+		t.Fatalf("expected read with read-key to pass, got %d", readW.Code)
+	}
+
+	writeDeniedReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
+	writeDeniedReq.Header.Set("X-API-Key", "read-key")
+	writeDeniedW := httptest.NewRecorder()
+	r.ServeHTTP(writeDeniedW, writeDeniedReq)
+	if writeDeniedW.Code != http.StatusForbidden {
+		t.Fatalf("expected write with read-key to be forbidden, got %d", writeDeniedW.Code)
+	}
+
+	writeAllowedReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
+	writeAllowedReq.Header.Set("X-API-Key", "write-key")
+	writeAllowedW := httptest.NewRecorder()
+	r.ServeHTTP(writeAllowedW, writeAllowedReq)
+	if writeAllowedW.Code != http.StatusAccepted {
+		t.Fatalf("expected write with write-key to pass, got %d", writeAllowedW.Code)
+	}
+}
+
 func TestRouterRateLimitExceeded(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()

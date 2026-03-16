@@ -16,6 +16,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_SCAN_INTERVAL", "")
 	t.Setenv("IDENTRAIL_WORKER_RUN_NOW", "")
 	t.Setenv("IDENTRAIL_API_KEYS", "")
+	t.Setenv("IDENTRAIL_WRITE_API_KEYS", "")
 	t.Setenv("IDENTRAIL_RATE_LIMIT_RPM", "")
 	t.Setenv("IDENTRAIL_RATE_LIMIT_BURST", "")
 	t.Setenv("IDENTRAIL_RUN_MIGRATIONS", "")
@@ -49,6 +50,9 @@ func TestLoadDefaults(t *testing.T) {
 	if len(cfg.APIKeys) != 0 {
 		t.Fatalf("expected no api keys by default, got %+v", cfg.APIKeys)
 	}
+	if len(cfg.WriteAPIKeys) != 0 {
+		t.Fatalf("expected no write api keys by default, got %+v", cfg.WriteAPIKeys)
+	}
 	if cfg.RateLimitRPM != 120 || cfg.RateLimitBurst != 20 {
 		t.Fatalf("unexpected default rate limit settings: rpm=%d burst=%d", cfg.RateLimitRPM, cfg.RateLimitBurst)
 	}
@@ -70,6 +74,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_SCAN_INTERVAL", "30m")
 	t.Setenv("IDENTRAIL_WORKER_RUN_NOW", "false")
 	t.Setenv("IDENTRAIL_API_KEYS", "key1,key2")
+	t.Setenv("IDENTRAIL_WRITE_API_KEYS", "key2")
 	t.Setenv("IDENTRAIL_RATE_LIMIT_RPM", "300")
 	t.Setenv("IDENTRAIL_RATE_LIMIT_BURST", "50")
 	t.Setenv("IDENTRAIL_RUN_MIGRATIONS", "false")
@@ -102,6 +107,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if len(cfg.APIKeys) != 2 || cfg.APIKeys[0] != "key1" || cfg.APIKeys[1] != "key2" {
 		t.Fatalf("unexpected api keys: %+v", cfg.APIKeys)
+	}
+	if len(cfg.WriteAPIKeys) != 1 || cfg.WriteAPIKeys[0] != "key2" {
+		t.Fatalf("unexpected write api keys: %+v", cfg.WriteAPIKeys)
 	}
 	if cfg.RateLimitRPM != 300 || cfg.RateLimitBurst != 50 {
 		t.Fatalf("unexpected rate limit settings: rpm=%d burst=%d", cfg.RateLimitRPM, cfg.RateLimitBurst)
