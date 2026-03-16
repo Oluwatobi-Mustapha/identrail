@@ -9,10 +9,8 @@ import (
 	"time"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/api"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/app"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
-	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
-	awsprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/aws"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/runtime"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
@@ -40,27 +38,18 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		return Bootstrap{}, fmt.Errorf("initialize tracing: %w", err)
 	}
 
-	store, err := newStore(cfg.DatabaseURL)
+	svc, closeStore, err := runtime.BuildScanService(cfg)
 	if err != nil {
 		_ = logger.Sync()
-		return Bootstrap{}, fmt.Errorf("initialize store: %w", err)
+		return Bootstrap{}, fmt.Errorf("initialize runtime: %w", err)
 	}
-
-	scanner := app.Scanner{
-		Collector:            awsprovider.NewFixtureCollector(cfg.AWSFixturePath),
-		Normalizer:           awsprovider.NewRoleNormalizer(),
-		PermissionResolver:   awsprovider.NewPolicyPermissionResolver(),
-		RelationshipResolver: awsprovider.NewRelationshipBuilder(),
-		RiskRuleSet:          awsprovider.NewRuleSet(),
-	}
-	svc := api.NewService(store, scanner, cfg.Provider)
 	router := api.NewRouter(logger, metrics, svc)
 	return Bootstrap{
 		Logger:        logger,
 		Metrics:       metrics,
 		Router:        router,
 		TraceShutdown: traceShutdown,
-		StoreClose:    store.Close,
+		StoreClose:    closeStore,
 	}, nil
 }
 
@@ -121,11 +110,4 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		return fmt.Errorf("graceful shutdown failed: %w", err)
 	}
 	return nil
-}
-
-func newStore(databaseURL string) (db.Store, error) {
-	if databaseURL == "" {
-		return db.NewMemoryStore(), nil
-	}
-	return db.NewPostgresStore(databaseURL)
 }
