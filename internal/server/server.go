@@ -44,6 +44,9 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		_ = logger.Sync()
 		return Bootstrap{}, fmt.Errorf("initialize runtime: %w", err)
 	}
+	svc.OnAlertError = func(alertErr error) {
+		logger.Warn("scan alert delivery failed", telemetry.ZapError(alertErr))
+	}
 	auditSink := api.AuditSink(api.NopAuditSink{})
 	auditClose := func() error { return nil }
 	if cfg.AuditLogFile != "" {

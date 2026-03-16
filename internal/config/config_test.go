@@ -23,6 +23,11 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_RUN_MIGRATIONS", "")
 	t.Setenv("IDENTRAIL_MIGRATIONS_DIR", "")
 	t.Setenv("IDENTRAIL_AUDIT_LOG_FILE", "")
+	t.Setenv("IDENTRAIL_ALERT_WEBHOOK_URL", "")
+	t.Setenv("IDENTRAIL_ALERT_MIN_SEVERITY", "")
+	t.Setenv("IDENTRAIL_ALERT_TIMEOUT", "")
+	t.Setenv("IDENTRAIL_ALERT_HMAC_SECRET", "")
+	t.Setenv("IDENTRAIL_ALERT_MAX_FINDINGS", "")
 
 	cfg := Load()
 	if cfg.HTTPAddr != defaultHTTPAddr {
@@ -70,6 +75,21 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.AuditLogFile != "" {
 		t.Fatalf("expected empty audit log file, got %q", cfg.AuditLogFile)
 	}
+	if cfg.AlertWebhookURL != "" {
+		t.Fatalf("expected empty alert webhook url, got %q", cfg.AlertWebhookURL)
+	}
+	if cfg.AlertMinSeverity != "high" {
+		t.Fatalf("expected default alert min severity high, got %q", cfg.AlertMinSeverity)
+	}
+	if cfg.AlertTimeout != 5*time.Second {
+		t.Fatalf("expected default alert timeout 5s, got %v", cfg.AlertTimeout)
+	}
+	if cfg.AlertHMACSecret != "" {
+		t.Fatalf("expected empty alert hmac secret, got %q", cfg.AlertHMACSecret)
+	}
+	if cfg.AlertMaxFindings != 25 {
+		t.Fatalf("expected default alert max findings 25, got %d", cfg.AlertMaxFindings)
+	}
 }
 
 func TestLoadFromEnv(t *testing.T) {
@@ -89,6 +109,11 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_RUN_MIGRATIONS", "false")
 	t.Setenv("IDENTRAIL_MIGRATIONS_DIR", "db/migrations")
 	t.Setenv("IDENTRAIL_AUDIT_LOG_FILE", "/tmp/audit.log")
+	t.Setenv("IDENTRAIL_ALERT_WEBHOOK_URL", "https://alerts.example.com/hooks/identrail")
+	t.Setenv("IDENTRAIL_ALERT_MIN_SEVERITY", "critical")
+	t.Setenv("IDENTRAIL_ALERT_TIMEOUT", "12s")
+	t.Setenv("IDENTRAIL_ALERT_HMAC_SECRET", "top-secret")
+	t.Setenv("IDENTRAIL_ALERT_MAX_FINDINGS", "40")
 
 	cfg := Load()
 	if cfg.HTTPAddr != "127.0.0.1:9090" {
@@ -135,6 +160,21 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.AuditLogFile != "/tmp/audit.log" {
 		t.Fatalf("unexpected audit log file: %q", cfg.AuditLogFile)
+	}
+	if cfg.AlertWebhookURL != "https://alerts.example.com/hooks/identrail" {
+		t.Fatalf("unexpected alert webhook url: %q", cfg.AlertWebhookURL)
+	}
+	if cfg.AlertMinSeverity != "critical" {
+		t.Fatalf("unexpected alert min severity: %q", cfg.AlertMinSeverity)
+	}
+	if cfg.AlertTimeout != 12*time.Second {
+		t.Fatalf("unexpected alert timeout: %v", cfg.AlertTimeout)
+	}
+	if cfg.AlertHMACSecret != "top-secret" {
+		t.Fatalf("unexpected alert hmac secret: %q", cfg.AlertHMACSecret)
+	}
+	if cfg.AlertMaxFindings != 40 {
+		t.Fatalf("unexpected alert max findings: %d", cfg.AlertMaxFindings)
 	}
 }
 

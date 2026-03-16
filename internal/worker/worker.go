@@ -37,6 +37,9 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		return err
 	}
 	defer func() { _ = closeStore() }()
+	svc.OnAlertError = func(alertErr error) {
+		logger.Warn("scan alert delivery failed", telemetry.ZapError(alertErr))
+	}
 
 	trigger := func(runCtx context.Context) error {
 		result, runErr := svc.RunScan(runCtx)
