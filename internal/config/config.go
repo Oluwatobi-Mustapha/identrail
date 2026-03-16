@@ -27,6 +27,11 @@ type Config struct {
 	AWSFixturePath []string
 	ScanInterval   time.Duration
 	WorkerRunNow   bool
+	APIKeys        []string
+	RateLimitRPM   int
+	RateLimitBurst int
+	RunMigrations  bool
+	MigrationsDir  string
 }
 
 // Load reads environment variables and applies safe defaults for local and CI use.
@@ -40,6 +45,11 @@ func Load() Config {
 		AWSFixturePath: parseCommaSeparated(getEnv("IDENTRAIL_AWS_FIXTURES", defaultAWSFixtures)),
 		ScanInterval:   parseDuration(getEnv("IDENTRAIL_SCAN_INTERVAL", defaultScanInterval.String()), defaultScanInterval),
 		WorkerRunNow:   parseBool(getEnv("IDENTRAIL_WORKER_RUN_NOW", "true"), true),
+		APIKeys:        parseCommaSeparated(getEnv("IDENTRAIL_API_KEYS", "")),
+		RateLimitRPM:   parseInt(getEnv("IDENTRAIL_RATE_LIMIT_RPM", "120"), 120),
+		RateLimitBurst: parseInt(getEnv("IDENTRAIL_RATE_LIMIT_BURST", "20"), 20),
+		RunMigrations:  parseBool(getEnv("IDENTRAIL_RUN_MIGRATIONS", "true"), true),
+		MigrationsDir:  getEnv("IDENTRAIL_MIGRATIONS_DIR", "migrations"),
 	}
 }
 
@@ -75,6 +85,14 @@ func parseDuration(value string, fallback time.Duration) time.Duration {
 func parseBool(value string, fallback bool) bool {
 	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
 	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func parseInt(value string, fallback int) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || parsed <= 0 {
 		return fallback
 	}
 	return parsed

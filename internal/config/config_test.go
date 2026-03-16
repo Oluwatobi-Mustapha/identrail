@@ -15,6 +15,11 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_AWS_FIXTURES", "")
 	t.Setenv("IDENTRAIL_SCAN_INTERVAL", "")
 	t.Setenv("IDENTRAIL_WORKER_RUN_NOW", "")
+	t.Setenv("IDENTRAIL_API_KEYS", "")
+	t.Setenv("IDENTRAIL_RATE_LIMIT_RPM", "")
+	t.Setenv("IDENTRAIL_RATE_LIMIT_BURST", "")
+	t.Setenv("IDENTRAIL_RUN_MIGRATIONS", "")
+	t.Setenv("IDENTRAIL_MIGRATIONS_DIR", "")
 
 	cfg := Load()
 	if cfg.HTTPAddr != defaultHTTPAddr {
@@ -41,6 +46,18 @@ func TestLoadDefaults(t *testing.T) {
 	if !cfg.WorkerRunNow {
 		t.Fatal("expected default worker run now true")
 	}
+	if len(cfg.APIKeys) != 0 {
+		t.Fatalf("expected no api keys by default, got %+v", cfg.APIKeys)
+	}
+	if cfg.RateLimitRPM != 120 || cfg.RateLimitBurst != 20 {
+		t.Fatalf("unexpected default rate limit settings: rpm=%d burst=%d", cfg.RateLimitRPM, cfg.RateLimitBurst)
+	}
+	if !cfg.RunMigrations {
+		t.Fatal("expected run migrations true")
+	}
+	if cfg.MigrationsDir != "migrations" {
+		t.Fatalf("unexpected migrations dir: %q", cfg.MigrationsDir)
+	}
 }
 
 func TestLoadFromEnv(t *testing.T) {
@@ -52,6 +69,11 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_AWS_FIXTURES", "fixtures/a.json,fixtures/b.json")
 	t.Setenv("IDENTRAIL_SCAN_INTERVAL", "30m")
 	t.Setenv("IDENTRAIL_WORKER_RUN_NOW", "false")
+	t.Setenv("IDENTRAIL_API_KEYS", "key1,key2")
+	t.Setenv("IDENTRAIL_RATE_LIMIT_RPM", "300")
+	t.Setenv("IDENTRAIL_RATE_LIMIT_BURST", "50")
+	t.Setenv("IDENTRAIL_RUN_MIGRATIONS", "false")
+	t.Setenv("IDENTRAIL_MIGRATIONS_DIR", "db/migrations")
 
 	cfg := Load()
 	if cfg.HTTPAddr != "127.0.0.1:9090" {
@@ -77,6 +99,18 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.WorkerRunNow {
 		t.Fatal("expected worker run now false")
+	}
+	if len(cfg.APIKeys) != 2 || cfg.APIKeys[0] != "key1" || cfg.APIKeys[1] != "key2" {
+		t.Fatalf("unexpected api keys: %+v", cfg.APIKeys)
+	}
+	if cfg.RateLimitRPM != 300 || cfg.RateLimitBurst != 50 {
+		t.Fatalf("unexpected rate limit settings: rpm=%d burst=%d", cfg.RateLimitRPM, cfg.RateLimitBurst)
+	}
+	if cfg.RunMigrations {
+		t.Fatal("expected run migrations false")
+	}
+	if cfg.MigrationsDir != "db/migrations" {
+		t.Fatalf("unexpected migrations dir: %q", cfg.MigrationsDir)
 	}
 }
 
@@ -115,5 +149,17 @@ func TestParseBool(t *testing.T) {
 	}
 	if got := parseBool("bad", true); !got {
 		t.Fatal("expected fallback true")
+	}
+}
+
+func TestParseInt(t *testing.T) {
+	if got := parseInt("25", 1); got != 25 {
+		t.Fatalf("expected 25, got %d", got)
+	}
+	if got := parseInt("0", 7); got != 7 {
+		t.Fatalf("expected fallback 7, got %d", got)
+	}
+	if got := parseInt("bad", 9); got != 9 {
+		t.Fatalf("expected fallback 9, got %d", got)
 	}
 }
