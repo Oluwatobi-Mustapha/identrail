@@ -19,11 +19,13 @@ type ScannerRunner interface {
 
 // Service orchestrates scan execution and persistence.
 type Service struct {
-	Store    db.Store
-	Scanner  ScannerRunner
-	Provider string
-	Now      func() time.Time
-	Locker   scheduler.Locker
+	Store        db.Store
+	Scanner      ScannerRunner
+	Provider     string
+	Now          func() time.Time
+	Locker       scheduler.Locker
+	Alerter      FindingAlerter
+	OnAlertError func(error)
 }
 
 // RunScanResult is returned after a scan API trigger.
@@ -44,6 +46,7 @@ func NewService(store db.Store, scanner ScannerRunner, provider string) *Service
 		Provider: provider,
 		Now:      time.Now,
 		Locker:   scheduler.NewInMemoryLocker(),
+		Alerter:  NopFindingAlerter{},
 	}
 }
 
@@ -93,6 +96,11 @@ func (s *Service) RunScan(ctx context.Context) (RunScanResult, error) {
 	record.FinishedAt = &finished
 	record.AssetCount = result.Assets
 	record.FindingCount = len(result.Findings)
+	if s.Alerter != nil {
+		if alertErr := s.Alerter.NotifyScan(ctx, s.Provider, record, result.Findings); alertErr != nil && s.OnAlertError != nil {
+			s.OnAlertError(alertErr)
+		}
+	}
 
 	return RunScanResult{
 		Scan:         record,
