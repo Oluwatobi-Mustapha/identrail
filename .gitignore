@@ -36,6 +36,7 @@ yarn-error.log*
 pnpm-debug.log*
 web/dist/
 web/build/
+*.tsbuildinfo
 
 # Testing
 coverage/

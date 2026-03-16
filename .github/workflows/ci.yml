@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-quality:
+    name: Go Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download Go Modules
+        run: go mod download
+
+      - name: Enforce gofmt
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git ls-files '*.go' | grep -q .; then
+            exit 0
+          fi
+          unformatted="$(git ls-files '*.go' | xargs gofmt -l)"
+          if [ -n "${unformatted}" ]; then
+            echo "The following files are not gofmt-formatted:"
+            echo "${unformatted}"
+            exit 1
+          fi
+
+      - name: Go Vet
+        run: go vet ./...
+
+  go-test:
+    name: Go Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: go-quality
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run Unit and Package Tests
+        run: go test ./... -coverprofile=coverage.out
+
+      - name: Enforce Coverage Threshold
+        shell: bash
+        run: |
+          set -euo pipefail
+          total="$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%","",$3); print $3}')"
+          echo "Total coverage: ${total}%"
+          awk -v total="${total}" 'BEGIN { if ((total + 0) < 80.0) { printf("coverage %.1f%% is below 80%%\n", total); exit 1 } }'
+
+  go-integration:
+    name: Go Integration (Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: go-quality
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: identrail
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: identrail
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U identrail -d identrail"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run Integration Tests
+        env:
+          IDENTRAIL_INTEGRATION_DATABASE_URL: postgres://identrail:secret@127.0.0.1:5432/identrail?sslmode=disable
+        run: go test -tags=integration ./internal/integration -count=1 -v
+
+  web-build:
+    name: Web Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Web Dependencies
+        run: npm ci --prefix web
+
+      - name: Build Web
+        run: npm run build --prefix web
