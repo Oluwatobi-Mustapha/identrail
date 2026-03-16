@@ -1,4 +1,4 @@
-module github.com/Oluwatobi-Mustapha/aurelius
+module github.com/Oluwatobi-Mustapha/accessloom
 
 go 1.24
 

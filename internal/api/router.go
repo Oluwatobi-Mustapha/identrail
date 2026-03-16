@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/Oluwatobi-Mustapha/aurelius/internal/telemetry"
+	"github.com/Oluwatobi-Mustapha/accessloom/internal/telemetry"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -22,7 +22,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics) *gin.Engine {
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "ok",
-			"service": "aurelius",
+			"service": "accessloom",
 		})
 	})
 

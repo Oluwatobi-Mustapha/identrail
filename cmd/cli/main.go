@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Oluwatobi-Mustapha/aurelius/internal/cli"
-	"github.com/Oluwatobi-Mustapha/aurelius/internal/config"
+	"github.com/Oluwatobi-Mustapha/accessloom/internal/cli"
+	"github.com/Oluwatobi-Mustapha/accessloom/internal/config"
 )
 
 func main() {

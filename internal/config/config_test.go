@@ -6,10 +6,10 @@ import (
 )
 
 func TestLoadDefaults(t *testing.T) {
-	t.Setenv("AURELIUS_HTTP_ADDR", "")
-	t.Setenv("AURELIUS_LOG_LEVEL", "")
-	t.Setenv("AURELIUS_PROVIDER", "")
-	t.Setenv("AURELIUS_SERVICE_NAME", "")
+	t.Setenv("ACCESSLOOM_HTTP_ADDR", "")
+	t.Setenv("ACCESSLOOM_LOG_LEVEL", "")
+	t.Setenv("ACCESSLOOM_PROVIDER", "")
+	t.Setenv("ACCESSLOOM_SERVICE_NAME", "")
 
 	cfg := Load()
 	if cfg.HTTPAddr != defaultHTTPAddr {
@@ -27,10 +27,10 @@ func TestLoadDefaults(t *testing.T) {
 }
 
 func TestLoadFromEnv(t *testing.T) {
-	t.Setenv("AURELIUS_HTTP_ADDR", "127.0.0.1:9090")
-	t.Setenv("AURELIUS_LOG_LEVEL", "DEBUG")
-	t.Setenv("AURELIUS_PROVIDER", "AWS")
-	t.Setenv("AURELIUS_SERVICE_NAME", "aurelius-dev")
+	t.Setenv("ACCESSLOOM_HTTP_ADDR", "127.0.0.1:9090")
+	t.Setenv("ACCESSLOOM_LOG_LEVEL", "DEBUG")
+	t.Setenv("ACCESSLOOM_PROVIDER", "AWS")
+	t.Setenv("ACCESSLOOM_SERVICE_NAME", "accessloom-dev")
 
 	cfg := Load()
 	if cfg.HTTPAddr != "127.0.0.1:9090" {
@@ -42,13 +42,13 @@ func TestLoadFromEnv(t *testing.T) {
 	if cfg.Provider != "aws" {
 		t.Fatalf("unexpected provider: %q", cfg.Provider)
 	}
-	if cfg.ServiceName != "aurelius-dev" {
+	if cfg.ServiceName != "accessloom-dev" {
 		t.Fatalf("unexpected service name: %q", cfg.ServiceName)
 	}
 }
 
 func TestGetEnvTrimmedFallback(t *testing.T) {
-	key := "AURELIUS_TEST_ENV"
+	key := "ACCESSLOOM_TEST_ENV"
 	_ = os.Unsetenv(key)
 
 	if got := getEnv(key, "fallback"); got != "fallback" {

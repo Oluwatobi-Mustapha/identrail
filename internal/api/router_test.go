@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Oluwatobi-Mustapha/aurelius/internal/telemetry"
+	"github.com/Oluwatobi-Mustapha/accessloom/internal/telemetry"
 	"go.uber.org/zap"
 )
 
