@@ -4,16 +4,16 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/Oluwatobi-Mustapha/accessloom/internal/config"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
 	"github.com/spf13/cobra"
 )
 
 // BuildRootCmd creates the command tree with injected config and output writer.
 func BuildRootCmd(cfg config.Config, out io.Writer) *cobra.Command {
 	root := &cobra.Command{
-		Use:   "accessloom",
+		Use:   "identrail",
 		Short: "Machine identity security scanner",
-		Long:  "Accessloom scans machine identities and reports typed cloud identity risks.",
+		Long:  "Identrail scans machine identities and reports typed cloud identity risks.",
 	}
 
 	root.SetOut(out)
@@ -32,7 +32,7 @@ func BuildRootCmd(cfg config.Config, out io.Writer) *cobra.Command {
 		Use:   "findings",
 		Short: "List current findings",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			_, err := fmt.Fprintln(out, "No findings available yet. Run `accessloom scan` first.")
+			_, err := fmt.Fprintln(out, "No findings available yet. Run `identrail scan` first.")
 			return err
 		},
 	})

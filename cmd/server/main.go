@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/Oluwatobi-Mustapha/accessloom/internal/config"
-	"github.com/Oluwatobi-Mustapha/accessloom/internal/server"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/server"
 )
 
 func main() {

@@ -6,10 +6,10 @@ import (
 )
 
 func TestLoadDefaults(t *testing.T) {
-	t.Setenv("ACCESSLOOM_HTTP_ADDR", "")
-	t.Setenv("ACCESSLOOM_LOG_LEVEL", "")
-	t.Setenv("ACCESSLOOM_PROVIDER", "")
-	t.Setenv("ACCESSLOOM_SERVICE_NAME", "")
+	t.Setenv("IDENTRAIL_HTTP_ADDR", "")
+	t.Setenv("IDENTRAIL_LOG_LEVEL", "")
+	t.Setenv("IDENTRAIL_PROVIDER", "")
+	t.Setenv("IDENTRAIL_SERVICE_NAME", "")
 
 	cfg := Load()
 	if cfg.HTTPAddr != defaultHTTPAddr {
@@ -27,10 +27,10 @@ func TestLoadDefaults(t *testing.T) {
 }
 
 func TestLoadFromEnv(t *testing.T) {
-	t.Setenv("ACCESSLOOM_HTTP_ADDR", "127.0.0.1:9090")
-	t.Setenv("ACCESSLOOM_LOG_LEVEL", "DEBUG")
-	t.Setenv("ACCESSLOOM_PROVIDER", "AWS")
-	t.Setenv("ACCESSLOOM_SERVICE_NAME", "accessloom-dev")
+	t.Setenv("IDENTRAIL_HTTP_ADDR", "127.0.0.1:9090")
+	t.Setenv("IDENTRAIL_LOG_LEVEL", "DEBUG")
+	t.Setenv("IDENTRAIL_PROVIDER", "AWS")
+	t.Setenv("IDENTRAIL_SERVICE_NAME", "identrail-dev")
 
 	cfg := Load()
 	if cfg.HTTPAddr != "127.0.0.1:9090" {
@@ -42,13 +42,13 @@ func TestLoadFromEnv(t *testing.T) {
 	if cfg.Provider != "aws" {
 		t.Fatalf("unexpected provider: %q", cfg.Provider)
 	}
-	if cfg.ServiceName != "accessloom-dev" {
+	if cfg.ServiceName != "identrail-dev" {
 		t.Fatalf("unexpected service name: %q", cfg.ServiceName)
 	}
 }
 
 func TestGetEnvTrimmedFallback(t *testing.T) {
-	key := "ACCESSLOOM_TEST_ENV"
+	key := "IDENTRAIL_TEST_ENV"
 	_ = os.Unsetenv(key)
 
 	if got := getEnv(key, "fallback"); got != "fallback" {
