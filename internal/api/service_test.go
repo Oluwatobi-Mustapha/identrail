@@ -24,6 +24,16 @@ func (f fakeScanner) Run(context.Context) (app.ScanResult, error) {
 	return f.result, nil
 }
 
+type fakeAlerter struct {
+	calls int
+	err   error
+}
+
+func (a *fakeAlerter) NotifyScan(context.Context, string, db.ScanRecord, []domain.Finding) error {
+	a.calls++
+	return a.err
+}
+
 func TestServiceRunScanSuccess(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
@@ -86,5 +96,54 @@ func TestServiceRunScanLocked(t *testing.T) {
 	_, err := svc.RunScan(context.Background())
 	if !errors.Is(err, ErrScanInProgress) {
 		t.Fatalf("expected ErrScanInProgress, got %v", err)
+	}
+}
+
+func TestServiceRunScanAlertHookCalled(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	alerter := &fakeAlerter{}
+	svc := NewService(store, fakeScanner{result: app.ScanResult{
+		Assets:   1,
+		Findings: []domain.Finding{{ID: "f1", Severity: domain.SeverityHigh}},
+	}}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.Alerter = alerter
+
+	if _, err := svc.RunScan(context.Background()); err != nil {
+		t.Fatalf("run scan: %v", err)
+	}
+	if alerter.calls != 1 {
+		t.Fatalf("expected 1 alert call, got %d", alerter.calls)
+	}
+}
+
+func TestServiceRunScanAlertFailureIsNonBlocking(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	alerter := &fakeAlerter{err: errors.New("webhook down")}
+	svc := NewService(store, fakeScanner{result: app.ScanResult{
+		Assets:   1,
+		Findings: []domain.Finding{{ID: "f1", Severity: domain.SeverityHigh}},
+	}}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.Alerter = alerter
+
+	errorCalls := 0
+	svc.OnAlertError = func(err error) {
+		if err != nil {
+			errorCalls++
+		}
+	}
+
+	result, err := svc.RunScan(context.Background())
+	if err != nil {
+		t.Fatalf("expected scan success despite alert error, got %v", err)
+	}
+	if result.Scan.Status != "completed" {
+		t.Fatalf("expected completed status, got %q", result.Scan.Status)
+	}
+	if errorCalls != 1 {
+		t.Fatalf("expected alert error callback once, got %d", errorCalls)
 	}
 }
