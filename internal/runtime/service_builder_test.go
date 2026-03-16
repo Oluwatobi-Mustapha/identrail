@@ -1,8 +1,12 @@
 package runtime
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	goruntime "runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -78,4 +82,50 @@ func TestBuildScanServiceWithAlertWebhook(t *testing.T) {
 	if err := closeFn(); err != nil {
 		t.Fatalf("close failed: %v", err)
 	}
+}
+
+func TestBuildScanServiceAlertWebhookRetriesOnTransientFailure(t *testing.T) {
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		current := atomic.AddInt32(&requests, 1)
+		if current < 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("retry"))
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	cfg := config.Config{
+		Provider:          "aws",
+		AWSFixturePath:    []string{repoFixturePath(t, "role_with_policies.json")},
+		AlertWebhookURL:   server.URL,
+		AlertMinSeverity:  "high",
+		AlertTimeout:      2 * time.Second,
+		AlertMaxRetries:   3,
+		AlertRetryBackoff: 1 * time.Millisecond,
+	}
+	svc, closeFn, err := BuildScanService(cfg)
+	if err != nil {
+		t.Fatalf("build service failed: %v", err)
+	}
+	defer func() { _ = closeFn() }()
+
+	if _, err := svc.RunScan(context.Background()); err != nil {
+		t.Fatalf("run scan failed: %v", err)
+	}
+	if got := atomic.LoadInt32(&requests); got < 3 {
+		t.Fatalf("expected at least 3 webhook attempts, got %d", got)
+	}
+}
+
+func repoFixturePath(t *testing.T, name string) string {
+	t.Helper()
+	_, file, _, ok := goruntime.Caller(0)
+	if !ok {
+		t.Fatal("could not resolve caller path")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	return filepath.Join(root, "testdata", "aws", name)
 }
