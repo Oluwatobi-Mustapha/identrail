@@ -97,6 +97,21 @@ Simple threat list for current system.
 - Fix: Startup validation rejects invalid legacy write-key configuration.
 - Status: Implemented.
 
+## 20) Raw API Key Leakage Through Audit Records
+- Threat: Persisting raw API keys in audit logs can expose secrets to operators or downstream systems.
+- Fix: Replace raw API key values with deterministic fingerprint IDs.
+- Status: Implemented.
+
+## 21) Invalid Scoped-Key Configuration
+- Threat: Unknown scope names can silently block access and create unsafe operational workarounds.
+- Fix: Startup validation rejects scoped keys with invalid/empty scopes.
+- Status: Implemented.
+
+## 22) Oversized Alert Payload Settings
+- Threat: Very large max finding settings can produce oversized webhook payloads.
+- Fix: Startup validation enforces a max cap for alert payload finding count.
+- Status: Implemented.
+
 ## Current Gaps (Next)
 - Add encrypted secret management and key rotation runbook.
 - Add audit sink forwarding guide for centralized log pipelines.

@@ -109,3 +109,15 @@ This file tracks major decisions in simple terms.
 - Decision: Startup fails when legacy write keys are not also present in allowed API keys.
 - Why: Prevent silent lockout or inconsistent authorization behavior.
 - Tradeoff: Slightly stricter startup config requirements.
+
+## ADR-019: Do Not Persist Raw API Keys in Audit Events
+- Date: 2026-03-16
+- Decision: Store deterministic API key fingerprints (`api_key_id`) in audit events instead of raw key values.
+- Why: Reduce credential exposure risk in logs and exported audit records.
+- Tradeoff: Fingerprints are not reversible, so debugging requires key-to-fingerprint mapping.
+
+## ADR-020: Validate Scoped-Key and Alert Bounds at Startup
+- Date: 2026-03-16
+- Decision: Reject unknown scoped-key scopes and excessive alert max-finding limits during startup validation.
+- Why: Prevent silent authorization failures and unbounded alert payload growth.
+- Tradeoff: Misconfigured environments fail fast instead of partially starting.

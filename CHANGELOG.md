@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Replaced raw API key values in audit events with deterministic `api_key_id` fingerprints.
+- Added startup validation for scoped-key scope names.
+- Added startup validation cap for `IDENTRAIL_ALERT_MAX_FINDINGS`.
 - Added scoped read authorization enforcement on `/v1/*` when using scoped API keys.
 - Added startup security validation for legacy write key configuration.
 - Added startup security warning emission for risky but allowed config states.
