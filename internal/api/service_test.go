@@ -9,6 +9,7 @@ import (
 	"github.com/Oluwatobi-Mustapha/identrail/internal/app"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
 )
 
@@ -233,5 +234,83 @@ func TestServiceListScanEvents(t *testing.T) {
 	}
 	if len(events) == 0 {
 		t.Fatal("expected scan events")
+	}
+}
+
+func TestServiceListIdentitiesAndRelationshipsDefaultsToLatestScan(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+
+	scanA, err := store.CreateScan(context.Background(), "aws", now)
+	if err != nil {
+		t.Fatalf("create scan A: %v", err)
+	}
+	if err := store.UpsertArtifacts(context.Background(), scanA.ID, db.ScanArtifacts{
+		Bundle: providers.NormalizedBundle{
+			Identities: []domain.Identity{{ID: "id-1", Provider: domain.ProviderAWS, Type: domain.IdentityTypeRole, Name: "app-a", RawRef: "raw-a"}},
+		},
+		Relationships: []domain.Relationship{{ID: "rel-1", Type: domain.RelationshipCanAssume, FromNodeID: "id-1", ToNodeID: "id-2", DiscoveredAt: now}},
+	}); err != nil {
+		t.Fatalf("seed artifacts A: %v", err)
+	}
+
+	scanB, err := store.CreateScan(context.Background(), "aws", now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("create scan B: %v", err)
+	}
+	if err := store.UpsertArtifacts(context.Background(), scanB.ID, db.ScanArtifacts{
+		Bundle: providers.NormalizedBundle{
+			Identities: []domain.Identity{{ID: "id-2", Provider: domain.ProviderAWS, Type: domain.IdentityTypeRole, Name: "app-b", RawRef: "raw-b"}},
+		},
+		Relationships: []domain.Relationship{{ID: "rel-2", Type: domain.RelationshipCanAccess, FromNodeID: "id-2", ToNodeID: "bucket-1", DiscoveredAt: now.Add(1 * time.Minute)}},
+	}); err != nil {
+		t.Fatalf("seed artifacts B: %v", err)
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	identities, err := svc.ListIdentities(context.Background(), "", "aws", "role", "app", 10)
+	if err != nil {
+		t.Fatalf("list identities: %v", err)
+	}
+	if len(identities) != 1 || identities[0].ID != "id-2" {
+		t.Fatalf("unexpected identities from latest scan: %+v", identities)
+	}
+
+	relationships, err := svc.ListRelationships(context.Background(), "", "can_access", "", "", 10)
+	if err != nil {
+		t.Fatalf("list relationships: %v", err)
+	}
+	if len(relationships) != 1 || relationships[0].ID != "rel-2" {
+		t.Fatalf("unexpected relationships from latest scan: %+v", relationships)
+	}
+}
+
+func TestServiceGetFindingsTrend(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+
+	scanA, _ := store.CreateScan(context.Background(), "aws", now)
+	_ = store.UpsertFindings(context.Background(), scanA.ID, []domain.Finding{
+		{ID: "f1", Severity: domain.SeverityHigh, CreatedAt: now},
+	})
+	scanB, _ := store.CreateScan(context.Background(), "aws", now.Add(3*time.Minute))
+	_ = store.UpsertFindings(context.Background(), scanB.ID, []domain.Finding{
+		{ID: "f2", Severity: domain.SeverityCritical, CreatedAt: now.Add(3 * time.Minute)},
+		{ID: "f3", Severity: domain.SeverityMedium, CreatedAt: now.Add(3 * time.Minute)},
+	})
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	points, err := svc.GetFindingsTrend(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("get findings trend: %v", err)
+	}
+	if len(points) != 2 {
+		t.Fatalf("expected 2 trend points, got %d", len(points))
+	}
+	if points[0].ScanID != scanA.ID || points[1].ScanID != scanB.ID {
+		t.Fatalf("unexpected trend order: %+v", points)
+	}
+	if points[1].BySeverity["critical"] != 1 {
+		t.Fatalf("unexpected severity bucket: %+v", points[1].BySeverity)
 	}
 }
