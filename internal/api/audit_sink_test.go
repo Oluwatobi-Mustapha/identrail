@@ -24,7 +24,7 @@ func TestFileAuditSinkWritesJSONL(t *testing.T) {
 		ClientIP:   "127.0.0.1",
 		DurationMS: 4,
 		UserAgent:  "test",
-		APIKey:     "reader-key",
+		APIKeyID:   fingerprintAPIKey("reader-key"),
 	}
 	if err := sink.Write(event); err != nil {
 		t.Fatalf("write audit event: %v", err)
@@ -50,5 +50,23 @@ func TestFileAuditSinkConstructorError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing", "audit.log")
 	if _, err := NewFileAuditSink(path); err == nil {
 		t.Fatal("expected constructor error")
+	}
+}
+
+func TestFingerprintAPIKey(t *testing.T) {
+	a := fingerprintAPIKey("secret-key")
+	b := fingerprintAPIKey("secret-key")
+	c := fingerprintAPIKey("different-key")
+	if a == "" {
+		t.Fatal("expected fingerprint")
+	}
+	if a != b {
+		t.Fatalf("expected deterministic fingerprint, got %q vs %q", a, b)
+	}
+	if a == c {
+		t.Fatalf("expected different fingerprints, got %q and %q", a, c)
+	}
+	if a == "secret-key" {
+		t.Fatal("fingerprint should not equal raw key")
 	}
 }

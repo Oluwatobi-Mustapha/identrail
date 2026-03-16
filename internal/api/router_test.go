@@ -321,11 +321,15 @@ func TestRouterWritesAuditSink(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
 	sink := &recordingAuditSink{}
-	r := NewRouter(logger, metrics, nil, RouterOptions{AuditSink: sink})
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		AuditSink:    sink,
+		APIKeyScopes: map[string][]string{"reader-key": {"read"}},
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
 	req.RemoteAddr = "127.0.0.1:34567"
 	req.Header.Set("User-Agent", "router-test")
+	req.Header.Set("X-API-Key", "reader-key")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -340,5 +344,11 @@ func TestRouterWritesAuditSink(t *testing.T) {
 	}
 	if event.UserAgent != "router-test" {
 		t.Fatalf("unexpected user agent in event: %q", event.UserAgent)
+	}
+	if event.APIKeyID == "" {
+		t.Fatal("expected api key fingerprint in audit event")
+	}
+	if event.APIKeyID == "reader-key" {
+		t.Fatal("expected fingerprint instead of raw api key")
 	}
 }

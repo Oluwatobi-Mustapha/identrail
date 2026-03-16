@@ -329,7 +329,7 @@ func auditLogMiddleware(logger *zap.Logger, sink AuditSink) gin.HandlerFunc {
 		}
 		if apiKeyValue, exists := c.Get("auth.api_key"); exists {
 			if apiKey, ok := apiKeyValue.(string); ok {
-				event.APIKey = apiKey
+				event.APIKeyID = fingerprintAPIKey(apiKey)
 			}
 		}
 		logger.Info(
