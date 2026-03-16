@@ -45,6 +45,7 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 	}
 	router := api.NewRouter(logger, metrics, svc, api.RouterOptions{
 		APIKeys:        cfg.APIKeys,
+		WriteAPIKeys:   cfg.WriteAPIKeys,
 		RateLimitRPM:   cfg.RateLimitRPM,
 		RateLimitBurst: cfg.RateLimitBurst,
 	})

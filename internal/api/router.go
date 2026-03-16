@@ -27,6 +27,7 @@ const (
 // RouterOptions controls API middleware behavior.
 type RouterOptions struct {
 	APIKeys        []string
+	WriteAPIKeys   []string
 	RateLimitRPM   int
 	RateLimitBurst int
 }
@@ -89,7 +90,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		c.JSON(http.StatusOK, gin.H{"items": items})
 	})
 
-	v1.POST("/scans", func(c *gin.Context) {
+	v1.POST("/scans", requireWriteKeyMiddleware(opts.WriteAPIKeys), func(c *gin.Context) {
 		start := time.Now()
 		metrics.ScanRunsTotal.Inc()
 
@@ -166,6 +167,36 @@ func apiKeyAuthMiddleware(keys []string) gin.HandlerFunc {
 		}
 		if _, ok := allowed[candidate]; !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		c.Set("auth.api_key", candidate)
+		c.Next()
+	}
+}
+
+func requireWriteKeyMiddleware(writeKeys []string) gin.HandlerFunc {
+	allowed := map[string]struct{}{}
+	for _, key := range writeKeys {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" {
+			continue
+		}
+		allowed[trimmed] = struct{}{}
+	}
+	if len(allowed) == 0 {
+		return func(c *gin.Context) { c.Next() }
+	}
+
+	return func(c *gin.Context) {
+		apiKeyValue, exists := c.Get("auth.api_key")
+		if !exists {
+			// If API key auth is disabled, write authorization cannot be enforced.
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+		apiKey, _ := apiKeyValue.(string)
+		if _, ok := allowed[apiKey]; !ok {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}
 		c.Next()
