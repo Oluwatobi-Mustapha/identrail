@@ -43,3 +43,21 @@ This file tracks major decisions in simple terms.
 - Decision: Keep one store interface with in-memory and Postgres adapters.
 - Why: Easy local dev, production-ready path.
 - Tradeoff: Two adapters to maintain.
+
+## ADR-008: API Key Auth for v1 Endpoints
+- Date: 2026-03-16
+- Decision: Protect `/v1/*` with API key middleware when keys are configured.
+- Why: Add simple access control with low setup cost.
+- Tradeoff: Not full authorization; key rotation must be managed.
+
+## ADR-009: Per-IP Rate Limiter
+- Date: 2026-03-16
+- Decision: Add per-IP rate limiting middleware for `/v1/*`.
+- Why: Reduce abuse and accidental request floods.
+- Tradeoff: In-memory limiter is node-local (not distributed).
+
+## ADR-010: Startup Migration Runner
+- Date: 2026-03-16
+- Decision: Run `*.up.sql` migrations on startup in Postgres mode (configurable).
+- Why: Prevent schema drift and startup/runtime mismatch.
+- Tradeoff: Requires careful deploy/rollback runbook.

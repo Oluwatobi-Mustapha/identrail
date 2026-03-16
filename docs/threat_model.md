@@ -25,25 +25,34 @@ Simple threat list for current system.
 ## 5) Unbounded List Queries
 - Threat: Very high `limit` may cause performance issues.
 - Fix: Clamp API `limit` with max cap.
-- Status: Implemented in this step.
+- Status: Implemented.
 
 ## 6) Missing Security Response Headers
 - Threat: Weak default API hardening.
 - Fix: Add API security headers middleware.
-- Status: Implemented in this step.
-
-## 7) Stale and Ownerless Identities
-- Threat: Forgotten identities increase breach surface.
-- Fix: Risk rules for stale and ownerless identity findings.
 - Status: Implemented.
 
-## 8) Misconfigured Database Connection Pool
+## 7) Unauthenticated API Access
+- Threat: Anyone can trigger scans or read findings.
+- Fix: API key authentication for `/v1/*` endpoints.
+- Status: Implemented.
+
+## 8) Excessive Request Flood
+- Threat: Repeated requests can degrade API availability.
+- Fix: Per-IP rate limiter.
+- Status: Implemented.
+
+## 9) Misconfigured Database Connection Pool
 - Threat: Too many DB connections or long-lived bad connections.
 - Fix: Set safe Postgres pool defaults.
 - Status: Implemented.
 
+## 10) Schema Drift on Startup
+- Threat: Service starts on old schema and fails at runtime.
+- Fix: Startup migration runner for Postgres mode.
+- Status: Implemented.
+
 ## Current Gaps (Next)
-- Add authn/authz for API endpoints.
-- Add encryption-at-rest + key management guidance for sensitive fields.
+- Add API authorization model (not only API key auth).
 - Add audit log stream for access and scan triggers.
-- Add production rate limiter (not only lock conflict).
+- Add secret encryption policy and key management guide.

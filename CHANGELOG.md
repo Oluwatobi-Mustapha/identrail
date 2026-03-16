@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Added API key authentication middleware for `/v1/*` endpoints.
+- Added per-IP rate limiter middleware.
+- Added startup migration runner for Postgres mode.
 - Added worker process for scheduled scans (`cmd/worker`).
 - Added shared runtime service bootstrap (`internal/runtime`).
 - Added worker scheduling config (`IDENTRAIL_SCAN_INTERVAL`, `IDENTRAIL_WORKER_RUN_NOW`).
