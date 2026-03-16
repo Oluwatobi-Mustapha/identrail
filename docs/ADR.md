@@ -121,3 +121,21 @@ This file tracks major decisions in simple terms.
 - Decision: Reject unknown scoped-key scopes and excessive alert max-finding limits during startup validation.
 - Why: Prevent silent authorization failures and unbounded alert payload growth.
 - Tradeoff: Misconfigured environments fail fast instead of partially starting.
+
+## ADR-021: Persist Scan Lifecycle Events
+- Date: 2026-03-16
+- Decision: Persist structured scan events (`scan_events`) and expose them through API.
+- Why: Improve operational visibility for scan failures and forensic review.
+- Tradeoff: Extra write volume per scan.
+
+## ADR-022: Add Scan Diff and Findings Summary Endpoints
+- Date: 2026-03-16
+- Decision: Provide API-level aggregated views for findings summary and scan-to-scan diff.
+- Why: Reduce dashboard/client-side compute and simplify incident triage.
+- Tradeoff: Additional server-side compute for diff generation.
+
+## ADR-023: Retry Webhook Alerts on Transient Failures
+- Date: 2026-03-16
+- Decision: Retry alert webhook delivery on network errors and 5xx responses with bounded backoff.
+- Why: Improve delivery reliability without blocking scan completion.
+- Tradeoff: Slightly increased outbound request volume during receiver instability.

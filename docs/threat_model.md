@@ -112,6 +112,21 @@ Simple threat list for current system.
 - Fix: Startup validation enforces a max cap for alert payload finding count.
 - Status: Implemented.
 
+## 23) Missing Scan Execution Forensics
+- Threat: Teams cannot quickly explain where a scan failed in pipeline lifecycle.
+- Fix: Persist and expose scan lifecycle events.
+- Status: Implemented.
+
+## 24) Hidden Drift Between Consecutive Scans
+- Threat: Operators must manually compare findings to understand change impact.
+- Fix: Add scan diff endpoint (`/v1/scans/:scan_id/diff`).
+- Status: Implemented.
+
+## 25) Alert Loss During Receiver Outage
+- Threat: A single webhook failure can drop a critical alert.
+- Fix: Bounded retry/backoff for transient failures.
+- Status: Implemented.
+
 ## Current Gaps (Next)
-- Add encrypted secret management and key rotation runbook.
+- Add encrypted secret management and external KMS guidance.
 - Add audit sink forwarding guide for centralized log pipelines.

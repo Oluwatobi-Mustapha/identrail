@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Added scan events persistence and API endpoint (`GET /v1/scans/:scan_id/events`).
+- Added scan diff endpoint (`GET /v1/scans/:scan_id/diff`).
+- Added findings summary endpoint (`GET /v1/findings/summary`).
+- Added webhook retry/backoff controls for transient alert delivery failures.
+- Added deployment runbook (`docs/deploy-runbook.md`).
 - Replaced raw API key values in audit events with deterministic `api_key_id` fingerprints.
 - Added startup validation for scoped-key scope names.
 - Added startup validation cap for `IDENTRAIL_ALERT_MAX_FINDINGS`.

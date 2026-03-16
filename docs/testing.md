@@ -20,6 +20,9 @@
 - Audit sink file export behavior
 - Service non-blocking alert callback behavior
 - Startup security config validation and warning coverage (scopes, write-key mapping, alert bounds)
+- Scan diff, findings summary, and scan event timeline service behavior
+- Router coverage for summary/diff/events endpoints and missing-scan handling
+- Webhook retry/backoff behavior for transient failures
 - Memory/Postgres persistence logic
 - Migration runner behavior
 - Artifact and finding idempotent upserts

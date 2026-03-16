@@ -21,7 +21,10 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
 - API endpoints backed by storage:
   - `POST /v1/scans`
   - `GET /v1/scans`
+  - `GET /v1/scans/:scan_id/diff`
+  - `GET /v1/scans/:scan_id/events`
   - `GET /v1/findings`
+  - `GET /v1/findings/summary`
 - Full artifact persistence:
   - raw assets, identities, policies, relationships, permissions, findings
 - Scheduler and worker:
@@ -43,6 +46,7 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
   - high-severity finding webhook notifications
   - severity threshold and max finding cap
   - optional HMAC request signing
+  - retry/backoff policy for transient webhook failures
   - non-blocking delivery (scan success does not depend on webhook success)
 - Startup guardrails:
   - reject invalid read/write key combinations early
@@ -69,6 +73,8 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
 - `IDENTRAIL_ALERT_TIMEOUT`
 - `IDENTRAIL_ALERT_HMAC_SECRET`
 - `IDENTRAIL_ALERT_MAX_FINDINGS`
+- `IDENTRAIL_ALERT_MAX_RETRIES`
+- `IDENTRAIL_ALERT_RETRY_BACKOFF`
 
 ## Idempotency approach
 
@@ -78,6 +84,6 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
 
 ## Next milestones
 
-1. production deploy docs for migration/rollback runbook
-2. audit sink shipping path to centralized log systems
-3. role/scope policy hardening guide for key rotation
+1. audit sink shipping path to centralized log systems
+2. role/scope policy hardening guide for key rotation
+3. findings history trend endpoints for dashboard charts
