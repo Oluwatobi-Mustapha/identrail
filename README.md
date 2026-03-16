@@ -7,3 +7,8 @@ It discovers machine and workload identities across cloud environments, maps who
 Initial focus is AWS, with architecture hooks for Kubernetes and Azure.
 
 The goal is simple: give security and IAM teams clear visibility and actionable risk insights before identity issues become incidents.
+
+## Current CLI
+
+- `identrail scan`: run the AWS phase-1 scanner pipeline (fixture-backed)
+- `identrail findings`: view findings from the latest saved scan state
