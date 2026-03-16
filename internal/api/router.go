@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
@@ -12,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -21,8 +24,15 @@ const (
 	scanRequestTimeout   = 2 * time.Minute
 )
 
+// RouterOptions controls API middleware behavior.
+type RouterOptions struct {
+	APIKeys        []string
+	RateLimitRPM   int
+	RateLimitBurst int
+}
+
 // NewRouter builds the REST surface area and observability endpoints.
-func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service) *gin.Engine {
+func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opts RouterOptions) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -40,20 +50,24 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service) *gi
 
 	r.GET("/metrics", gin.WrapH(promhttp.HandlerFor(registry, promhttp.HandlerOpts{})))
 
+	v1 := r.Group("/v1")
+	v1.Use(apiKeyAuthMiddleware(opts.APIKeys))
+	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
+
 	if svc == nil {
-		r.GET("/v1/findings", func(c *gin.Context) {
+		v1.GET("/findings", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"items": []any{}})
 		})
-		r.GET("/v1/scans", func(c *gin.Context) {
+		v1.GET("/scans", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"items": []any{}})
 		})
-		r.POST("/v1/scans", func(c *gin.Context) {
+		v1.POST("/scans", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
 		})
 		return r
 	}
 
-	r.GET("/v1/findings", func(c *gin.Context) {
+	v1.GET("/findings", func(c *gin.Context) {
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
 		items, err := svc.ListFindings(c.Request.Context(), limit)
 		if err != nil {
@@ -64,7 +78,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service) *gi
 		c.JSON(http.StatusOK, gin.H{"items": items})
 	})
 
-	r.GET("/v1/scans", func(c *gin.Context) {
+	v1.GET("/scans", func(c *gin.Context) {
 		limit := parseLimit(c.Query("limit"), defaultScansLimit, maxListLimit)
 		items, err := svc.ListScans(c.Request.Context(), limit)
 		if err != nil {
@@ -75,7 +89,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service) *gi
 		c.JSON(http.StatusOK, gin.H{"items": items})
 	})
 
-	r.POST("/v1/scans", func(c *gin.Context) {
+	v1.POST("/scans", func(c *gin.Context) {
 		start := time.Now()
 		metrics.ScanRunsTotal.Inc()
 
@@ -125,6 +139,82 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("Referrer-Policy", "no-referrer")
 		c.Header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		c.Next()
+	}
+}
+
+func apiKeyAuthMiddleware(keys []string) gin.HandlerFunc {
+	allowed := map[string]struct{}{}
+	for _, key := range keys {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" {
+			continue
+		}
+		allowed[trimmed] = struct{}{}
+	}
+	if len(allowed) == 0 {
+		return func(c *gin.Context) { c.Next() }
+	}
+
+	return func(c *gin.Context) {
+		candidate := strings.TrimSpace(c.GetHeader("X-API-Key"))
+		if candidate == "" {
+			authz := strings.TrimSpace(c.GetHeader("Authorization"))
+			if strings.HasPrefix(strings.ToLower(authz), "bearer ") {
+				candidate = strings.TrimSpace(authz[7:])
+			}
+		}
+		if _, ok := allowed[candidate]; !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		c.Next()
+	}
+}
+
+type ipRateLimiter struct {
+	mu       sync.Mutex
+	limiters map[string]*rate.Limiter
+	rate     rate.Limit
+	burst    int
+}
+
+func newIPRateLimiter(rpm int, burst int) *ipRateLimiter {
+	if rpm <= 0 {
+		rpm = 120
+	}
+	if burst <= 0 {
+		burst = 20
+	}
+	return &ipRateLimiter{
+		limiters: map[string]*rate.Limiter{},
+		rate:     rate.Every(time.Minute / time.Duration(rpm)),
+		burst:    burst,
+	}
+}
+
+func (l *ipRateLimiter) allow(ip string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	limiter, ok := l.limiters[ip]
+	if !ok {
+		limiter = rate.NewLimiter(l.rate, l.burst)
+		l.limiters[ip] = limiter
+	}
+	return limiter.Allow()
+}
+
+func rateLimitMiddleware(rpm int, burst int) gin.HandlerFunc {
+	limiter := newIPRateLimiter(rpm, burst)
+	return func(c *gin.Context) {
+		ip := c.ClientIP()
+		if ip == "" {
+			ip = "unknown"
+		}
+		if !limiter.allow(ip) {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
+			return
+		}
 		c.Next()
 	}
 }

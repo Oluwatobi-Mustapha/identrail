@@ -43,7 +43,11 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		_ = logger.Sync()
 		return Bootstrap{}, fmt.Errorf("initialize runtime: %w", err)
 	}
-	router := api.NewRouter(logger, metrics, svc)
+	router := api.NewRouter(logger, metrics, svc, api.RouterOptions{
+		APIKeys:        cfg.APIKeys,
+		RateLimitRPM:   cfg.RateLimitRPM,
+		RateLimitBurst: cfg.RateLimitBurst,
+	})
 	return Bootstrap{
 		Logger:        logger,
 		Metrics:       metrics,

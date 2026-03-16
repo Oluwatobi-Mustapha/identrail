@@ -37,7 +37,7 @@ func (routerScanner) Run(_ context.Context) (app.ScanResult, error) {
 func TestRouterHealthz(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
-	r := NewRouter(logger, metrics, nil)
+	r := NewRouter(logger, metrics, nil, RouterOptions{})
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	w := httptest.NewRecorder()
@@ -64,7 +64,7 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 	metrics := telemetry.NewMetrics()
 	store := db.NewMemoryStore()
 	svc := NewService(store, routerScanner{}, "aws")
-	r := NewRouter(logger, metrics, svc)
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
 
 	postReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
 	postW := httptest.NewRecorder()
@@ -94,7 +94,7 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 func TestRouterUnavailableWhenServiceMissing(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
-	r := NewRouter(logger, metrics, nil)
+	r := NewRouter(logger, metrics, nil, RouterOptions{})
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
 	w := httptest.NewRecorder()
@@ -118,13 +118,56 @@ func TestRouterScanConflictWhenLocked(t *testing.T) {
 	defer release()
 	svc.Locker = locker
 
-	r := NewRouter(logger, metrics, svc)
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
 	req := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected status 409, got %d", w.Code)
+	}
+}
+
+func TestRouterRequiresAPIKeyForV1(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{APIKeys: []string{"secret-key"}})
+
+	unauthReq := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	unauthW := httptest.NewRecorder()
+	r.ServeHTTP(unauthW, unauthReq)
+	if unauthW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", unauthW.Code)
+	}
+
+	authReq := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	authReq.Header.Set("X-API-Key", "secret-key")
+	authW := httptest.NewRecorder()
+	r.ServeHTTP(authW, authReq)
+	if authW.Code != http.StatusOK {
+		t.Fatalf("expected 200 with api key, got %d", authW.Code)
+	}
+}
+
+func TestRouterRateLimitExceeded(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{RateLimitRPM: 1, RateLimitBurst: 1})
+
+	first := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	first.RemoteAddr = "127.0.0.1:12345"
+	w1 := httptest.NewRecorder()
+	r.ServeHTTP(w1, first)
+	if w1.Code != http.StatusOK {
+		t.Fatalf("expected first request 200, got %d", w1.Code)
+	}
+
+	second := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	second.RemoteAddr = "127.0.0.1:12345"
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, second)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected second request 429, got %d", w2.Code)
 	}
 }
 
