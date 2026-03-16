@@ -29,11 +29,13 @@ It discovers machine and workload identities across cloud environments, maps who
   - alert threshold + bounds (`IDENTRAIL_ALERT_MIN_SEVERITY`, `IDENTRAIL_ALERT_MAX_FINDINGS`)
   - optional webhook request signing (`IDENTRAIL_ALERT_HMAC_SECRET`)
   - startup security config validation (prevents invalid read/write key setups)
+  - scoped-key validation (rejects unknown scopes at startup)
   - per-IP rate limiting (`IDENTRAIL_RATE_LIMIT_RPM`, `IDENTRAIL_RATE_LIMIT_BURST`)
   - bounded list limits
   - scan timeout
   - security response headers
   - audit log middleware for `/v1/*` + optional file sink (`IDENTRAIL_AUDIT_LOG_FILE`)
+  - audit events use API key fingerprints (`api_key_id`), not raw keys
 - Startup migration support:
   - `IDENTRAIL_RUN_MIGRATIONS`
   - `IDENTRAIL_MIGRATIONS_DIR`

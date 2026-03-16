@@ -8,8 +8,10 @@ Updated only at major milestones.
 - API auth model: scoped keys (`read`/`write`) now supported with safe precedence rules.
 - API scope enforcement: scoped keys must have readable scope for `/v1/*`.
 - Audit durability: optional JSONL file sink for request audit events.
+- Audit secrecy: API keys are fingerprinted in audit events (no raw key values).
 - Alerting: high-severity findings can trigger signed webhook notifications.
 - Startup guardrails: invalid write-key setup now fails fast.
+- Config hardening: invalid scoped scopes and oversized alert payload settings fail fast.
 - Worker: scheduled process runs scans with shared runtime bootstrap.
 - Migrations: startup migration runner added for Postgres mode.
 - Test health: `go test ./... -cover` passing, coverage above 80%.
