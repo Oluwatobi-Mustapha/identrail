@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/accessloom/internal/providers"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
 )
 
 const (

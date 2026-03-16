@@ -1,4 +1,4 @@
-module github.com/Oluwatobi-Mustapha/accessloom
+module github.com/Oluwatobi-Mustapha/identrail
 
 go 1.24
 

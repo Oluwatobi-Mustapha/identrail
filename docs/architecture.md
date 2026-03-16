@@ -1,8 +1,8 @@
-# Accessloom Architecture
+# Identrail Architecture
 
 ## Why This Shape
 
-Accessloom starts as a modular monolith so we can ship quickly, debug easily, and maintain strict domain boundaries. Every module has one responsibility and communicates through typed contracts.
+Identrail starts as a modular monolith so we can ship quickly, debug easily, and maintain strict domain boundaries. Every module has one responsibility and communicates through typed contracts.
 
 ## Module Layout
 

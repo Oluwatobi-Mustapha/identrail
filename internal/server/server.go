@@ -8,9 +8,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/Oluwatobi-Mustapha/accessloom/internal/api"
-	"github.com/Oluwatobi-Mustapha/accessloom/internal/config"
-	"github.com/Oluwatobi-Mustapha/accessloom/internal/telemetry"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/api"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"go.uber.org/zap"
 )
 

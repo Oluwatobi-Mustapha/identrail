@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The AWS collector is the first provider ingestion module in Accessloom. It reads IAM roles in a strictly read-only mode and emits provider-native raw assets for downstream normalization.
+The AWS collector is the first provider ingestion module in Identrail. It reads IAM roles in a strictly read-only mode and emits provider-native raw assets for downstream normalization.
 
 ## Why This Design
 
