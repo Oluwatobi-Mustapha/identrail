@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
@@ -14,8 +15,41 @@ func TestNewBootstrap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if bootstrap.Logger == nil || bootstrap.Metrics == nil || bootstrap.Router == nil || bootstrap.TraceShutdown == nil {
+	if bootstrap.Logger == nil || bootstrap.Metrics == nil || bootstrap.Router == nil || bootstrap.TraceShutdown == nil || bootstrap.AuditClose == nil {
 		t.Fatal("bootstrap dependencies must all be initialized")
+	}
+}
+
+func TestNewBootstrapWithAuditFile(t *testing.T) {
+	cfg := config.Config{
+		HTTPAddr:     ":0",
+		LogLevel:     "info",
+		Provider:     "aws",
+		ServiceName:  "identrail-test",
+		AuditLogFile: filepath.Join(t.TempDir(), "audit.log"),
+	}
+	bootstrap, err := NewBootstrap(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if bootstrap.AuditClose == nil {
+		t.Fatal("expected audit close function")
+	}
+	if err := bootstrap.AuditClose(); err != nil {
+		t.Fatalf("close audit sink: %v", err)
+	}
+}
+
+func TestNewBootstrapAuditFileError(t *testing.T) {
+	cfg := config.Config{
+		HTTPAddr:     ":0",
+		LogLevel:     "info",
+		Provider:     "aws",
+		ServiceName:  "identrail-test",
+		AuditLogFile: filepath.Join(t.TempDir(), "missing", "audit.log"),
+	}
+	if _, err := NewBootstrap(context.Background(), cfg); err == nil {
+		t.Fatal("expected bootstrap error for invalid audit path")
 	}
 }
 
