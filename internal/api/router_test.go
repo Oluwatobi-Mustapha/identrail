@@ -210,7 +210,8 @@ func TestRouterScopedAuthorizationPrefersScopeMap(t *testing.T) {
 		WriteAPIKeys: []string{"legacy-key"},
 		APIKeyScopes: map[string][]string{
 			"reader-key": {"read"},
-			"writer-key": {"read", scopeWrite},
+			"writer-key": {scopeWrite},
+			"bad-key":    {"invalid"},
 		},
 	})
 
@@ -244,6 +245,14 @@ func TestRouterScopedAuthorizationPrefersScopeMap(t *testing.T) {
 	r.ServeHTTP(writeW, writeReq)
 	if writeW.Code != http.StatusAccepted {
 		t.Fatalf("expected write with writer-key to pass, got %d", writeW.Code)
+	}
+
+	badScopeReq := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	badScopeReq.Header.Set("X-API-Key", "bad-key")
+	badScopeW := httptest.NewRecorder()
+	r.ServeHTTP(badScopeW, badScopeReq)
+	if badScopeW.Code != http.StatusForbidden {
+		t.Fatalf("expected bad-key read to be forbidden, got %d", badScopeW.Code)
 	}
 }
 

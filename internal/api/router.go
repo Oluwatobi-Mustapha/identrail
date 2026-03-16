@@ -22,6 +22,7 @@ const (
 	defaultScansLimit    = 20
 	maxListLimit         = 500
 	scanRequestTimeout   = 2 * time.Minute
+	scopeRead            = "read"
 	scopeWrite           = "write"
 	scopeAdmin           = "admin"
 )
@@ -57,6 +58,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 
 	v1 := r.Group("/v1")
 	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes))
+	v1.Use(requireReadableScopeMiddleware(opts.APIKeyScopes))
 	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink))
 
@@ -243,6 +245,25 @@ func requireWriteKeyMiddleware(writeKeys []string, scopedKeys map[string][]strin
 	}
 }
 
+func requireReadableScopeMiddleware(scopedKeys map[string][]string) gin.HandlerFunc {
+	if len(scopedKeys) == 0 {
+		return func(c *gin.Context) { c.Next() }
+	}
+	return func(c *gin.Context) {
+		scopeSetValue, exists := c.Get("auth.scope_set")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+		scopes, ok := scopeSetValue.(scopeSet)
+		if !ok || !scopes.has(scopeRead) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+		c.Next()
+	}
+}
+
 type ipRateLimiter struct {
 	mu       sync.Mutex
 	limiters map[string]*rate.Limiter
@@ -358,6 +379,11 @@ func (s scopeSet) has(required string) bool {
 	}
 	if _, ok := s[scopeAdmin]; ok {
 		return true
+	}
+	if required == scopeRead {
+		if _, ok := s[scopeWrite]; ok {
+			return true
+		}
 	}
 	_, ok := s[required]
 	return ok
