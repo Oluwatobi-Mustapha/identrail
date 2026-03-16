@@ -10,8 +10,10 @@ Updated only at major milestones.
 - Audit durability: optional JSONL file sink for request audit events.
 - Audit secrecy: API keys are fingerprinted in audit events (no raw key values).
 - Alerting: high-severity findings can trigger signed webhook notifications.
+- Alert reliability: webhook retries/backoff added for transient receiver failures.
 - Startup guardrails: invalid write-key setup now fails fast.
 - Config hardening: invalid scoped scopes and oversized alert payload settings fail fast.
+- Analyst workflows: findings summary, scan diff, and scan event timeline APIs added.
 - Worker: scheduled process runs scans with shared runtime bootstrap.
 - Migrations: startup migration runner added for Postgres mode.
 - Test health: `go test ./... -cover` passing, coverage above 80%.
