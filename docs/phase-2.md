@@ -36,6 +36,11 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
   - request timeout and security headers
   - audit request logging
   - optional audit log file export sink
+- Alerting:
+  - high-severity finding webhook notifications
+  - severity threshold and max finding cap
+  - optional HMAC request signing
+  - non-blocking delivery (scan success does not depend on webhook success)
 
 ## Config wiring
 
@@ -51,6 +56,11 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
 - `IDENTRAIL_RUN_MIGRATIONS`
 - `IDENTRAIL_MIGRATIONS_DIR`
 - `IDENTRAIL_AUDIT_LOG_FILE`
+- `IDENTRAIL_ALERT_WEBHOOK_URL`
+- `IDENTRAIL_ALERT_MIN_SEVERITY`
+- `IDENTRAIL_ALERT_TIMEOUT`
+- `IDENTRAIL_ALERT_HMAC_SECRET`
+- `IDENTRAIL_ALERT_MAX_FINDINGS`
 
 ## Idempotency approach
 
@@ -60,6 +70,6 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
 
 ## Next milestones
 
-1. structured alert hooks for high-severity findings
-2. production deploy docs for migration/rollback runbook
-3. audit sink shipping path to centralized log systems
+1. production deploy docs for migration/rollback runbook
+2. audit sink shipping path to centralized log systems
+3. role/scope policy hardening guide for key rotation

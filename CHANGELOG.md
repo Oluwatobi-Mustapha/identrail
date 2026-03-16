@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Added high-severity findings webhook alerts with configurable threshold and cap.
+- Added optional HMAC signing for alert webhook requests.
+- Added webhook safety guardrails (`https` required for remote endpoints).
 - Added scoped API key authorization config (`IDENTRAIL_API_KEY_SCOPES`) with legacy fallback behavior.
 - Added optional audit file export sink (`IDENTRAIL_AUDIT_LOG_FILE`) for durable API request audit events.
 - Added write authorization keys for scan trigger endpoint (`IDENTRAIL_WRITE_API_KEYS`).

@@ -24,6 +24,9 @@ It discovers machine and workload identities across cloud environments, maps who
   - API key auth (`IDENTRAIL_API_KEYS`)
   - write authorization keys for scan trigger (`IDENTRAIL_WRITE_API_KEYS`)
   - scoped API keys (`IDENTRAIL_API_KEY_SCOPES`, example: `reader:read;writer:read,write`)
+  - high-severity scan alert webhook (`IDENTRAIL_ALERT_WEBHOOK_URL`)
+  - alert threshold + bounds (`IDENTRAIL_ALERT_MIN_SEVERITY`, `IDENTRAIL_ALERT_MAX_FINDINGS`)
+  - optional webhook request signing (`IDENTRAIL_ALERT_HMAC_SECRET`)
   - per-IP rate limiting (`IDENTRAIL_RATE_LIMIT_RPM`, `IDENTRAIL_RATE_LIMIT_BURST`)
   - bounded list limits
   - scan timeout

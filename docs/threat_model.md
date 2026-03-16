@@ -72,6 +72,21 @@ Simple threat list for current system.
 - Fix: Optional JSONL audit file sink (`IDENTRAIL_AUDIT_LOG_FILE`) with append-only writes.
 - Status: Implemented.
 
+## 15) Delayed Response to Critical Findings
+- Threat: Teams may not notice severe findings quickly if they only pull from API/UI later.
+- Fix: High-severity webhook alert hook with threshold filter.
+- Status: Implemented.
+
+## 16) Webhook Tampering or Spoofed Alerts
+- Threat: A receiver may accept forged alert calls.
+- Fix: Optional HMAC signature header (`IDENTRAIL_ALERT_HMAC_SECRET`) for receiver verification.
+- Status: Implemented.
+
+## 17) Insecure Alert Transport
+- Threat: Webhook URL using plain HTTP can leak sensitive finding context.
+- Fix: Require `https` for remote endpoints (allow `http` only for localhost development).
+- Status: Implemented.
+
 ## Current Gaps (Next)
 - Add encrypted secret management and key rotation runbook.
 - Add audit sink forwarding guide for centralized log pipelines.
