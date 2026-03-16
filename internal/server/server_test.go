@@ -2,9 +2,12 @@ package server
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
 )
@@ -50,6 +53,46 @@ func TestNewBootstrapAuditFileError(t *testing.T) {
 	}
 	if _, err := NewBootstrap(context.Background(), cfg); err == nil {
 		t.Fatal("expected bootstrap error for invalid audit path")
+	}
+}
+
+func TestNewBootstrapWithAuditForwardSink(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	cfg := config.Config{
+		HTTPAddr:               ":0",
+		LogLevel:               "info",
+		Provider:               "aws",
+		ServiceName:            "identrail-test",
+		AuditForwardURL:        server.URL,
+		AuditForwardTimeout:    2 * time.Second,
+		AuditForwardHMACSecret: "secret",
+	}
+	bootstrap, err := NewBootstrap(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if bootstrap.AuditClose == nil {
+		t.Fatal("expected audit close function")
+	}
+	if err := bootstrap.AuditClose(); err != nil {
+		t.Fatalf("close audit sink: %v", err)
+	}
+}
+
+func TestNewBootstrapInvalidAuditForwardConfig(t *testing.T) {
+	cfg := config.Config{
+		HTTPAddr:        ":0",
+		LogLevel:        "info",
+		Provider:        "aws",
+		ServiceName:     "identrail-test",
+		AuditForwardURL: "http://example.com/events",
+	}
+	if _, err := NewBootstrap(context.Background(), cfg); err == nil {
+		t.Fatal("expected invalid audit forward config error")
 	}
 }
 
