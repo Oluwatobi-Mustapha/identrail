@@ -1,0 +1,53 @@
+# Aurelius Architecture
+
+## Why This Shape
+
+Aurelius starts as a modular monolith so we can ship quickly, debug easily, and maintain strict domain boundaries. Every module has one responsibility and communicates through typed contracts.
+
+## Module Layout
+
+- `ingestion`: provider collectors for read-only cloud data pulls
+- `normalization`: provider-specific translation into normalized domain entities
+- `graph`: relationship construction and path traversal support
+- `analysis`: deterministic risk rules over normalized data + graph edges
+- `findings`: typed finding lifecycle and remediation metadata
+- `ownership`: owner inference and confidence scoring
+- `api`: REST read/write endpoints for scans and findings
+- `scheduler`: idempotent scan orchestration
+- `telemetry`: logging, metrics, and tracing
+
+## Data Flow
+
+```text
+Collector -> Raw Assets -> Normalizer -> Domain Entities
+                |                           |
+                v                           v
+            Raw Storage                Graph Builder
+                                            |
+                                            v
+                                      Risk Rule Engine
+                                            |
+                                            v
+                                         Findings
+```
+
+## Core Design Decisions
+
+- Provider abstraction via interfaces (`Collector`, `Normalizer`, `RiskRuleSet`) keeps AWS/K8s/Azure implementations isolated.
+- Idempotency is a first-class requirement for every scan stage to avoid duplicated records and scan drift.
+- Raw and normalized data are both preserved for auditability and rule explainability.
+- Observability is integrated from day one with structured logs, Prometheus metrics, and tracing hooks.
+
+## Initial Runtime Components
+
+- `cmd/server`: REST API process for health, scans, and findings endpoints.
+- `cmd/cli`: operator-focused local scanner interface.
+- `internal/app.Scanner`: orchestrates deterministic scan execution pipeline.
+
+## Future Extraction Plan
+
+When scale demands it:
+
+1. Extract scheduler into a separate worker service.
+2. Move ingestion to a queue-driven worker model.
+3. Retain API + read model in a dedicated service.
