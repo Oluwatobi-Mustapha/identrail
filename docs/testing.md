@@ -11,10 +11,12 @@
 
 - Config defaults and env parsing
 - Scoped API key parsing and write authorization behavior
+- Webhook alerter URL validation, severity filtering, and non-2xx failure handling
 - API routes and scan trigger behavior
 - API auth and write-authorization middleware behavior
 - API rate-limit and audit-log middleware behavior
 - Audit sink file export behavior
+- Service non-blocking alert callback behavior
 - Memory/Postgres persistence logic
 - Migration runner behavior
 - Artifact and finding idempotent upserts

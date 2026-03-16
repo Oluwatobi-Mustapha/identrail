@@ -85,3 +85,15 @@ This file tracks major decisions in simple terms.
 - Decision: Support optional JSONL append sink for API audit events.
 - Why: Keep a durable audit trail even when centralized logging is not yet connected.
 - Tradeoff: Requires file retention and secure file access controls.
+
+## ADR-015: Non-Blocking Webhook Alerts for High-Risk Findings
+- Date: 2026-03-16
+- Decision: Send scan alerts to a webhook for findings at or above a configured severity threshold.
+- Why: Give teams fast signal for critical IAM risk paths without waiting for dashboard polling.
+- Tradeoff: Webhook failures are logged but do not fail scan completion.
+
+## ADR-016: Webhook Safety Guardrails
+- Date: 2026-03-16
+- Decision: Require `https` webhook URLs (allow `http` only for localhost), support optional HMAC signing.
+- Why: Reduce accidental insecure transport and allow receiver-side request verification.
+- Tradeoff: Slightly stricter setup for dev/test endpoints.
