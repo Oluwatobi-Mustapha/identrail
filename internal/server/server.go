@@ -22,6 +22,7 @@ type Bootstrap struct {
 	Router        http.Handler
 	TraceShutdown func(context.Context) error
 	StoreClose    func() error
+	AuditClose    func() error
 }
 
 // NewBootstrap initializes logger, metrics, tracing, and router in one place.
@@ -43,11 +44,25 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		_ = logger.Sync()
 		return Bootstrap{}, fmt.Errorf("initialize runtime: %w", err)
 	}
+	auditSink := api.AuditSink(api.NopAuditSink{})
+	auditClose := func() error { return nil }
+	if cfg.AuditLogFile != "" {
+		fileSink, sinkErr := api.NewFileAuditSink(cfg.AuditLogFile)
+		if sinkErr != nil {
+			_ = closeStore()
+			_ = logger.Sync()
+			return Bootstrap{}, fmt.Errorf("initialize audit sink: %w", sinkErr)
+		}
+		auditSink = fileSink
+		auditClose = fileSink.Close
+	}
 	router := api.NewRouter(logger, metrics, svc, api.RouterOptions{
 		APIKeys:        cfg.APIKeys,
 		WriteAPIKeys:   cfg.WriteAPIKeys,
+		APIKeyScopes:   cfg.APIKeyScopes,
 		RateLimitRPM:   cfg.RateLimitRPM,
 		RateLimitBurst: cfg.RateLimitBurst,
+		AuditSink:      auditSink,
 	})
 	return Bootstrap{
 		Logger:        logger,
@@ -55,6 +70,7 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		Router:        router,
 		TraceShutdown: traceShutdown,
 		StoreClose:    closeStore,
+		AuditClose:    auditClose,
 	}, nil
 }
 
@@ -79,6 +95,11 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 	defer func() {
 		if bootstrap.StoreClose != nil {
 			_ = bootstrap.StoreClose()
+		}
+	}()
+	defer func() {
+		if bootstrap.AuditClose != nil {
+			_ = bootstrap.AuditClose()
 		}
 	}()
 	defer func() {
