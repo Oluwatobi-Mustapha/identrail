@@ -9,5 +9,5 @@ cd sqlc
 sqlc generate
 ```
 
-Current Postgres store code is manually written and query-compatible with files in `sqlc/queries`.
-The next iteration will switch runtime calls to generated methods from this package.
+Current Postgres store read paths now call typed wrappers in this package, aligned with `sqlc/queries`.
+The next iteration will replace wrappers with generated methods directly.
