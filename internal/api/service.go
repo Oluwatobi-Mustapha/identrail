@@ -55,6 +55,14 @@ type ScanDiff struct {
 	Persisting      []domain.Finding `json:"persisting"`
 }
 
+// TrendPoint gives one scan-level snapshot used by dashboard trend charts.
+type TrendPoint struct {
+	ScanID     string         `json:"scan_id"`
+	StartedAt  time.Time      `json:"started_at"`
+	Total      int            `json:"total"`
+	BySeverity map[string]int `json:"by_severity"`
+}
+
 // ErrScanInProgress is returned when a scan for the same provider is already running.
 var ErrScanInProgress = errors.New("scan already in progress")
 
@@ -85,11 +93,11 @@ func (s *Service) RunScan(ctx context.Context) (RunScanResult, error) {
 	if err != nil {
 		return RunScanResult{}, err
 	}
-	s.appendScanEvent(ctx, record.ID, "info", "scan started", map[string]any{"provider": s.Provider})
+	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "scan started", map[string]any{"provider": s.Provider})
 
 	result, err := s.Scanner.Run(ctx)
 	if err != nil {
-		s.appendScanEvent(ctx, record.ID, "error", "scan failed during collection/analysis", map[string]any{"error": err.Error()})
+		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed during collection/analysis", map[string]any{"error": err.Error()})
 		_ = s.Store.CompleteScan(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, err.Error())
 		return RunScanResult{}, err
 	}
@@ -100,21 +108,21 @@ func (s *Service) RunScan(ctx context.Context) (RunScanResult, error) {
 		Permissions:   result.Permissions,
 		Relationships: result.Relationships,
 	}); err != nil {
-		s.appendScanEvent(ctx, record.ID, "error", "scan failed while persisting artifacts", map[string]any{"error": err.Error()})
+		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while persisting artifacts", map[string]any{"error": err.Error()})
 		_ = s.Store.CompleteScan(ctx, record.ID, "failed", s.Now().UTC(), result.Assets, 0, err.Error())
 		return RunScanResult{}, fmt.Errorf("persist artifacts: %w", err)
 	}
-	s.appendScanEvent(ctx, record.ID, "info", "artifacts persisted", map[string]any{"raw_assets": len(result.RawAssets), "identities": len(result.Bundle.Identities)})
+	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "artifacts persisted", map[string]any{"raw_assets": len(result.RawAssets), "identities": len(result.Bundle.Identities)})
 
 	if err := s.Store.UpsertFindings(ctx, record.ID, result.Findings); err != nil {
-		s.appendScanEvent(ctx, record.ID, "error", "scan failed while persisting findings", map[string]any{"error": err.Error()})
+		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while persisting findings", map[string]any{"error": err.Error()})
 		_ = s.Store.CompleteScan(ctx, record.ID, "failed", s.Now().UTC(), result.Assets, 0, err.Error())
 		return RunScanResult{}, fmt.Errorf("persist findings: %w", err)
 	}
-	s.appendScanEvent(ctx, record.ID, "info", "findings persisted", map[string]any{"findings": len(result.Findings)})
+	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "findings persisted", map[string]any{"findings": len(result.Findings)})
 
 	if err := s.Store.CompleteScan(ctx, record.ID, "completed", s.Now().UTC(), result.Assets, len(result.Findings), ""); err != nil {
-		s.appendScanEvent(ctx, record.ID, "error", "scan failed while finalizing scan record", map[string]any{"error": err.Error()})
+		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelError, "scan failed while finalizing scan record", map[string]any{"error": err.Error()})
 		return RunScanResult{}, fmt.Errorf("complete scan record: %w", err)
 	}
 
@@ -123,7 +131,7 @@ func (s *Service) RunScan(ctx context.Context) (RunScanResult, error) {
 	record.FinishedAt = &finished
 	record.AssetCount = result.Assets
 	record.FindingCount = len(result.Findings)
-	s.appendScanEvent(ctx, record.ID, "info", "scan completed", map[string]any{"assets": result.Assets, "findings": len(result.Findings)})
+	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "scan completed", map[string]any{"assets": result.Assets, "findings": len(result.Findings)})
 	if s.Alerter != nil {
 		if alertErr := s.Alerter.NotifyScan(ctx, s.Provider, record, result.Findings); alertErr != nil && s.OnAlertError != nil {
 			s.OnAlertError(alertErr)
@@ -168,6 +176,76 @@ func (s *Service) GetFindingsSummary(ctx context.Context, limit int) (FindingsSu
 // ListScanEvents returns recent scan events for one scan id.
 func (s *Service) ListScanEvents(ctx context.Context, scanID string, limit int) ([]db.ScanEvent, error) {
 	return s.Store.ListScanEvents(ctx, scanID, limit)
+}
+
+// ListIdentities returns identities for given filters, defaulting scan_id to latest scan.
+func (s *Service) ListIdentities(ctx context.Context, scanID string, provider string, identityType string, namePrefix string, limit int) ([]domain.Identity, error) {
+	normalizedScanID := scanID
+	if normalizedScanID == "" {
+		latest, err := s.latestScanID(ctx)
+		if err != nil {
+			return nil, err
+		}
+		normalizedScanID = latest
+	}
+	return s.Store.ListIdentities(ctx, db.IdentityFilter{
+		ScanID:     normalizedScanID,
+		Provider:   provider,
+		Type:       identityType,
+		NamePrefix: namePrefix,
+	}, limit)
+}
+
+// ListRelationships returns relationships for given filters, defaulting scan_id to latest scan.
+func (s *Service) ListRelationships(ctx context.Context, scanID string, relationshipType string, fromNodeID string, toNodeID string, limit int) ([]domain.Relationship, error) {
+	normalizedScanID := scanID
+	if normalizedScanID == "" {
+		latest, err := s.latestScanID(ctx)
+		if err != nil {
+			return nil, err
+		}
+		normalizedScanID = latest
+	}
+	return s.Store.ListRelationships(ctx, db.RelationshipFilter{
+		ScanID:     normalizedScanID,
+		Type:       relationshipType,
+		FromNodeID: fromNodeID,
+		ToNodeID:   toNodeID,
+	}, limit)
+}
+
+// GetFindingsTrend returns findings totals by severity across recent scans.
+func (s *Service) GetFindingsTrend(ctx context.Context, points int) ([]TrendPoint, error) {
+	if points <= 0 {
+		points = 10
+	}
+	scans, err := s.Store.ListScans(ctx, points)
+	if err != nil {
+		return nil, err
+	}
+	// Return oldest->newest for chart consumers.
+	sort.Slice(scans, func(i, j int) bool { return scans[i].StartedAt.Before(scans[j].StartedAt) })
+	result := make([]TrendPoint, 0, len(scans))
+	for _, scan := range scans {
+		findings, err := s.Store.ListFindingsByScan(ctx, scan.ID, 5000)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		point := TrendPoint{
+			ScanID:     scan.ID,
+			StartedAt:  scan.StartedAt,
+			Total:      len(findings),
+			BySeverity: map[string]int{},
+		}
+		for _, finding := range findings {
+			point.BySeverity[string(finding.Severity)]++
+		}
+		result = append(result, point)
+	}
+	return result, nil
 }
 
 // GetScanDiff compares findings between this scan and previous scan of same provider.
@@ -258,4 +336,15 @@ func (d *ScanDiff) applyLimit(limit int) {
 	if len(d.Persisting) > limit {
 		d.Persisting = d.Persisting[:limit]
 	}
+}
+
+func (s *Service) latestScanID(ctx context.Context) (string, error) {
+	scans, err := s.Store.ListScans(ctx, 1)
+	if err != nil {
+		return "", err
+	}
+	if len(scans) == 0 {
+		return "", db.ErrNotFound
+	}
+	return scans[0].ID, nil
 }
