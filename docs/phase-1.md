@@ -45,7 +45,14 @@ Deliver a usable AWS scanner that collects IAM identity data, normalizes relatio
    - typed findings: overprivileged, risky trust, escalation, stale, ownerless
    - deterministic finding IDs and stable severity ordering
    - evidence-rich and remediation-focused output shape
-5. CLI UX pass: next
+5. CLI UX pass: completed
+   - full AWS phase-1 pipeline execution via `scan`
+   - human + JSON findings output
+   - local findings state for `findings` command
+
+## Deliverable
+
+A usable AWS scanner in fixture-backed mode with deterministic typed findings and command-line workflows for scan execution and findings review.
 
 ## Phase Diagram
 
