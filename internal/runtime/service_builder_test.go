@@ -32,6 +32,41 @@ func TestBuildScanServiceMemoryStore(t *testing.T) {
 	}
 }
 
+func TestBuildScanServiceKubernetesProvider(t *testing.T) {
+	cfg := config.Config{
+		Provider: "kubernetes",
+		KubernetesFixturePath: []string{
+			repoFixturePathForProvider(t, "kubernetes", "service_account_payments.json"),
+			repoFixturePathForProvider(t, "kubernetes", "role_binding_cluster_admin.json"),
+			repoFixturePathForProvider(t, "kubernetes", "pod_payments.json"),
+		},
+		ScanInterval: 5 * time.Minute,
+	}
+
+	svc, closeFn, err := BuildScanService(cfg)
+	if err != nil {
+		t.Fatalf("build service failed: %v", err)
+	}
+	if svc == nil || closeFn == nil {
+		t.Fatal("expected non-nil service and close function")
+	}
+	if _, err := svc.RunScan(context.Background()); err != nil {
+		t.Fatalf("kubernetes scan failed: %v", err)
+	}
+	if err := closeFn(); err != nil {
+		t.Fatalf("close failed: %v", err)
+	}
+}
+
+func TestBuildScanServiceUnsupportedProvider(t *testing.T) {
+	cfg := config.Config{
+		Provider: "azure",
+	}
+	if _, _, err := BuildScanService(cfg); err == nil {
+		t.Fatal("expected unsupported provider error")
+	}
+}
+
 func TestNewStoreMemoryAndInvalidPostgres(t *testing.T) {
 	store, err := NewStore("")
 	if err != nil {
@@ -121,11 +156,15 @@ func TestBuildScanServiceAlertWebhookRetriesOnTransientFailure(t *testing.T) {
 }
 
 func repoFixturePath(t *testing.T, name string) string {
+	return repoFixturePathForProvider(t, "aws", name)
+}
+
+func repoFixturePathForProvider(t *testing.T, provider string, name string) string {
 	t.Helper()
 	_, file, _, ok := goruntime.Caller(0)
 	if !ok {
 		t.Fatal("could not resolve caller path")
 	}
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	return filepath.Join(root, "testdata", "aws", name)
+	return filepath.Join(root, "testdata", provider, name)
 }

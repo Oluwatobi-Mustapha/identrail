@@ -20,6 +20,8 @@ func TestRunWithCancelledContext(t *testing.T) {
 		ScanInterval:   10 * time.Millisecond,
 		WorkerRunNow:   false,
 		AWSFixturePath: []string{"testdata/aws/role_with_policies.json"},
+		APIKeys:        []string{"test-read"},
+		WriteAPIKeys:   []string{"test-read"},
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -39,6 +41,8 @@ func TestRunFailsWhenStartupScanCannotReadFixtures(t *testing.T) {
 		ScanInterval:   10 * time.Millisecond,
 		WorkerRunNow:   true,
 		AWSFixturePath: []string{"/path/does/not/exist.json"},
+		APIKeys:        []string{"test-read"},
+		WriteAPIKeys:   []string{"test-read"},
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -59,6 +63,8 @@ func TestRunFailsWithInvalidStoreConfig(t *testing.T) {
 		WorkerRunNow:   false,
 		AWSFixturePath: []string{"testdata/aws/role_with_policies.json"},
 		DatabaseURL:    "postgres://user:pass@127.0.0.1:1/identrail?sslmode=disable&connect_timeout=1",
+		APIKeys:        []string{"test-read"},
+		WriteAPIKeys:   []string{"test-read"},
 	}
 
 	sigCh := make(chan os.Signal, 1)

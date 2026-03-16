@@ -16,6 +16,7 @@ import (
 	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
 	awsprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/aws"
+	k8sprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/kubernetes"
 	"github.com/spf13/cobra"
 )
 
@@ -25,9 +26,15 @@ const (
 	formatJSON       = "json"
 )
 
-var defaultFixturePaths = []string{
+var defaultAWSFixturePaths = []string{
 	"testdata/aws/role_with_policies.json",
 	"testdata/aws/role_with_urlencoded_trust.json",
+}
+
+var defaultKubernetesFixturePaths = []string{
+	"testdata/kubernetes/service_account_payments.json",
+	"testdata/kubernetes/role_binding_cluster_admin.json",
+	"testdata/kubernetes/pod_payments.json",
 }
 
 // BuildRootCmd creates the command tree with injected config and output writer.
@@ -56,14 +63,13 @@ func buildScanCmd(cfg config.Config, out io.Writer, stateFile *string) *cobra.Co
 	var staleAfterDays int
 	var skipSave bool
 
+	defaultFixtures := defaultFixturesForProvider(cfg)
+
 	cmd := &cobra.Command{
 		Use:   "scan",
 		Short: "Run a read-only scan",
-		Long:  "Runs the AWS phase-1 pipeline (collector -> normalizer -> graph -> risk rules).",
+		Long:  "Runs the provider scan pipeline (collector -> normalizer -> graph -> risk rules).",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if cfg.Provider != "aws" {
-				return fmt.Errorf("unsupported provider %q: phase 1 supports aws only", cfg.Provider)
-			}
 			if staleAfterDays < 1 {
 				return fmt.Errorf("--stale-after-days must be at least 1")
 			}
@@ -73,13 +79,9 @@ func buildScanCmd(cfg config.Config, out io.Writer, stateFile *string) *cobra.Co
 				return err
 			}
 
-			collector := awsprovider.NewFixtureCollector(fixtures)
-			scanner := app.Scanner{
-				Collector:            collector,
-				Normalizer:           awsprovider.NewRoleNormalizer(),
-				PermissionResolver:   awsprovider.NewPolicyPermissionResolver(),
-				RelationshipResolver: awsprovider.NewRelationshipBuilder(),
-				RiskRuleSet:          awsprovider.NewRuleSet(awsprovider.WithStaleAfter(time.Duration(staleAfterDays) * 24 * time.Hour)),
+			scanner, err := buildScannerForProvider(cfg.Provider, fixtures, staleAfterDays)
+			if err != nil {
+				return err
 			}
 
 			result, err := scanner.Run(context.Background())
@@ -112,7 +114,7 @@ func buildScanCmd(cfg config.Config, out io.Writer, stateFile *string) *cobra.Co
 		},
 	}
 
-	cmd.Flags().StringSliceVar(&fixtures, "fixture", append([]string(nil), defaultFixturePaths...), "Fixture JSON path(s) or directories for local scan")
+	cmd.Flags().StringSliceVar(&fixtures, "fixture", append([]string(nil), defaultFixtures...), "Fixture JSON path(s) or directories for local scan")
 	cmd.Flags().StringVar(&outputFormat, "output", formatTable, "Output format: table|json")
 	cmd.Flags().IntVar(&staleAfterDays, "stale-after-days", 90, "Staleness threshold in days")
 	cmd.Flags().BoolVar(&skipSave, "no-save", false, "Skip writing local findings state")
@@ -152,6 +154,44 @@ func Execute(cfg config.Config, args []string, out io.Writer) error {
 	cmd := BuildRootCmd(cfg, out)
 	cmd.SetArgs(args)
 	return cmd.Execute()
+}
+
+func defaultFixturesForProvider(cfg config.Config) []string {
+	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
+	case "kubernetes":
+		if len(cfg.KubernetesFixturePath) > 0 {
+			return cfg.KubernetesFixturePath
+		}
+		return defaultKubernetesFixturePaths
+	default:
+		if len(cfg.AWSFixturePath) > 0 {
+			return cfg.AWSFixturePath
+		}
+		return defaultAWSFixturePaths
+	}
+}
+
+func buildScannerForProvider(provider string, fixtures []string, staleAfterDays int) (app.Scanner, error) {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "aws":
+		return app.Scanner{
+			Collector:            awsprovider.NewFixtureCollector(fixtures),
+			Normalizer:           awsprovider.NewRoleNormalizer(),
+			PermissionResolver:   awsprovider.NewPolicyPermissionResolver(),
+			RelationshipResolver: awsprovider.NewRelationshipBuilder(),
+			RiskRuleSet:          awsprovider.NewRuleSet(awsprovider.WithStaleAfter(time.Duration(staleAfterDays) * 24 * time.Hour)),
+		}, nil
+	case "kubernetes":
+		return app.Scanner{
+			Collector:            k8sprovider.NewFixtureCollector(fixtures),
+			Normalizer:           k8sprovider.NewNormalizer(),
+			PermissionResolver:   k8sprovider.NewPermissionResolver(),
+			RelationshipResolver: k8sprovider.NewRelationshipResolver(),
+			RiskRuleSet:          k8sprovider.NewRuleSet(),
+		}, nil
+	default:
+		return app.Scanner{}, fmt.Errorf("unsupported provider %q", provider)
+	}
 }
 
 type outputFormat int

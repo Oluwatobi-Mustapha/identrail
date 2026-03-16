@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/api"
@@ -10,6 +11,7 @@ import (
 	"github.com/Oluwatobi-Mustapha/identrail/internal/config"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	awsprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/aws"
+	k8sprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/kubernetes"
 )
 
 // BuildScanService constructs store + scanner + API service from runtime config.
@@ -33,12 +35,27 @@ func BuildScanService(cfg config.Config) (*api.Service, func() error, error) {
 		store = pgStore
 	}
 
-	scanner := app.Scanner{
-		Collector:            awsprovider.NewFixtureCollector(cfg.AWSFixturePath),
-		Normalizer:           awsprovider.NewRoleNormalizer(),
-		PermissionResolver:   awsprovider.NewPolicyPermissionResolver(),
-		RelationshipResolver: awsprovider.NewRelationshipBuilder(),
-		RiskRuleSet:          awsprovider.NewRuleSet(),
+	var scanner app.Scanner
+	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
+	case "aws":
+		scanner = app.Scanner{
+			Collector:            awsprovider.NewFixtureCollector(cfg.AWSFixturePath),
+			Normalizer:           awsprovider.NewRoleNormalizer(),
+			PermissionResolver:   awsprovider.NewPolicyPermissionResolver(),
+			RelationshipResolver: awsprovider.NewRelationshipBuilder(),
+			RiskRuleSet:          awsprovider.NewRuleSet(),
+		}
+	case "kubernetes":
+		scanner = app.Scanner{
+			Collector:            k8sprovider.NewFixtureCollector(cfg.KubernetesFixturePath),
+			Normalizer:           k8sprovider.NewNormalizer(),
+			PermissionResolver:   k8sprovider.NewPermissionResolver(),
+			RelationshipResolver: k8sprovider.NewRelationshipResolver(),
+			RiskRuleSet:          k8sprovider.NewRuleSet(),
+		}
+	default:
+		_ = store.Close()
+		return nil, nil, fmt.Errorf("unsupported provider %q", cfg.Provider)
 	}
 
 	svc := api.NewService(store, scanner, cfg.Provider)

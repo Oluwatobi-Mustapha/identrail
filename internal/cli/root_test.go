@@ -92,15 +92,43 @@ func TestExecuteInvalidOutputFormat(t *testing.T) {
 }
 
 func TestExecuteUnsupportedProvider(t *testing.T) {
-	cfg := config.Config{ServiceName: "identrail-test", Provider: "kubernetes"}
+	cfg := config.Config{ServiceName: "identrail-test", Provider: "azure"}
 
 	var out bytes.Buffer
 	err := Execute(cfg, []string{"scan"}, &out)
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "supports aws only") {
+	if !strings.Contains(err.Error(), "unsupported provider") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestExecuteKubernetesScan(t *testing.T) {
+	cfg := config.Config{
+		ServiceName: "identrail-test",
+		Provider:    "kubernetes",
+	}
+	stateFile := filepath.Join(t.TempDir(), "k8s-state.json")
+	sa := repoFixturePathForProvider(t, "kubernetes", "service_account_payments.json")
+	rb := repoFixturePathForProvider(t, "kubernetes", "role_binding_cluster_admin.json")
+	pod := repoFixturePathForProvider(t, "kubernetes", "pod_payments.json")
+
+	var out bytes.Buffer
+	err := Execute(cfg, []string{
+		"--state-file", stateFile,
+		"scan",
+		"--fixture", sa,
+		"--fixture", rb,
+		"--fixture", pod,
+		"--output", "table",
+	}, &out)
+	if err != nil {
+		t.Fatalf("kubernetes scan failed: %v", err)
+	}
+	lower := strings.ToLower(out.String())
+	if !strings.Contains(lower, "broadly privileged") {
+		t.Fatalf("expected overprivileged finding in output, got %q", out.String())
 	}
 }
 
@@ -118,11 +146,15 @@ func TestExecuteUnknownCommand(t *testing.T) {
 }
 
 func repoFixturePath(t *testing.T, name string) string {
+	return repoFixturePathForProvider(t, "aws", name)
+}
+
+func repoFixturePathForProvider(t *testing.T, provider string, name string) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("could not resolve caller path")
 	}
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	return filepath.Join(root, "testdata", "aws", name)
+	return filepath.Join(root, "testdata", provider, name)
 }

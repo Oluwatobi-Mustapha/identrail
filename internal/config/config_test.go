@@ -13,6 +13,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_SERVICE_NAME", "")
 	t.Setenv("IDENTRAIL_DATABASE_URL", "")
 	t.Setenv("IDENTRAIL_AWS_FIXTURES", "")
+	t.Setenv("IDENTRAIL_K8S_FIXTURES", "")
 	t.Setenv("IDENTRAIL_SCAN_INTERVAL", "")
 	t.Setenv("IDENTRAIL_WORKER_RUN_NOW", "")
 	t.Setenv("IDENTRAIL_API_KEYS", "")
@@ -54,6 +55,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if len(cfg.AWSFixturePath) != 2 {
 		t.Fatalf("expected 2 default fixture paths, got %d", len(cfg.AWSFixturePath))
+	}
+	if len(cfg.KubernetesFixturePath) != 3 {
+		t.Fatalf("expected 3 default k8s fixture paths, got %d", len(cfg.KubernetesFixturePath))
 	}
 	if cfg.ScanInterval != defaultScanInterval {
 		t.Fatalf("expected default scan interval %v, got %v", defaultScanInterval, cfg.ScanInterval)
@@ -127,6 +131,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_SERVICE_NAME", "identrail-dev")
 	t.Setenv("IDENTRAIL_DATABASE_URL", "postgres://example")
 	t.Setenv("IDENTRAIL_AWS_FIXTURES", "fixtures/a.json,fixtures/b.json")
+	t.Setenv("IDENTRAIL_K8S_FIXTURES", "fixtures/sa.json,fixtures/rb.json")
 	t.Setenv("IDENTRAIL_SCAN_INTERVAL", "30m")
 	t.Setenv("IDENTRAIL_WORKER_RUN_NOW", "false")
 	t.Setenv("IDENTRAIL_API_KEYS", "key1,key2")
@@ -168,6 +173,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if len(cfg.AWSFixturePath) != 2 || cfg.AWSFixturePath[0] != "fixtures/a.json" || cfg.AWSFixturePath[1] != "fixtures/b.json" {
 		t.Fatalf("unexpected fixture paths: %+v", cfg.AWSFixturePath)
+	}
+	if len(cfg.KubernetesFixturePath) != 2 || cfg.KubernetesFixturePath[0] != "fixtures/sa.json" || cfg.KubernetesFixturePath[1] != "fixtures/rb.json" {
+		t.Fatalf("unexpected k8s fixture paths: %+v", cfg.KubernetesFixturePath)
 	}
 	if cfg.ScanInterval != 30*time.Minute {
 		t.Fatalf("unexpected scan interval: %v", cfg.ScanInterval)
