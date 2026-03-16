@@ -3,9 +3,14 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
-const maxAlertFindingsLimit = 500
+const (
+	maxAlertFindingsLimit = 500
+	maxAlertRetriesLimit  = 10
+	maxAlertBackoffLimit  = 30
+)
 
 var allowedKeyScopes = map[string]struct{}{
 	"read":  {},
@@ -68,6 +73,12 @@ func ValidateSecurity(cfg Config) error {
 
 	if cfg.AlertMaxFindings > maxAlertFindingsLimit {
 		return fmt.Errorf("IDENTRAIL_ALERT_MAX_FINDINGS must be <= %d", maxAlertFindingsLimit)
+	}
+	if cfg.AlertMaxRetries > maxAlertRetriesLimit {
+		return fmt.Errorf("IDENTRAIL_ALERT_MAX_RETRIES must be <= %d", maxAlertRetriesLimit)
+	}
+	if cfg.AlertRetryBackoff > time.Duration(maxAlertBackoffLimit)*time.Second {
+		return fmt.Errorf("IDENTRAIL_ALERT_RETRY_BACKOFF must be <= %ds", maxAlertBackoffLimit)
 	}
 
 	if strings.TrimSpace(cfg.AlertWebhookURL) != "" {
