@@ -21,6 +21,8 @@ import (
 const (
 	defaultAlertTimeout     = 5 * time.Second
 	defaultAlertMaxFindings = 25
+	defaultAlertMaxRetries  = 2
+	defaultAlertBackoff     = 1 * time.Second
 )
 
 var severityRank = map[domain.FindingSeverity]int{
@@ -45,11 +47,13 @@ func (NopFindingAlerter) NotifyScan(context.Context, string, db.ScanRecord, []do
 
 // WebhookAlerter posts high-signal findings to one webhook endpoint.
 type WebhookAlerter struct {
-	client      *http.Client
-	webhookURL  string
-	minSeverity domain.FindingSeverity
-	hmacSecret  string
-	maxFindings int
+	client       *http.Client
+	webhookURL   string
+	minSeverity  domain.FindingSeverity
+	hmacSecret   string
+	maxFindings  int
+	maxRetries   int
+	retryBackoff time.Duration
 }
 
 // AlertPayload is the external webhook contract for scan alerts.
@@ -78,7 +82,15 @@ type AlertFinding struct {
 }
 
 // NewWebhookAlerter creates a webhook notifier with URL safety checks.
-func NewWebhookAlerter(webhookURL string, timeout time.Duration, minSeverity string, hmacSecret string, maxFindings int) (*WebhookAlerter, error) {
+func NewWebhookAlerter(
+	webhookURL string,
+	timeout time.Duration,
+	minSeverity string,
+	hmacSecret string,
+	maxFindings int,
+	maxRetries int,
+	retryBackoff time.Duration,
+) (*WebhookAlerter, error) {
 	trimmedURL := strings.TrimSpace(webhookURL)
 	if trimmedURL == "" {
 		return nil, fmt.Errorf("webhook url is required")
@@ -97,13 +109,21 @@ func NewWebhookAlerter(webhookURL string, timeout time.Duration, minSeverity str
 	if maxFindings <= 0 {
 		maxFindings = defaultAlertMaxFindings
 	}
+	if maxRetries < 0 {
+		maxRetries = defaultAlertMaxRetries
+	}
+	if retryBackoff <= 0 {
+		retryBackoff = defaultAlertBackoff
+	}
 
 	return &WebhookAlerter{
-		client:      &http.Client{Timeout: timeout},
-		webhookURL:  trimmedURL,
-		minSeverity: parsedSeverity,
-		hmacSecret:  strings.TrimSpace(hmacSecret),
-		maxFindings: maxFindings,
+		client:       &http.Client{Timeout: timeout},
+		webhookURL:   trimmedURL,
+		minSeverity:  parsedSeverity,
+		hmacSecret:   strings.TrimSpace(hmacSecret),
+		maxFindings:  maxFindings,
+		maxRetries:   maxRetries,
+		retryBackoff: retryBackoff,
 	}, nil
 }
 
@@ -131,9 +151,33 @@ func (a *WebhookAlerter) NotifyScan(ctx context.Context, provider string, scan d
 		return fmt.Errorf("marshal alert payload: %w", err)
 	}
 
+	var lastErr error
+	attempts := a.maxRetries + 1
+	for attempt := 0; attempt < attempts; attempt++ {
+		retryable, sendErr := a.sendWebhook(ctx, body)
+		if sendErr == nil {
+			return nil
+		}
+		lastErr = sendErr
+		if !retryable || attempt == attempts-1 {
+			break
+		}
+		wait := backoffDuration(a.retryBackoff, attempt)
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("send alert webhook: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+	return lastErr
+}
+
+func (a *WebhookAlerter) sendWebhook(ctx context.Context, body []byte) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.webhookURL, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("build alert request: %w", err)
+		return false, fmt.Errorf("build alert request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "identrail-alert/1.0")
@@ -143,15 +187,16 @@ func (a *WebhookAlerter) NotifyScan(ctx context.Context, provider string, scan d
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("send alert webhook: %w", err)
+		return true, fmt.Errorf("send alert webhook: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-		return fmt.Errorf("alert webhook status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+		retryable := resp.StatusCode >= http.StatusInternalServerError
+		return retryable, fmt.Errorf("alert webhook status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
-	return nil
+	return false, nil
 }
 
 func filterFindingsBySeverity(findings []domain.Finding, min domain.FindingSeverity, max int) []AlertFinding {
@@ -212,4 +257,15 @@ func computeHMAC(body []byte, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func backoffDuration(base time.Duration, attempt int) time.Duration {
+	wait := base
+	for i := 0; i < attempt; i++ {
+		wait *= 2
+	}
+	if wait > 10*time.Second {
+		return 10 * time.Second
+	}
+	return wait
 }
