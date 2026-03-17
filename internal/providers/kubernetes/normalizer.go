@@ -30,6 +30,30 @@ func (n *Normalizer) Normalize(ctx context.Context, raw []providers.RawAsset) (p
 	bundle := providers.NormalizedBundle{}
 	identitySeen := map[string]struct{}{}
 	policySeen := map[string]struct{}{}
+	roleStatements := map[string][]map[string]any{}
+
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != "k8s_role" {
+			continue
+		}
+		var role RBACRole
+		if err := json.Unmarshal(asset.Payload, &role); err != nil {
+			return providers.NormalizedBundle{}, fmt.Errorf("decode role asset[%d]: %w", i, err)
+		}
+		key := roleRuleKey(role.Kind, role.Metadata.Namespace, role.Metadata.Name)
+		if key == "" {
+			continue
+		}
+		statements := statementsForPolicyRules(role.Rules)
+		if len(statements) == 0 {
+			continue
+		}
+		roleStatements[key] = statements
+	}
+
 	for i, asset := range raw {
 		if err := ctx.Err(); err != nil {
 			return providers.NormalizedBundle{}, err
@@ -92,7 +116,7 @@ func (n *Normalizer) Normalize(ctx context.Context, raw []providers.RawAsset) (p
 			if bindingName == "" {
 				continue
 			}
-			statements := statementsForRole(binding.RoleRef.Name)
+			statements := resolveBindingStatements(binding, roleStatements)
 			if len(statements) == 0 {
 				continue
 			}
@@ -134,6 +158,61 @@ func (n *Normalizer) Normalize(ctx context.Context, raw []providers.RawAsset) (p
 		}
 	}
 	return bundle, nil
+}
+
+func resolveBindingStatements(binding RoleBinding, roleStatements map[string][]map[string]any) []map[string]any {
+	roleKind := strings.TrimSpace(binding.RoleRef.Kind)
+	roleName := strings.TrimSpace(binding.RoleRef.Name)
+	roleNamespace := ""
+	if strings.EqualFold(roleKind, "Role") {
+		roleNamespace = strings.TrimSpace(binding.Metadata.Namespace)
+	}
+	if key := roleRuleKey(roleKind, roleNamespace, roleName); key != "" {
+		if statements, exists := roleStatements[key]; exists && len(statements) > 0 {
+			return statements
+		}
+	}
+	return statementsForRole(roleName)
+}
+
+func statementsForPolicyRules(rules []PolicyRule) []map[string]any {
+	statements := make([]map[string]any, 0, len(rules))
+	for _, rule := range rules {
+		actions := normalizeRuleValues(rule.Verbs)
+		resources := normalizeRuleValues(append(append([]string(nil), rule.Resources...), rule.NonResourceURLs...))
+		if len(actions) == 0 || len(resources) == 0 {
+			continue
+		}
+		statements = append(statements, map[string]any{
+			"effect":    "Allow",
+			"actions":   actions,
+			"resources": resources,
+		})
+	}
+	if len(statements) == 0 {
+		return nil
+	}
+	return statements
+}
+
+func normalizeRuleValues(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	return result
 }
 
 func statementsForRole(roleName string) []map[string]any {

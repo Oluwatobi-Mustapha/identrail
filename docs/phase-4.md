@@ -7,13 +7,14 @@ Add first Kubernetes support for identity/workload mapping and core risk detecti
 ## Implemented in this milestone
 
 - Kubernetes fixture collector:
-  - reads `ServiceAccount`, `RoleBinding`/`ClusterRoleBinding`, and `Pod` objects
+  - reads `ServiceAccount`, `Role`/`ClusterRole`, `RoleBinding`/`ClusterRoleBinding`, and `Pod` objects
   - supports file and directory fixture paths
   - deduplicates by stable source IDs
 - Kubernetes normalizer:
   - maps service accounts to normalized identities
   - maps pods to workloads and links workloads to service account identities
-  - maps role bindings into normalized policies with semantic statements
+  - maps role bindings into normalized policies from actual Role/ClusterRole rules
+  - falls back to safe built-in role-name semantics only if role objects are missing
 - Kubernetes permission resolver:
   - expands normalized statements into permission tuples
 - Kubernetes graph resolver:
@@ -28,7 +29,7 @@ Add first Kubernetes support for identity/workload mapping and core risk detecti
   - collection source mode: `IDENTRAIL_K8S_SOURCE=fixture|kubectl`
   - optional live collection controls: `IDENTRAIL_KUBECTL_PATH`, `IDENTRAIL_KUBE_CONTEXT`
 - Kubernetes kubectl collector:
-  - read-only `kubectl get` calls for service accounts, role bindings, cluster role bindings, and pods
+  - read-only `kubectl get` calls for service accounts, roles, cluster roles, role bindings, cluster role bindings, and pods
   - deterministic deduplication and typed raw assets
   - unit tests for command errors, malformed output, and context mode args
 
@@ -41,5 +42,4 @@ Add first Kubernetes support for identity/workload mapping and core risk detecti
 ## Next Kubernetes slices
 
 1. Native Kubernetes API client collector (client-go) as an alternative to kubectl command execution.
-2. Namespace-aware policy semantics (Role vs ClusterRole resolution by actual rules).
-3. Additional rules (secret-read concentration, broad binding fanout, default SA abuse).
+2. Additional rules (secret-read concentration, broad binding fanout, default SA abuse).

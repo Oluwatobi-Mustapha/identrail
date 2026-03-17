@@ -12,6 +12,7 @@ func TestNormalizerNormalizeFromFixtures(t *testing.T) {
 	normalizer := NewNormalizer()
 	raw := []providers.RawAsset{
 		loadRawFixture(t, "k8s_service_account", "service_account_payments.json", "k8s:sa:apps:payments-api"),
+		loadRawFixture(t, "k8s_role", "cluster_role_cluster_admin.json", "k8s:role:cluster:cluster-admin"),
 		loadRawFixture(t, "k8s_role_binding", "role_binding_cluster_admin.json", "k8s:rb:cluster:payments-cluster-admin"),
 		loadRawFixture(t, "k8s_pod", "pod_payments.json", "k8s:pod:apps:payments-api-0"),
 	}
@@ -78,5 +79,44 @@ func TestStatementsForRole(t *testing.T) {
 	}
 	if got := len(statementsForRole("unknown")); got != 0 {
 		t.Fatalf("expected no statements for unknown role, got %d", got)
+	}
+}
+
+func TestStatementsForPolicyRules(t *testing.T) {
+	rules := []PolicyRule{
+		{Verbs: []string{"GET", "LIST", "get"}, Resources: []string{"pods", "pods"}},
+		{Verbs: []string{"watch"}, NonResourceURLs: []string{"/healthz"}},
+	}
+	statements := statementsForPolicyRules(rules)
+	if len(statements) != 2 {
+		t.Fatalf("expected 2 statements, got %d", len(statements))
+	}
+	actions := statements[0]["actions"].([]string)
+	if len(actions) != 2 || actions[0] != "get" || actions[1] != "list" {
+		t.Fatalf("unexpected normalized actions %+v", actions)
+	}
+	resources := statements[0]["resources"].([]string)
+	if len(resources) != 1 || resources[0] != "pods" {
+		t.Fatalf("unexpected normalized resources %+v", resources)
+	}
+}
+
+func TestResolveBindingStatementsPrefersRoleRules(t *testing.T) {
+	binding := RoleBinding{
+		Metadata: ObjectMeta{Name: "payments-admin"},
+		RoleRef:  RoleRef{Kind: "ClusterRole", Name: "cluster-admin"},
+	}
+	roleStatements := map[string][]map[string]any{
+		roleRuleKey("ClusterRole", "", "cluster-admin"): {
+			{"effect": "Allow", "actions": []string{"bind"}, "resources": []string{"clusterrolebindings"}},
+		},
+	}
+	got := resolveBindingStatements(binding, roleStatements)
+	if len(got) != 1 {
+		t.Fatalf("expected role-rule statements, got %d", len(got))
+	}
+	actions := got[0]["actions"].([]string)
+	if len(actions) != 1 || actions[0] != "bind" {
+		t.Fatalf("unexpected actions %+v", actions)
 	}
 }

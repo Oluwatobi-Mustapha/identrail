@@ -14,6 +14,7 @@ func TestRuleSetDetectsOverprivilegedAndEscalation(t *testing.T) {
 	normalizer := NewNormalizer()
 	bundle, err := normalizer.Normalize(context.Background(), []providers.RawAsset{
 		loadRawFixture(t, "k8s_service_account", "service_account_payments.json", "k8s:sa:apps:payments-api"),
+		loadRawFixture(t, "k8s_role", "cluster_role_cluster_admin.json", "k8s:role:cluster:cluster-admin"),
 		loadRawFixture(t, "k8s_role_binding", "role_binding_cluster_admin.json", "k8s:rb:cluster:payments-cluster-admin"),
 		loadRawFixture(t, "k8s_pod", "pod_payments.json", "k8s:pod:apps:payments-api-0"),
 	})

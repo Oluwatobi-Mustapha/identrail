@@ -39,6 +39,12 @@ func TestKubectlCollectorCollect(t *testing.T) {
 			"kubectl --context dev get clusterrolebindings -o json": []byte(`{"items":[
 				{"kind":"ClusterRoleBinding","metadata":{"name":"payments-admin"},"roleRef":{"kind":"ClusterRole","name":"cluster-admin"},"subjects":[{"kind":"ServiceAccount","name":"payments-api","namespace":"apps"}]}
 			]}`),
+			"kubectl --context dev get roles --all-namespaces -o json": []byte(`{"items":[
+				{"kind":"Role","metadata":{"name":"payments-view","namespace":"apps"},"rules":[{"verbs":["get","list","watch"],"resources":["pods"]}]}
+			]}`),
+			"kubectl --context dev get clusterroles -o json": []byte(`{"items":[
+				{"kind":"ClusterRole","metadata":{"name":"cluster-admin"},"rules":[{"verbs":["*"],"resources":["*"]}]}
+			]}`),
 			"kubectl --context dev get pods --all-namespaces -o json": []byte(`{"items":[
 				{"kind":"Pod","metadata":{"name":"payments-api-0","namespace":"apps"},"spec":{"serviceAccountName":"payments-api"}}
 			]}`),
@@ -52,16 +58,16 @@ func TestKubectlCollectorCollect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("collect failed: %v", err)
 	}
-	if len(assets) != 4 {
-		t.Fatalf("expected 4 deduplicated assets, got %d", len(assets))
+	if len(assets) != 6 {
+		t.Fatalf("expected 6 deduplicated assets, got %d", len(assets))
 	}
 	for _, asset := range assets {
 		if asset.Collected != "2026-03-17T12:00:00Z" {
 			t.Fatalf("unexpected collected timestamp: %q", asset.Collected)
 		}
 	}
-	if got := len(exec.commands); got != 4 {
-		t.Fatalf("expected 4 kubectl calls, got %d", got)
+	if got := len(exec.commands); got != 6 {
+		t.Fatalf("expected 6 kubectl calls, got %d", got)
 	}
 }
 
@@ -71,6 +77,8 @@ func TestKubectlCollectorUsesDefaults(t *testing.T) {
 			"kubectl get serviceaccounts --all-namespaces -o json": []byte(`{"items":[]}`),
 			"kubectl get rolebindings --all-namespaces -o json":    []byte(`{"items":[]}`),
 			"kubectl get clusterrolebindings -o json":              []byte(`{"items":[]}`),
+			"kubectl get roles --all-namespaces -o json":           []byte(`{"items":[]}`),
+			"kubectl get clusterroles -o json":                     []byte(`{"items":[]}`),
 			"kubectl get pods --all-namespaces -o json":            []byte(`{"items":[]}`),
 		},
 	}
@@ -118,6 +126,8 @@ func TestKubectlCollectorMalformedItem(t *testing.T) {
 			"kubectl get serviceaccounts --all-namespaces -o json": []byte(`{"items":[{"metadata":{"name":"sa","namespace":"apps"}}]}`),
 			"kubectl get rolebindings --all-namespaces -o json":    []byte(`{"items":[{"kind":"RoleBinding","metadata":{"name":"rb","namespace":"apps"}}]}`),
 			"kubectl get clusterrolebindings -o json":              []byte(`{"items":[{"kind":"ClusterRoleBinding","metadata":{"name":"crb"}}]}`),
+			"kubectl get roles --all-namespaces -o json":           []byte(`{"items":[{"kind":"Role","metadata":{"name":"view","namespace":"apps"}}]}`),
+			"kubectl get clusterroles -o json":                     []byte(`{"items":[{"kind":"ClusterRole","metadata":{"name":"cluster-admin"}}]}`),
 			"kubectl get pods --all-namespaces -o json":            []byte(`{"items":[invalid]}`),
 		},
 	}

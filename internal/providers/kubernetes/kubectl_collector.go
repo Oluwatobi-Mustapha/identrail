@@ -48,7 +48,7 @@ type rawList struct {
 	Items []json.RawMessage `json:"items"`
 }
 
-// Collect fetches service accounts, role bindings, and pods using read-only kubectl calls.
+// Collect fetches service accounts, role bindings, roles, and pods using read-only kubectl calls.
 func (c *KubectlCollector) Collect(ctx context.Context) ([]providers.RawAsset, error) {
 	collectedAt := c.now().UTC().Format(time.RFC3339Nano)
 	assets := make([]providers.RawAsset, 0, 128)
@@ -67,6 +67,18 @@ func (c *KubectlCollector) Collect(ctx context.Context) ([]providers.RawAsset, e
 	assets = append(assets, added...)
 
 	added, err = c.collectRoleBindings(ctx, "clusterrolebindings", false, collectedAt, seen)
+	if err != nil {
+		return nil, err
+	}
+	assets = append(assets, added...)
+
+	added, err = c.collectRoles(ctx, "roles", true, collectedAt, seen)
+	if err != nil {
+		return nil, err
+	}
+	assets = append(assets, added...)
+
+	added, err = c.collectRoles(ctx, "clusterroles", false, collectedAt, seen)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +149,35 @@ func (c *KubectlCollector) collectRoleBindings(ctx context.Context, resource str
 		seen[sourceID] = struct{}{}
 		assets = append(assets, providers.RawAsset{
 			Kind:      "k8s_role_binding",
+			SourceID:  sourceID,
+			Payload:   item,
+			Collected: collectedAt,
+		})
+	}
+	return assets, nil
+}
+
+func (c *KubectlCollector) collectRoles(ctx context.Context, resource string, allNamespaces bool, collectedAt string, seen map[string]struct{}) ([]providers.RawAsset, error) {
+	items, err := c.list(ctx, resource, allNamespaces)
+	if err != nil {
+		return nil, fmt.Errorf("list %s: %w", resource, err)
+	}
+	assets := make([]providers.RawAsset, 0, len(items))
+	for i, item := range items {
+		var role RBACRole
+		if err := json.Unmarshal(item, &role); err != nil {
+			return nil, fmt.Errorf("decode %s item[%d]: %w", resource, i, err)
+		}
+		sourceID := roleSourceID(role.Kind, role.Metadata.Namespace, role.Metadata.Name)
+		if sourceID == "" {
+			continue
+		}
+		if _, exists := seen[sourceID]; exists {
+			continue
+		}
+		seen[sourceID] = struct{}{}
+		assets = append(assets, providers.RawAsset{
+			Kind:      "k8s_role",
 			SourceID:  sourceID,
 			Payload:   item,
 			Collected: collectedAt,

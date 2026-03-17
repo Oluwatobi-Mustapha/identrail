@@ -71,8 +71,8 @@ func TestLoadDefaults(t *testing.T) {
 	if len(cfg.AWSFixturePath) != 2 {
 		t.Fatalf("expected 2 default fixture paths, got %d", len(cfg.AWSFixturePath))
 	}
-	if len(cfg.KubernetesFixturePath) != 3 {
-		t.Fatalf("expected 3 default k8s fixture paths, got %d", len(cfg.KubernetesFixturePath))
+	if len(cfg.KubernetesFixturePath) != 4 {
+		t.Fatalf("expected 4 default k8s fixture paths, got %d", len(cfg.KubernetesFixturePath))
 	}
 	if cfg.KubernetesSource != defaultK8sSource {
 		t.Fatalf("expected default k8s source %q, got %q", defaultK8sSource, cfg.KubernetesSource)

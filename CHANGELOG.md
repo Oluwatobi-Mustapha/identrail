@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Strengthened Kubernetes RBAC normalization semantics:
+  - collector now ingests `roles` and `clusterroles` in kubectl mode
+  - fixture mode now supports `Role`/`ClusterRole` assets with stable source IDs
+  - normalizer now resolves binding permissions from real RBAC `rules` first
+  - role-name heuristic mapping remains as fallback only when role assets are missing
+  - added cluster-role fixture and updated default k8s fixture set
 - Added AWS live collection mode via AWS SDK:
   - new adapter: `internal/providers/aws/sdk_client.go`
   - source selection: `IDENTRAIL_AWS_SOURCE=fixture|sdk`

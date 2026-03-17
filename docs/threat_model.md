@@ -182,6 +182,11 @@ Simple threat list for current system.
 - Fix: Explicit AWS source mode/region config (`IDENTRAIL_AWS_SOURCE`, `IDENTRAIL_AWS_REGION`, optional `IDENTRAIL_AWS_PROFILE`) with startup validation.
 - Status: Implemented.
 
+## 37) RBAC Role-Name Heuristic Drift
+- Threat: Inferring Kubernetes permissions from role names alone (`cluster-admin`, `view`, etc.) can miss or misstate custom-role privileges.
+- Fix: Collect `Role`/`ClusterRole` assets and derive policy statements from concrete RBAC `rules`; keep fallback heuristics only when role data is missing.
+- Status: Implemented.
+
 ## Current Gaps (Next)
 - Add encrypted secret management and external KMS guidance.
 - Add audit sink forwarding guide for centralized log pipelines.

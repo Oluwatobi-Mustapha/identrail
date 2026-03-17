@@ -67,6 +67,9 @@ func TestNormalizeKindAndSourceIDFor(t *testing.T) {
 	if got := normalizeKind("ClusterRoleBinding"); got != "k8s_role_binding" {
 		t.Fatalf("unexpected kind mapping: %q", got)
 	}
+	if got := normalizeKind("ClusterRole"); got != "k8s_role" {
+		t.Fatalf("unexpected kind mapping: %q", got)
+	}
 	if got := normalizeKind("Pod"); got != "k8s_pod" {
 		t.Fatalf("unexpected kind mapping: %q", got)
 	}
@@ -85,6 +88,12 @@ func TestNormalizeKindAndSourceIDFor(t *testing.T) {
 	}
 	if got := sourceIDFor("k8s_pod", ObjectMeta{Name: "pod", Namespace: "apps"}); got != "k8s:pod:apps:pod" {
 		t.Fatalf("unexpected pod source id %q", got)
+	}
+	if got := roleSourceID("ClusterRole", "", "cluster-admin"); got != "k8s:role:cluster:cluster-admin" {
+		t.Fatalf("unexpected cluster role source id %q", got)
+	}
+	if got := roleSourceID("Role", "apps", "payments-view"); got != "k8s:role:apps:payments-view" {
+		t.Fatalf("unexpected role source id %q", got)
 	}
 }
 

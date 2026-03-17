@@ -15,7 +15,7 @@ const (
 	defaultAWSSource    = "fixture"
 	defaultAWSRegion    = "us-east-1"
 	defaultAWSFixtures  = "testdata/aws/role_with_policies.json,testdata/aws/role_with_urlencoded_trust.json"
-	defaultK8sFixtures  = "testdata/kubernetes/service_account_payments.json,testdata/kubernetes/role_binding_cluster_admin.json,testdata/kubernetes/pod_payments.json"
+	defaultK8sFixtures  = "testdata/kubernetes/service_account_payments.json,testdata/kubernetes/cluster_role_cluster_admin.json,testdata/kubernetes/role_binding_cluster_admin.json,testdata/kubernetes/pod_payments.json"
 	defaultK8sSource    = "fixture"
 	defaultKubectlPath  = "kubectl"
 	defaultScanInterval = 15 * time.Minute

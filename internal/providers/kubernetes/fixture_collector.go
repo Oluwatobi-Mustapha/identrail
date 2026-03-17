@@ -60,6 +60,13 @@ func (c *FixtureCollector) Collect(ctx context.Context) ([]providers.RawAsset, e
 			continue
 		}
 		sourceID := sourceIDFor(kind, header.Meta)
+		if kind == "k8s_role" {
+			var role RBACRole
+			if err := json.Unmarshal(payload, &role); err != nil {
+				return nil, fmt.Errorf("decode role fixture %s: %w", path, err)
+			}
+			sourceID = roleSourceID(role.Kind, role.Metadata.Namespace, role.Metadata.Name)
+		}
 		if sourceID == "" {
 			continue
 		}
@@ -83,6 +90,8 @@ func normalizeKind(kind string) string {
 		return "k8s_service_account"
 	case "rolebinding", "clusterrolebinding":
 		return "k8s_role_binding"
+	case "role", "clusterrole":
+		return "k8s_role"
 	case "pod":
 		return "k8s_pod"
 	default:

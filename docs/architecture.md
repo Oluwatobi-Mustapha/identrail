@@ -55,7 +55,7 @@ Collector -> Raw Assets -> Normalizer -> Domain Entities
 - `internal/db`: storage adapters and migration-backed schema.
 - `internal/runtime`: shared service bootstrap used by server and worker.
 - `internal/providers/aws`: AWS phase-1 provider pipeline (collector -> normalizer -> graph -> rules).
-- `internal/providers/kubernetes`: Kubernetes phase-4 foundation pipeline (fixture collector -> normalizer -> graph -> rules).
+- `internal/providers/kubernetes`: Kubernetes phase-4 pipeline with fixture/kubectl collection, RBAC role-rule normalization, graph, and risk rules.
 
 ## Future Extraction Plan
 

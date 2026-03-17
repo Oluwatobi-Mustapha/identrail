@@ -1,0 +1,19 @@
+{
+  "kind": "ClusterRole",
+  "metadata": {
+    "name": "cluster-admin"
+  },
+  "rules": [
+    {
+      "apiGroups": [
+        "*"
+      ],
+      "resources": [
+        "*"
+      ],
+      "verbs": [
+        "*"
+      ]
+    }
+  ]
+}

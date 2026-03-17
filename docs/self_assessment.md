@@ -26,6 +26,7 @@ Updated only at major milestones.
 - Kubernetes foundation: fixture-based k8s pipeline shipped (collector, normalizer, graph, rules) with runtime and CLI provider support.
 - Deployment portability: Docker Compose, Kubernetes manifests, and systemd unit templates added for repeatable multi-environment rollout.
 - Kubernetes live mode: kubectl-based read-only collector added with source-mode config and fail-fast validation.
+- Kubernetes RBAC semantics: role bindings now resolve from real Role/ClusterRole rules (with safe fallback heuristics).
 - AWS live mode: SDK-based read-only collector added with source-mode and region/profile config validation.
 - Worker: scheduled process runs scans with shared runtime bootstrap.
 - Migrations: startup migration runner added for Postgres mode.

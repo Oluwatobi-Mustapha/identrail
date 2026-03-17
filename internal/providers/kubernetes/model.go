@@ -44,6 +44,21 @@ type Pod struct {
 	} `json:"spec"`
 }
 
+// PolicyRule captures Kubernetes RBAC rule semantics used for permission expansion.
+type PolicyRule struct {
+	APIGroups       []string `json:"apiGroups"`
+	Resources       []string `json:"resources"`
+	Verbs           []string `json:"verbs"`
+	NonResourceURLs []string `json:"nonResourceURLs"`
+}
+
+// RBACRole represents a Role or ClusterRole payload shape.
+type RBACRole struct {
+	Kind     string       `json:"kind"`
+	Metadata ObjectMeta   `json:"metadata"`
+	Rules    []PolicyRule `json:"rules"`
+}
+
 func serviceAccountID(namespace, name string) string {
 	return "k8s:identity:sa:" + strings.TrimSpace(namespace) + ":" + strings.TrimSpace(name)
 }
@@ -58,6 +73,38 @@ func policyID(scope, name, identityID string) string {
 
 func accessNodeID(action, resource string) string {
 	return "k8s:access:" + strings.TrimSpace(action) + ":" + strings.TrimSpace(resource)
+}
+
+func roleSourceID(kind, namespace, name string) string {
+	k := strings.ToLower(strings.TrimSpace(kind))
+	n := strings.TrimSpace(name)
+	ns := strings.TrimSpace(namespace)
+	if n == "" {
+		return ""
+	}
+	if k == "clusterrole" {
+		return "k8s:role:cluster:" + n
+	}
+	if ns == "" {
+		return ""
+	}
+	return "k8s:role:" + ns + ":" + n
+}
+
+func roleRuleKey(kind, namespace, name string) string {
+	k := strings.ToLower(strings.TrimSpace(kind))
+	n := strings.ToLower(strings.TrimSpace(name))
+	ns := strings.ToLower(strings.TrimSpace(namespace))
+	if n == "" {
+		return ""
+	}
+	if k == "clusterrole" {
+		return "cluster::" + n
+	}
+	if ns == "" {
+		return ""
+	}
+	return "namespace::" + ns + "::" + n
 }
 
 func ownerHint(labels map[string]string) string {

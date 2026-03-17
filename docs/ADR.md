@@ -223,3 +223,9 @@ This file tracks major decisions in simple terms.
 - Decision: Add `IDENTRAIL_AWS_SOURCE=sdk` mode to collect IAM roles and policies using AWS SDK while retaining fixture mode.
 - Why: Enable direct onboarding for real AWS environments without replacing deterministic fixture workflows.
 - Tradeoff: Requires valid AWS credentials and region configuration; IAM API rate limits must be handled operationally.
+
+## ADR-038: Resolve Kubernetes Bindings from Real RBAC Role Rules
+- Date: 2026-03-17
+- Decision: Collect `Role` and `ClusterRole` objects and expand role bindings from their concrete RBAC `rules` first.
+- Why: Avoid false confidence and drift from role-name-only heuristics when custom roles are used.
+- Tradeoff: More collection calls and normalization logic; still keep heuristic fallback when role objects are unavailable.
