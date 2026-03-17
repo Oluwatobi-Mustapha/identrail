@@ -253,3 +253,15 @@ This file tracks major decisions in simple terms.
 - Decision: Add opt-in worker scheduler for repository scans (`IDENTRAIL_WORKER_REPO_SCAN_*`) and enforce `repo-scan:<target>` lock in service execution.
 - Why: Keep continuous repo exposure monitoring in-platform while preserving backward compatibility and avoiding same-target overlap between API and worker.
 - Tradeoff: Additional worker configuration and lock semantics to maintain.
+
+## ADR-043: Add Postgres Advisory Lock Backend for Multi-Instance Safety
+- Date: 2026-03-17
+- Decision: Add configurable lock backend (`IDENTRAIL_LOCK_BACKEND=auto|postgres|inmemory`) with Postgres advisory locks in database deployments.
+- Why: In-memory locks are node-local; distributed lock is required to prevent overlapping scans across multiple API/worker instances.
+- Tradeoff: Lock acquisition depends on database connectivity and lock namespace configuration.
+
+## ADR-044: Add Cursor Pagination and Ownership Signals API
+- Date: 2026-03-17
+- Decision: Add additive cursor pagination (`cursor`, `next_cursor`) to list endpoints and `GET /v1/ownership/signals` inferred from identity metadata.
+- Why: Keep API stable for large datasets and improve remediation accountability without introducing heavy new persistence paths.
+- Tradeoff: Current cursor strategy is offset-based and can be less efficient at very high offsets.

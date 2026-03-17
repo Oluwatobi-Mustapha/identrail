@@ -8,6 +8,7 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
 
 - PostgreSQL baseline migration set (`migrations/000001_init.up.sql`)
 - Scan event migration set (`migrations/000002_scan_events.up.sql`)
+- Performance index migration set (`migrations/000004_performance_indexes.up.sql`)
 - Storage layer (`internal/db`):
   - `MemoryStore` for local/dev execution
   - `PostgresStore` for production persistence
@@ -30,10 +31,12 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
   - `GET /v1/findings/trends`
   - `GET /v1/identities`
   - `GET /v1/relationships`
+  - `GET /v1/ownership/signals`
 - API filters and drill-down:
   - findings filters: `scan_id`, `severity`, `type`
   - trends filters: `severity`, `type`
   - scan event filters: `level`
+  - list endpoint cursor pagination: `cursor`, `next_cursor`
   - scan diff baseline override: `previous_scan_id`
   - finding drill-down by id, with optional `scan_id` scope
 - Full artifact persistence:
@@ -41,9 +44,9 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
 - SQL query scaffolding:
   - `sqlc/sqlc.yaml`
   - query contracts under `sqlc/queries/`
-  - typed query wrapper consumed by Postgres read paths (`GetScan`, scan list, findings list, scan events)
+  - typed query wrapper consumed by Postgres read paths (`GetScan`, scan list, findings list, scan events, repo scan reads)
 - Scheduler and worker:
-  - keyed in-memory scan lock
+  - keyed lock abstraction with in-memory and PostgreSQL advisory backends
   - periodic runner abstraction
   - worker binary (`cmd/worker`) for scheduled scans
   - optional scheduled repository scan batch (`IDENTRAIL_WORKER_REPO_SCAN_*`)
@@ -104,6 +107,8 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
 - `IDENTRAIL_ALERT_MAX_FINDINGS`
 - `IDENTRAIL_ALERT_MAX_RETRIES`
 - `IDENTRAIL_ALERT_RETRY_BACKOFF`
+- `IDENTRAIL_LOCK_BACKEND` (`auto|postgres|inmemory`)
+- `IDENTRAIL_LOCK_NAMESPACE`
 - `IDENTRAIL_REPO_SCAN_ENABLED`
 - `IDENTRAIL_REPO_SCAN_HISTORY_LIMIT`
 - `IDENTRAIL_REPO_SCAN_MAX_FINDINGS`
@@ -122,10 +127,11 @@ Persist scan metadata and findings over time, expose stable API endpoints, and r
 - Findings use upsert key `(scan_id, finding_id)`.
 - Raw/normalized artifacts use scan-scoped upsert keys.
 - Scan triggers are protected by provider lock (`scan:<provider>`).
+- Repo scan triggers are protected by target lock (`repo-scan:<target>`).
 
 ## Next milestones
 
 1. migrate Postgres store queries to generated sqlc package
 2. role/scope policy hardening guide for key rotation
 3. dashboard UI consumption for trends/explorer endpoints
-4. distributed lock strategy for multi-node worker deployments
+4. distributed lock observability and contention metrics

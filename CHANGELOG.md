@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- Added distributed lock backend support:
+  - `IDENTRAIL_LOCK_BACKEND=auto|postgres|inmemory`
+  - `IDENTRAIL_LOCK_NAMESPACE` for lock isolation across environments
+  - PostgreSQL advisory lock implementation for scan and repo-scan concurrency control
+  - runtime auto-selection defaults to postgres backend in database mode
+- Added cursor pagination for list endpoints:
+  - supports `cursor` request parameter and `next_cursor` response field
+  - applied to findings, scans, identities, relationships, scan events, repo scans, and repo findings APIs
+- Added ownership-signal API:
+  - `GET /v1/ownership/signals`
+  - infers ownership from `owner_hint` and identity tags with confidence scoring
+- Added performance index migration:
+  - new migration `000004_performance_indexes`
+  - adds composite indexes for findings, repo findings, and scan events read patterns
+- Expanded sqlc query contract/wrapper coverage for repository read paths (`GetRepoScan`, `ListRepoScans`, `ListRepoFindings`).
 - Added optional worker-scheduled repository scans:
   - new worker config controls:
     - `IDENTRAIL_WORKER_REPO_SCAN_ENABLED`

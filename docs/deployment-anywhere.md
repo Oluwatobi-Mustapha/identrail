@@ -60,5 +60,6 @@ Use this where Kubernetes is not required.
 - Repository exposure scans can be run via CLI (`identrail repo-scan`) or API (`POST /v1/repo-scans`).
 - Optional continuous repo scanning can run from worker (`IDENTRAIL_WORKER_REPO_SCAN_ENABLED=true` + `IDENTRAIL_WORKER_REPO_SCAN_TARGETS`).
 - For tighter safety in shared environments, set `IDENTRAIL_REPO_SCAN_ALLOWLIST`.
+- For multi-instance API/worker deployments, use `IDENTRAIL_LOCK_BACKEND=postgres` (or `auto` with database mode).
 - Use PostgreSQL in non-local deployments.
 - Set HTTPS endpoints for alert/audit forwarding in production.

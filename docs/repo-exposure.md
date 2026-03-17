@@ -37,6 +37,7 @@ Read APIs:
 - `GET /v1/repo-scans`
 - `GET /v1/repo-scans/:repo_scan_id`
 - `GET /v1/repo-findings?repo_scan_id=&severity=&type=`
+- list endpoints support cursor pagination (`?limit=...&cursor=...`) and return `next_cursor` when more results exist
 
 ## What It Scans
 

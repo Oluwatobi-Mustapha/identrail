@@ -212,6 +212,16 @@ Simple threat list for current system.
 - Fix: Startup validation enforces explicit target list and allowlist compatibility before worker starts.
 - Status: Implemented.
 
+## 43) Multi-Instance Lock Drift
+- Threat: Node-local locks allow overlapping scans when API/worker run on multiple instances.
+- Fix: Add PostgreSQL advisory lock backend with namespace support (`IDENTRAIL_LOCK_BACKEND`, `IDENTRAIL_LOCK_NAMESPACE`).
+- Status: Implemented.
+
+## 44) Unbounded Client-Side List Paging
+- Threat: Pulling large full lists for scans/findings can increase latency and memory pressure.
+- Fix: Add cursor pagination (`cursor`, `next_cursor`) to list endpoints while preserving backward compatibility.
+- Status: Implemented.
+
 ## Current Gaps (Next)
 - Add encrypted secret management and external KMS guidance.
 - Add audit sink forwarding guide for centralized log pipelines.

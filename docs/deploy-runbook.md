@@ -12,6 +12,10 @@ Portable deployment profiles:
 
 - Confirm `IDENTRAIL_DATABASE_URL` points to target environment.
 - Confirm migrations path is correct (`IDENTRAIL_MIGRATIONS_DIR`).
+- Confirm lock backend for deployment shape:
+  - single instance: `IDENTRAIL_LOCK_BACKEND=inmemory` or `auto`
+  - multi-instance: `IDENTRAIL_LOCK_BACKEND=postgres`
+  - set `IDENTRAIL_LOCK_NAMESPACE` to isolate lock domains between environments
 - Confirm API auth is configured:
   - legacy: `IDENTRAIL_API_KEYS` (+ `IDENTRAIL_WRITE_API_KEYS`)
   - scoped: `IDENTRAIL_API_KEY_SCOPES`

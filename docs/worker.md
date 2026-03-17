@@ -15,6 +15,8 @@ The worker runs scans on a schedule.
 - `IDENTRAIL_WORKER_RUN_NOW` (default `true`)
 - `IDENTRAIL_AWS_FIXTURES`
 - `IDENTRAIL_DATABASE_URL`
+- `IDENTRAIL_LOCK_BACKEND` (`auto|postgres|inmemory`, default `auto`)
+- `IDENTRAIL_LOCK_NAMESPACE` (default `identrail`)
 - `IDENTRAIL_WORKER_REPO_SCAN_ENABLED` (default `false`)
 - `IDENTRAIL_WORKER_REPO_SCAN_RUN_NOW` (default `false`)
 - `IDENTRAIL_WORKER_REPO_SCAN_INTERVAL` (default `1h`)
@@ -30,3 +32,4 @@ The worker runs scans on a schedule.
 - Skips overlapping runs via existing service lock
 - Optional repo scan scheduler is additive and disabled by default
 - Repo scans use per-target lock key (`repo-scan:<target>`) to avoid overlap between API and worker triggers
+- In database mode, `IDENTRAIL_LOCK_BACKEND=auto` uses PostgreSQL advisory locks for multi-instance safety
