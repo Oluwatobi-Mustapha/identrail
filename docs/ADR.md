@@ -235,3 +235,9 @@ This file tracks major decisions in simple terms.
 - Decision: Add `repo-scan` as a dedicated, read-only CLI workflow separate from cloud identity scan pipelines.
 - Why: Detect public-repo secret leaks and misconfigurations without coupling repository scanning to AWS/Kubernetes domain models.
 - Tradeoff: Results are currently CLI-driven and not yet persisted through API scan lifecycle endpoints.
+
+## ADR-040: Expose Repo Scan Through Write-Protected API Endpoint
+- Date: 2026-03-17
+- Decision: Add `POST /v1/repo-scans` with write authorization and configurable safety bounds/allowlist.
+- Why: Enable dashboard/backend integrations to trigger repository exposure scans without shell access.
+- Tradeoff: Endpoint is synchronous and currently returns findings directly (no persistence lifecycle yet).

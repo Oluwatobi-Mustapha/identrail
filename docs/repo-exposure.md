@@ -17,6 +17,21 @@ identrail repo-scan --repo https://github.com/owner/repo.git
 identrail repo-scan --repo /path/to/local/repo
 ```
 
+## API
+
+You can trigger the same scanner through API:
+
+```bash
+curl -X POST http://localhost:8080/v1/repo-scans \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <write-enabled-key>" \
+  -d '{
+    "repository": "owner/repo",
+    "history_limit": 500,
+    "max_findings": 200
+  }'
+```
+
 ## What It Scans
 
 1. Commit history (all reachable commits, bounded by `--history-limit`):
@@ -57,6 +72,17 @@ identrail repo-scan --repo /path/to/local/repo
 - `--history-limit` (default: `500`): max commits to inspect.
 - `--max-findings` (default: `200`): hard cap on findings.
 - `--output table|json`.
+
+## Runtime Configuration
+
+- `IDENTRAIL_REPO_SCAN_ENABLED` (default: `true`)
+- `IDENTRAIL_REPO_SCAN_HISTORY_LIMIT` (default: `500`)
+- `IDENTRAIL_REPO_SCAN_MAX_FINDINGS` (default: `200`)
+- `IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX` (default: `5000`)
+- `IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX` (default: `1000`)
+- `IDENTRAIL_REPO_SCAN_ALLOWLIST`:
+  - optional comma-separated list of allowed target patterns
+  - supports prefix wildcard with `*` (example: `trusted-org/*`)
 
 ## Known Limits
 

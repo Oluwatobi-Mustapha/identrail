@@ -22,6 +22,7 @@ Web shell scaffold: `web/` (React + TypeScript + Vite).
   - `identrail repo-scan --repo <owner/repo|url|local-path>`
 - REST API workflows:
   - `POST /v1/scans`
+  - `POST /v1/repo-scans`
   - `GET /v1/scans`
   - `GET /v1/scans/:scan_id/diff`
   - `GET /v1/scans/:scan_id/events`
@@ -69,6 +70,13 @@ Web shell scaffold: `web/` (React + TypeScript + Vite).
   - `IDENTRAIL_AWS_SOURCE` (`fixture` or `sdk`)
   - `IDENTRAIL_AWS_REGION`
   - `IDENTRAIL_AWS_PROFILE` (optional)
+- Repo exposure scan config:
+  - `IDENTRAIL_REPO_SCAN_ENABLED`
+  - `IDENTRAIL_REPO_SCAN_HISTORY_LIMIT`
+  - `IDENTRAIL_REPO_SCAN_MAX_FINDINGS`
+  - `IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX`
+  - `IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX`
+  - `IDENTRAIL_REPO_SCAN_ALLOWLIST` (comma list, supports `prefix*` wildcard)
 - CI gates:
   - GitHub Actions pipeline for Go quality checks, coverage, Postgres integration tests, and web build validation
 

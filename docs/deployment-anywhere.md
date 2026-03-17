@@ -57,5 +57,7 @@ Use this where Kubernetes is not required.
 - Current provider collection mode is fixture-based for deterministic scans.
 - AWS can now run in fixture mode or live SDK mode (`IDENTRAIL_AWS_SOURCE=sdk`).
 - Kubernetes can now run in fixture mode or live kubectl mode (`IDENTRAIL_K8S_SOURCE=kubectl`).
+- Repository exposure scans can be run via CLI (`identrail repo-scan`) or API (`POST /v1/repo-scans`).
+- For tighter safety in shared environments, set `IDENTRAIL_REPO_SCAN_ALLOWLIST`.
 - Use PostgreSQL in non-local deployments.
 - Set HTTPS endpoints for alert/audit forwarding in production.

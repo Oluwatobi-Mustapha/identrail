@@ -192,6 +192,11 @@ Simple threat list for current system.
 - Fix: Store only secret fingerprints and redacted snippets; never store raw secret values in findings evidence.
 - Status: Implemented.
 
+## 39) Unbounded Repository Scan Blast Radius
+- Threat: Unbounded repo scans can consume resources or scan out-of-scope repositories in shared environments.
+- Fix: Enforce bounded history/findings limits and optional repo allowlist (`IDENTRAIL_REPO_SCAN_ALLOWLIST`) with write-protected API trigger.
+- Status: Implemented.
+
 ## Current Gaps (Next)
 - Add encrypted secret management and external KMS guidance.
 - Add audit sink forwarding guide for centralized log pipelines.

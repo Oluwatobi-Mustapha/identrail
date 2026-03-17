@@ -1,6 +1,17 @@
 # Changelog
 
 ## Unreleased
+- Added repository exposure API trigger and runtime guardrails:
+  - new endpoint: `POST /v1/repo-scans` (write-protected)
+  - configurable defaults/bounds:
+    - `IDENTRAIL_REPO_SCAN_ENABLED`
+    - `IDENTRAIL_REPO_SCAN_HISTORY_LIMIT`
+    - `IDENTRAIL_REPO_SCAN_MAX_FINDINGS`
+    - `IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX`
+    - `IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX`
+  - optional repository target allowlist:
+    - `IDENTRAIL_REPO_SCAN_ALLOWLIST` (supports prefix wildcard `*`)
+  - runtime validation and warnings for repo scan configuration
 - Added repository exposure scanner (`identrail repo-scan`) for public/local git repositories:
   - scans commit history for added secret material (read-only git operations)
   - scans HEAD IaC/CI/runtime files for high-signal misconfigurations
