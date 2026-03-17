@@ -8,17 +8,22 @@ import (
 )
 
 const (
-	defaultHTTPAddr     = ":8080"
-	defaultLogLevel     = "info"
-	defaultProvider     = "aws"
-	defaultServiceName  = "identrail"
-	defaultAWSSource    = "fixture"
-	defaultAWSRegion    = "us-east-1"
-	defaultAWSFixtures  = "testdata/aws/role_with_policies.json,testdata/aws/role_with_urlencoded_trust.json"
-	defaultK8sFixtures  = "testdata/kubernetes/service_account_payments.json,testdata/kubernetes/cluster_role_cluster_admin.json,testdata/kubernetes/role_binding_cluster_admin.json,testdata/kubernetes/pod_payments.json"
-	defaultK8sSource    = "fixture"
-	defaultKubectlPath  = "kubectl"
-	defaultScanInterval = 15 * time.Minute
+	defaultHTTPAddr                    = ":8080"
+	defaultLogLevel                    = "info"
+	defaultProvider                    = "aws"
+	defaultServiceName                 = "identrail"
+	defaultAWSSource                   = "fixture"
+	defaultAWSRegion                   = "us-east-1"
+	defaultAWSFixtures                 = "testdata/aws/role_with_policies.json,testdata/aws/role_with_urlencoded_trust.json"
+	defaultK8sFixtures                 = "testdata/kubernetes/service_account_payments.json,testdata/kubernetes/cluster_role_cluster_admin.json,testdata/kubernetes/role_binding_cluster_admin.json,testdata/kubernetes/pod_payments.json"
+	defaultK8sSource                   = "fixture"
+	defaultKubectlPath                 = "kubectl"
+	defaultScanInterval                = 15 * time.Minute
+	defaultRepoScanEnabled             = true
+	defaultRepoScanHistoryLimit        = 500
+	defaultRepoScanMaxFindings         = 200
+	defaultRepoScanHistoryLimitMax     = 5000
+	defaultRepoScanMaxFindingsLimitMax = 1000
 )
 
 // Config centralizes process-level configuration. It keeps module wiring simple
@@ -59,6 +64,12 @@ type Config struct {
 	AlertMaxFindings         int
 	AlertMaxRetries          int
 	AlertRetryBackoff        time.Duration
+	RepoScanEnabled          bool
+	RepoScanHistoryLimit     int
+	RepoScanMaxFindings      int
+	RepoScanHistoryLimitMax  int
+	RepoScanMaxFindingsMax   int
+	RepoScanAllowlist        []string
 }
 
 // Load reads environment variables and applies safe defaults for local and CI use.
@@ -99,6 +110,12 @@ func Load() Config {
 		AlertMaxFindings:         parseInt(getEnv("IDENTRAIL_ALERT_MAX_FINDINGS", "25"), 25),
 		AlertMaxRetries:          parseInt(getEnv("IDENTRAIL_ALERT_MAX_RETRIES", "2"), 2),
 		AlertRetryBackoff:        parseDuration(getEnv("IDENTRAIL_ALERT_RETRY_BACKOFF", "1s"), 1*time.Second),
+		RepoScanEnabled:          parseBool(getEnv("IDENTRAIL_REPO_SCAN_ENABLED", "true"), defaultRepoScanEnabled),
+		RepoScanHistoryLimit:     parseInt(getEnv("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT", "500"), defaultRepoScanHistoryLimit),
+		RepoScanMaxFindings:      parseInt(getEnv("IDENTRAIL_REPO_SCAN_MAX_FINDINGS", "200"), defaultRepoScanMaxFindings),
+		RepoScanHistoryLimitMax:  parseInt(getEnv("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX", "5000"), defaultRepoScanHistoryLimitMax),
+		RepoScanMaxFindingsMax:   parseInt(getEnv("IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX", "1000"), defaultRepoScanMaxFindingsLimitMax),
+		RepoScanAllowlist:        parseCommaSeparated(getEnv("IDENTRAIL_REPO_SCAN_ALLOWLIST", "")),
 	}
 }
 

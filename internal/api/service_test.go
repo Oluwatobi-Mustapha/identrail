@@ -10,6 +10,7 @@ import (
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/repoexposure"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
 )
 
@@ -33,6 +34,20 @@ type fakeAlerter struct {
 func (a *fakeAlerter) NotifyScan(context.Context, string, db.ScanRecord, []domain.Finding) error {
 	a.calls++
 	return a.err
+}
+
+type fakeRepoExecutor struct {
+	result repoexposure.ScanResult
+	err    error
+	target string
+}
+
+func (f *fakeRepoExecutor) ScanRepository(_ context.Context, target string) (repoexposure.ScanResult, error) {
+	f.target = target
+	if f.err != nil {
+		return repoexposure.ScanResult{}, f.err
+	}
+	return f.result, nil
 }
 
 func TestServiceRunScanSuccess(t *testing.T) {
@@ -446,5 +461,91 @@ func TestServiceGetFindingsTrendFiltered(t *testing.T) {
 	}
 	if len(points) != 1 || points[0].Total != 1 {
 		t.Fatalf("unexpected filtered points: %+v", points)
+	}
+}
+
+func TestServiceRunRepoScanSuccess(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	executor := &fakeRepoExecutor{
+		result: repoexposure.ScanResult{
+			Repository:     "owner/repo",
+			CommitsScanned: 10,
+			FilesScanned:   4,
+			Findings: []domain.Finding{
+				{ID: "f1", Type: domain.FindingSecretExposure, Severity: domain.SeverityHigh},
+			},
+		},
+	}
+	var gotHistory, gotMax int
+	svc.RepoScannerFactory = func(historyLimit int, maxFindings int) RepoScanExecutor {
+		gotHistory, gotMax = historyLimit, maxFindings
+		return executor
+	}
+
+	result, err := svc.RunRepoScan(context.Background(), RepoScanRequest{
+		Repository:   "owner/repo",
+		HistoryLimit: 800,
+		MaxFindings:  300,
+	})
+	if err != nil {
+		t.Fatalf("run repo scan: %v", err)
+	}
+	if result.Repository != "owner/repo" || len(result.Findings) != 1 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if executor.target != "owner/repo" {
+		t.Fatalf("unexpected scan target: %q", executor.target)
+	}
+	if gotHistory != 800 || gotMax != 300 {
+		t.Fatalf("unexpected scanner args history=%d max=%d", gotHistory, gotMax)
+	}
+}
+
+func TestServiceRunRepoScanGuards(t *testing.T) {
+	svc := NewService(db.NewMemoryStore(), fakeScanner{}, "aws")
+	svc.RepoScanEnabled = false
+	if _, err := svc.RunRepoScan(context.Background(), RepoScanRequest{Repository: "owner/repo"}); !errors.Is(err, ErrRepoScanDisabled) {
+		t.Fatalf("expected disabled error, got %v", err)
+	}
+
+	svc.RepoScanEnabled = true
+	svc.RepoScanAllowedTargets = []string{"trusted/*"}
+	if _, err := svc.RunRepoScan(context.Background(), RepoScanRequest{Repository: "owner/repo"}); !errors.Is(err, ErrRepoTargetNotAllowed) {
+		t.Fatalf("expected target not allowed error, got %v", err)
+	}
+
+	svc.RepoScanAllowedTargets = nil
+	if _, err := svc.RunRepoScan(context.Background(), RepoScanRequest{Repository: "", HistoryLimit: 10, MaxFindings: 10}); !errors.Is(err, ErrInvalidRepoScanRequest) {
+		t.Fatalf("expected invalid request error for missing repo, got %v", err)
+	}
+
+	if _, err := svc.RunRepoScan(context.Background(), RepoScanRequest{Repository: "owner/repo", HistoryLimit: -1, MaxFindings: 10}); !errors.Is(err, ErrInvalidRepoScanRequest) {
+		t.Fatalf("expected invalid request error for negative history, got %v", err)
+	}
+}
+
+func TestRepoTargetAllowed(t *testing.T) {
+	if !repoTargetAllowed("owner/repo", nil) {
+		t.Fatal("expected open allowlist to allow target")
+	}
+	if !repoTargetAllowed("trusted/team-repo", []string{"trusted/*"}) {
+		t.Fatal("expected wildcard allowlist to allow target")
+	}
+	if repoTargetAllowed("owner/repo", []string{"trusted/*"}) {
+		t.Fatal("expected disallowed target")
+	}
+}
+
+func TestSanitizeRepoScanLimit(t *testing.T) {
+	got, err := sanitizeRepoScanLimit(0, 100, 500)
+	if err != nil || got != 100 {
+		t.Fatalf("expected fallback 100, got=%d err=%v", got, err)
+	}
+	if _, err := sanitizeRepoScanLimit(-1, 100, 500); !errors.Is(err, ErrInvalidRepoScanRequest) {
+		t.Fatalf("expected invalid error for negative value, got %v", err)
+	}
+	if _, err := sanitizeRepoScanLimit(600, 100, 500); !errors.Is(err, ErrInvalidRepoScanRequest) {
+		t.Fatalf("expected invalid error for over max value, got %v", err)
 	}
 }

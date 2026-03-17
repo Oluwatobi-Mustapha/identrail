@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/Oluwatobi-Mustapha/identrail/internal/app"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/repoexposure"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"go.uber.org/zap"
@@ -80,6 +82,18 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 	metrics := telemetry.NewMetrics()
 	store := db.NewMemoryStore()
 	svc := NewService(store, routerScanner{}, "aws")
+	svc.RepoScannerFactory = func(historyLimit int, maxFindings int) RepoScanExecutor {
+		return &fakeRepoExecutor{
+			result: repoexposure.ScanResult{
+				Repository:     "owner/repo",
+				CommitsScanned: historyLimit,
+				FilesScanned:   2,
+				Findings: []domain.Finding{
+					{ID: "repo-f1", Type: domain.FindingSecretExposure, Severity: domain.SeverityHigh},
+				},
+			},
+		}
+	}
 	r := NewRouter(logger, metrics, svc, RouterOptions{})
 
 	postReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
@@ -205,6 +219,15 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 	if eventsFilteredW.Code != http.StatusOK {
 		t.Fatalf("expected filtered events 200, got %d", eventsFilteredW.Code)
 	}
+
+	repoBody := bytes.NewBufferString(`{"repository":"owner/repo","history_limit":50,"max_findings":20}`)
+	repoReq := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", repoBody)
+	repoReq.Header.Set("Content-Type", "application/json")
+	repoW := httptest.NewRecorder()
+	r.ServeHTTP(repoW, repoReq)
+	if repoW.Code != http.StatusAccepted {
+		t.Fatalf("expected repo scan 202, got %d", repoW.Code)
+	}
 }
 
 func TestRouterUnavailableWhenServiceMissing(t *testing.T) {
@@ -238,6 +261,14 @@ func TestRouterUnavailableWhenServiceMissing(t *testing.T) {
 	r.ServeHTTP(identityW, identityReq)
 	if identityW.Code != http.StatusOK {
 		t.Fatalf("expected identities 200 without service, got %d", identityW.Code)
+	}
+
+	repoReq := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewBufferString(`{"repository":"owner/repo"}`))
+	repoReq.Header.Set("Content-Type", "application/json")
+	repoW := httptest.NewRecorder()
+	r.ServeHTTP(repoW, repoReq)
+	if repoW.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected repo scan 503 without service, got %d", repoW.Code)
 	}
 }
 

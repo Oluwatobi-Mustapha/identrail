@@ -19,14 +19,15 @@ import (
 )
 
 const (
-	defaultFindingsLimit = 100
-	defaultScansLimit    = 20
-	defaultEventsLimit   = 100
-	maxListLimit         = 500
-	scanRequestTimeout   = 2 * time.Minute
-	scopeRead            = "read"
-	scopeWrite           = "write"
-	scopeAdmin           = "admin"
+	defaultFindingsLimit   = 100
+	defaultScansLimit      = 20
+	defaultEventsLimit     = 100
+	maxListLimit           = 500
+	scanRequestTimeout     = 2 * time.Minute
+	repoScanRequestTimeout = 5 * time.Minute
+	scopeRead              = "read"
+	scopeWrite             = "write"
+	scopeAdmin             = "admin"
 )
 
 // RouterOptions controls API middleware behavior.
@@ -98,6 +99,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		})
 		v1.POST("/scans", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
+		})
+		v1.POST("/repo-scans", func(c *gin.Context) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "repo scan service unavailable"})
 		})
 		return r
 	}
@@ -290,6 +294,38 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			"assets":        result.Assets,
 			"finding_count": result.FindingCount,
 		})
+	})
+
+	v1.POST("/repo-scans", requireWriteKeyMiddleware(opts.WriteAPIKeys, opts.APIKeyScopes), func(c *gin.Context) {
+		var request RepoScanRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+
+		requestCtx, cancel := context.WithTimeout(c.Request.Context(), repoScanRequestTimeout)
+		defer cancel()
+
+		result, err := svc.RunRepoScan(requestCtx, request)
+		if err != nil {
+			if errors.Is(err, ErrInvalidRepoScanRequest) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo scan request"})
+				return
+			}
+			if errors.Is(err, ErrRepoTargetNotAllowed) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "repo target not allowed"})
+				return
+			}
+			if errors.Is(err, ErrRepoScanDisabled) {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "repo scan is disabled"})
+				return
+			}
+			logger.Error("run repo scan", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to run repo scan"})
+			return
+		}
+
+		c.JSON(http.StatusAccepted, result)
 	})
 
 	return r

@@ -42,6 +42,12 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_ALERT_MAX_FINDINGS", "")
 	t.Setenv("IDENTRAIL_ALERT_MAX_RETRIES", "")
 	t.Setenv("IDENTRAIL_ALERT_RETRY_BACKOFF", "")
+	t.Setenv("IDENTRAIL_REPO_SCAN_ENABLED", "")
+	t.Setenv("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT", "")
+	t.Setenv("IDENTRAIL_REPO_SCAN_MAX_FINDINGS", "")
+	t.Setenv("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX", "")
+	t.Setenv("IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX", "")
+	t.Setenv("IDENTRAIL_REPO_SCAN_ALLOWLIST", "")
 
 	cfg := Load()
 	if cfg.HTTPAddr != defaultHTTPAddr {
@@ -146,6 +152,24 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.AlertRetryBackoff != 1*time.Second {
 		t.Fatalf("expected default alert retry backoff 1s, got %v", cfg.AlertRetryBackoff)
 	}
+	if !cfg.RepoScanEnabled {
+		t.Fatal("expected repo scan enabled by default")
+	}
+	if cfg.RepoScanHistoryLimit != 500 {
+		t.Fatalf("expected default repo scan history limit 500, got %d", cfg.RepoScanHistoryLimit)
+	}
+	if cfg.RepoScanMaxFindings != 200 {
+		t.Fatalf("expected default repo scan max findings 200, got %d", cfg.RepoScanMaxFindings)
+	}
+	if cfg.RepoScanHistoryLimitMax != 5000 {
+		t.Fatalf("expected default repo scan history limit max 5000, got %d", cfg.RepoScanHistoryLimitMax)
+	}
+	if cfg.RepoScanMaxFindingsMax != 1000 {
+		t.Fatalf("expected default repo scan max findings max 1000, got %d", cfg.RepoScanMaxFindingsMax)
+	}
+	if len(cfg.RepoScanAllowlist) != 0 {
+		t.Fatalf("expected empty repo scan allowlist by default, got %+v", cfg.RepoScanAllowlist)
+	}
 }
 
 func TestLoadFromEnv(t *testing.T) {
@@ -184,6 +208,12 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_ALERT_MAX_FINDINGS", "40")
 	t.Setenv("IDENTRAIL_ALERT_MAX_RETRIES", "4")
 	t.Setenv("IDENTRAIL_ALERT_RETRY_BACKOFF", "3s")
+	t.Setenv("IDENTRAIL_REPO_SCAN_ENABLED", "false")
+	t.Setenv("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT", "800")
+	t.Setenv("IDENTRAIL_REPO_SCAN_MAX_FINDINGS", "320")
+	t.Setenv("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX", "9000")
+	t.Setenv("IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX", "1400")
+	t.Setenv("IDENTRAIL_REPO_SCAN_ALLOWLIST", "trusted/*,owner/repo")
 
 	cfg := Load()
 	if cfg.HTTPAddr != "127.0.0.1:9090" {
@@ -287,6 +317,24 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.AlertRetryBackoff != 3*time.Second {
 		t.Fatalf("unexpected alert retry backoff: %v", cfg.AlertRetryBackoff)
+	}
+	if cfg.RepoScanEnabled {
+		t.Fatal("expected repo scan enabled false from env")
+	}
+	if cfg.RepoScanHistoryLimit != 800 {
+		t.Fatalf("unexpected repo scan history limit: %d", cfg.RepoScanHistoryLimit)
+	}
+	if cfg.RepoScanMaxFindings != 320 {
+		t.Fatalf("unexpected repo scan max findings: %d", cfg.RepoScanMaxFindings)
+	}
+	if cfg.RepoScanHistoryLimitMax != 9000 {
+		t.Fatalf("unexpected repo scan history max: %d", cfg.RepoScanHistoryLimitMax)
+	}
+	if cfg.RepoScanMaxFindingsMax != 1400 {
+		t.Fatalf("unexpected repo scan max findings max: %d", cfg.RepoScanMaxFindingsMax)
+	}
+	if len(cfg.RepoScanAllowlist) != 2 || cfg.RepoScanAllowlist[0] != "trusted/*" || cfg.RepoScanAllowlist[1] != "owner/repo" {
+		t.Fatalf("unexpected repo scan allowlist: %+v", cfg.RepoScanAllowlist)
 	}
 }
 

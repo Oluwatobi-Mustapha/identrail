@@ -32,6 +32,34 @@ func TestBuildScanServiceMemoryStore(t *testing.T) {
 	}
 }
 
+func TestBuildScanServiceRepoScanSettings(t *testing.T) {
+	cfg := config.Config{
+		Provider:                "aws",
+		AWSFixturePath:          []string{"testdata/aws/role_with_policies.json"},
+		RepoScanEnabled:         true,
+		RepoScanHistoryLimit:    700,
+		RepoScanMaxFindings:     120,
+		RepoScanHistoryLimitMax: 2500,
+		RepoScanMaxFindingsMax:  900,
+		RepoScanAllowlist:       []string{"trusted/*"},
+	}
+	svc, closeFn, err := BuildScanService(cfg)
+	if err != nil {
+		t.Fatalf("build service failed: %v", err)
+	}
+	defer func() { _ = closeFn() }()
+
+	if !svc.RepoScanEnabled || svc.RepoScanDefaultHistoryLimit != 700 || svc.RepoScanDefaultMaxFindings != 120 {
+		t.Fatalf("unexpected repo scan defaults on service: enabled=%t history=%d findings=%d", svc.RepoScanEnabled, svc.RepoScanDefaultHistoryLimit, svc.RepoScanDefaultMaxFindings)
+	}
+	if svc.RepoScanMaxHistoryLimit != 2500 || svc.RepoScanMaxFindingsLimit != 900 {
+		t.Fatalf("unexpected repo scan max bounds on service: history=%d findings=%d", svc.RepoScanMaxHistoryLimit, svc.RepoScanMaxFindingsLimit)
+	}
+	if len(svc.RepoScanAllowedTargets) != 1 || svc.RepoScanAllowedTargets[0] != "trusted/*" {
+		t.Fatalf("unexpected repo scan allowlist %+v", svc.RepoScanAllowedTargets)
+	}
+}
+
 func TestBuildScanServiceKubernetesProvider(t *testing.T) {
 	cfg := config.Config{
 		Provider: "kubernetes",

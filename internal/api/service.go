@@ -11,13 +11,29 @@ import (
 	"github.com/Oluwatobi-Mustapha/identrail/internal/app"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/repoexposure"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
+)
+
+const (
+	defaultRepoScanHistoryLimit = 500
+	defaultRepoScanMaxFindings  = 200
+	defaultRepoScanHistoryMax   = 5000
+	defaultRepoScanFindingsMax  = 1000
 )
 
 // ScannerRunner is the scan execution dependency required by API service.
 type ScannerRunner interface {
 	Run(ctx context.Context) (app.ScanResult, error)
 }
+
+// RepoScanExecutor defines repository exposure scanning behavior.
+type RepoScanExecutor interface {
+	ScanRepository(ctx context.Context, target string) (repoexposure.ScanResult, error)
+}
+
+// RepoScannerFactory creates a repository scanner with bounded scan parameters.
+type RepoScannerFactory func(historyLimit int, maxFindings int) RepoScanExecutor
 
 // Service orchestrates scan execution and persistence.
 type Service struct {
@@ -28,6 +44,14 @@ type Service struct {
 	Locker       scheduler.Locker
 	Alerter      FindingAlerter
 	OnAlertError func(error)
+	// Repo scan controls are intentionally separate from cloud identity scan flow.
+	RepoScanEnabled             bool
+	RepoScanDefaultHistoryLimit int
+	RepoScanDefaultMaxFindings  int
+	RepoScanMaxHistoryLimit     int
+	RepoScanMaxFindingsLimit    int
+	RepoScanAllowedTargets      []string
+	RepoScannerFactory          RepoScannerFactory
 }
 
 // RunScanResult is returned after a scan API trigger.
@@ -35,6 +59,13 @@ type RunScanResult struct {
 	Scan         db.ScanRecord `json:"scan"`
 	Assets       int           `json:"assets"`
 	FindingCount int           `json:"finding_count"`
+}
+
+// RepoScanRequest captures one repository exposure scan request.
+type RepoScanRequest struct {
+	Repository   string `json:"repository"`
+	HistoryLimit int    `json:"history_limit"`
+	MaxFindings  int    `json:"max_findings"`
 }
 
 // FindingsFilter narrows findings list queries without changing API response schema.
@@ -77,15 +108,36 @@ var ErrScanInProgress = errors.New("scan already in progress")
 // ErrInvalidScanDiffBaseline is returned when previous_scan_id is incompatible.
 var ErrInvalidScanDiffBaseline = errors.New("invalid scan diff baseline")
 
+// ErrRepoScanDisabled is returned when repository exposure scanning is disabled.
+var ErrRepoScanDisabled = errors.New("repo scan is disabled")
+
+// ErrRepoTargetNotAllowed is returned when repository target is outside configured allowlist.
+var ErrRepoTargetNotAllowed = errors.New("repo target is not allowed")
+
+// ErrInvalidRepoScanRequest indicates invalid repository scan request input.
+var ErrInvalidRepoScanRequest = errors.New("invalid repo scan request")
+
 // NewService creates an API service with defaults.
 func NewService(store db.Store, scanner ScannerRunner, provider string) *Service {
 	return &Service{
-		Store:    store,
-		Scanner:  scanner,
-		Provider: provider,
-		Now:      time.Now,
-		Locker:   scheduler.NewInMemoryLocker(),
-		Alerter:  NopFindingAlerter{},
+		Store:                       store,
+		Scanner:                     scanner,
+		Provider:                    provider,
+		Now:                         time.Now,
+		Locker:                      scheduler.NewInMemoryLocker(),
+		Alerter:                     NopFindingAlerter{},
+		RepoScanEnabled:             true,
+		RepoScanDefaultHistoryLimit: defaultRepoScanHistoryLimit,
+		RepoScanDefaultMaxFindings:  defaultRepoScanMaxFindings,
+		RepoScanMaxHistoryLimit:     defaultRepoScanHistoryMax,
+		RepoScanMaxFindingsLimit:    defaultRepoScanFindingsMax,
+		RepoScannerFactory: func(historyLimit int, maxFindings int) RepoScanExecutor {
+			return repoexposure.NewScanner(
+				nil,
+				repoexposure.WithHistoryLimit(historyLimit),
+				repoexposure.WithMaxFindings(maxFindings),
+			)
+		},
 	}
 }
 
@@ -159,6 +211,36 @@ func (s *Service) RunScan(ctx context.Context) (RunScanResult, error) {
 // ListFindings returns persisted findings.
 func (s *Service) ListFindings(ctx context.Context, limit int) ([]domain.Finding, error) {
 	return s.Store.ListFindings(ctx, limit)
+}
+
+// RunRepoScan performs one repository exposure scan with configured guardrails.
+func (s *Service) RunRepoScan(ctx context.Context, request RepoScanRequest) (repoexposure.ScanResult, error) {
+	if !s.RepoScanEnabled {
+		return repoexposure.ScanResult{}, ErrRepoScanDisabled
+	}
+	target := strings.TrimSpace(request.Repository)
+	if target == "" {
+		return repoexposure.ScanResult{}, ErrInvalidRepoScanRequest
+	}
+	if !repoTargetAllowed(target, s.RepoScanAllowedTargets) {
+		return repoexposure.ScanResult{}, ErrRepoTargetNotAllowed
+	}
+	historyLimit, err := sanitizeRepoScanLimit(request.HistoryLimit, s.RepoScanDefaultHistoryLimit, s.RepoScanMaxHistoryLimit)
+	if err != nil {
+		return repoexposure.ScanResult{}, ErrInvalidRepoScanRequest
+	}
+	maxFindings, err := sanitizeRepoScanLimit(request.MaxFindings, s.RepoScanDefaultMaxFindings, s.RepoScanMaxFindingsLimit)
+	if err != nil {
+		return repoexposure.ScanResult{}, ErrInvalidRepoScanRequest
+	}
+	if s.RepoScannerFactory == nil {
+		return repoexposure.ScanResult{}, fmt.Errorf("repo scanner factory is not configured")
+	}
+	result, err := s.RepoScannerFactory(historyLimit, maxFindings).ScanRepository(ctx, target)
+	if err != nil {
+		return repoexposure.ScanResult{}, err
+	}
+	return result, nil
 }
 
 // ListFindingsFiltered returns findings with optional scan/type/severity filters.
@@ -473,4 +555,50 @@ func (s *Service) latestScanID(ctx context.Context) (string, error) {
 		return "", db.ErrNotFound
 	}
 	return scans[0].ID, nil
+}
+
+func sanitizeRepoScanLimit(candidate int, fallback int, maxAllowed int) (int, error) {
+	if fallback <= 0 {
+		fallback = 1
+	}
+	if maxAllowed <= 0 {
+		maxAllowed = fallback
+	}
+	if candidate < 0 {
+		return 0, ErrInvalidRepoScanRequest
+	}
+	if candidate == 0 {
+		candidate = fallback
+	}
+	if candidate > maxAllowed {
+		return 0, ErrInvalidRepoScanRequest
+	}
+	return candidate, nil
+}
+
+func repoTargetAllowed(target string, allowlist []string) bool {
+	if len(allowlist) == 0 {
+		return true
+	}
+	normalizedTarget := strings.ToLower(strings.TrimSpace(target))
+	if normalizedTarget == "" {
+		return false
+	}
+	for _, item := range allowlist {
+		pattern := strings.ToLower(strings.TrimSpace(item))
+		if pattern == "" {
+			continue
+		}
+		if strings.HasSuffix(pattern, "*") {
+			prefix := strings.TrimSuffix(pattern, "*")
+			if strings.HasPrefix(normalizedTarget, prefix) {
+				return true
+			}
+			continue
+		}
+		if normalizedTarget == pattern {
+			return true
+		}
+	}
+	return false
 }

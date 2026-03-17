@@ -13,6 +13,8 @@ const (
 	maxAlertBackoffLimit        = 30
 	maxAuditForwardRetriesLimit = 10
 	maxAuditForwardBackoffLimit = 30
+	maxRepoScanHistoryLimitMax  = 20000
+	maxRepoScanFindingsLimitMax = 5000
 )
 
 var allowedKeyScopes = map[string]struct{}{
@@ -138,6 +140,40 @@ func ValidateSecurity(cfg Config) error {
 			return fmt.Errorf("IDENTRAIL_AWS_REGION must be set when IDENTRAIL_AWS_SOURCE=sdk")
 		}
 	}
+	historyLimit := cfg.RepoScanHistoryLimit
+	if historyLimit == 0 {
+		historyLimit = defaultRepoScanHistoryLimit
+	}
+	maxFindings := cfg.RepoScanMaxFindings
+	if maxFindings == 0 {
+		maxFindings = defaultRepoScanMaxFindings
+	}
+	historyLimitMax := cfg.RepoScanHistoryLimitMax
+	if historyLimitMax == 0 {
+		historyLimitMax = defaultRepoScanHistoryLimitMax
+	}
+	maxFindingsMax := cfg.RepoScanMaxFindingsMax
+	if maxFindingsMax == 0 {
+		maxFindingsMax = defaultRepoScanMaxFindingsLimitMax
+	}
+	if historyLimit <= 0 {
+		return fmt.Errorf("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT must be > 0")
+	}
+	if maxFindings <= 0 {
+		return fmt.Errorf("IDENTRAIL_REPO_SCAN_MAX_FINDINGS must be > 0")
+	}
+	if historyLimitMax <= 0 || historyLimitMax > maxRepoScanHistoryLimitMax {
+		return fmt.Errorf("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX must be > 0 and <= %d", maxRepoScanHistoryLimitMax)
+	}
+	if maxFindingsMax <= 0 || maxFindingsMax > maxRepoScanFindingsLimitMax {
+		return fmt.Errorf("IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX must be > 0 and <= %d", maxRepoScanFindingsLimitMax)
+	}
+	if historyLimit > historyLimitMax {
+		return fmt.Errorf("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT must be <= IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX")
+	}
+	if maxFindings > maxFindingsMax {
+		return fmt.Errorf("IDENTRAIL_REPO_SCAN_MAX_FINDINGS must be <= IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX")
+	}
 	if len(cfg.APIKeys) == 0 && len(cfg.APIKeyScopes) == 0 {
 		return fmt.Errorf("no API keys configured: set IDENTRAIL_API_KEYS or IDENTRAIL_API_KEY_SCOPES to enable authentication")
 	}
@@ -158,6 +194,9 @@ func SecurityWarnings(cfg Config) []string {
 	}
 	if strings.TrimSpace(cfg.AlertWebhookURL) != "" && strings.TrimSpace(cfg.AlertHMACSecret) == "" {
 		warnings = append(warnings, "alert webhook signing is disabled; set IDENTRAIL_ALERT_HMAC_SECRET to enable request signature verification")
+	}
+	if cfg.RepoScanEnabled && len(cfg.RepoScanAllowlist) == 0 {
+		warnings = append(warnings, "repo scan allowlist is open; set IDENTRAIL_REPO_SCAN_ALLOWLIST to restrict allowed repository targets")
 	}
 	return warnings
 }

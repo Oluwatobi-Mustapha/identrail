@@ -204,6 +204,35 @@ func TestValidateSecurityRejectsLargeAuditForwardBackoff(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRejectsInvalidRepoScanBounds(t *testing.T) {
+	cfg := Config{
+		APIKeys:                 []string{"reader"},
+		RepoScanHistoryLimit:    1000,
+		RepoScanHistoryLimitMax: 100,
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected repo scan history bound validation error")
+	}
+}
+
+func TestSecurityWarningsRepoScanAllowlist(t *testing.T) {
+	cfg := Config{
+		APIKeys:         []string{"reader"},
+		RepoScanEnabled: true,
+	}
+	warnings := SecurityWarnings(cfg)
+	found := false
+	for _, warning := range warnings {
+		if warning == "repo scan allowlist is open; set IDENTRAIL_REPO_SCAN_ALLOWLIST to restrict allowed repository targets" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected repo scan allowlist warning, got %+v", warnings)
+	}
+}
+
 func TestSecurityWarnings(t *testing.T) {
 	cfg := Config{
 		APIKeys:         []string{"legacy-key"},

@@ -94,6 +94,20 @@ func BuildScanService(cfg config.Config) (*api.Service, func() error, error) {
 	}
 
 	svc := api.NewService(store, scanner, cfg.Provider)
+	svc.RepoScanEnabled = cfg.RepoScanEnabled
+	if cfg.RepoScanHistoryLimit > 0 {
+		svc.RepoScanDefaultHistoryLimit = cfg.RepoScanHistoryLimit
+	}
+	if cfg.RepoScanMaxFindings > 0 {
+		svc.RepoScanDefaultMaxFindings = cfg.RepoScanMaxFindings
+	}
+	if cfg.RepoScanHistoryLimitMax > 0 {
+		svc.RepoScanMaxHistoryLimit = cfg.RepoScanHistoryLimitMax
+	}
+	if cfg.RepoScanMaxFindingsMax > 0 {
+		svc.RepoScanMaxFindingsLimit = cfg.RepoScanMaxFindingsMax
+	}
+	svc.RepoScanAllowedTargets = append([]string(nil), cfg.RepoScanAllowlist...)
 	if cfg.AlertWebhookURL != "" {
 		alerter, alertErr := api.NewWebhookAlerter(
 			cfg.AlertWebhookURL,
