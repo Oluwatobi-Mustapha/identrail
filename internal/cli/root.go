@@ -17,6 +17,7 @@ import (
 	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
 	awsprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/aws"
 	k8sprovider "github.com/Oluwatobi-Mustapha/identrail/internal/providers/kubernetes"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/repoexposure"
 	"github.com/spf13/cobra"
 )
 
@@ -33,6 +34,7 @@ var defaultAWSFixturePaths = []string{
 
 var defaultKubernetesFixturePaths = []string{
 	"testdata/kubernetes/service_account_payments.json",
+	"testdata/kubernetes/cluster_role_cluster_admin.json",
 	"testdata/kubernetes/role_binding_cluster_admin.json",
 	"testdata/kubernetes/pod_payments.json",
 }
@@ -53,6 +55,7 @@ func BuildRootCmd(cfg config.Config, out io.Writer) *cobra.Command {
 
 	root.AddCommand(buildScanCmd(cfg, out, &stateFile))
 	root.AddCommand(buildFindingsCmd(out, &stateFile))
+	root.AddCommand(buildRepoScanCmd(out))
 
 	return root
 }
@@ -146,6 +149,70 @@ func buildFindingsCmd(out io.Writer, stateFile *string) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&outputFormat, "output", formatTable, "Output format: table|json")
+	return cmd
+}
+
+func buildRepoScanCmd(out io.Writer) *cobra.Command {
+	var (
+		repository   string
+		outputFormat string
+		historyLimit int
+		maxFindings  int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "repo-scan",
+		Short: "Scan repository history for secret exposures and misconfigurations",
+		Long:  "Scans all reachable commits for added secret material and scans HEAD configuration files for high-signal misconfigurations.",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if strings.TrimSpace(repository) == "" {
+				return fmt.Errorf("--repo is required")
+			}
+			if historyLimit < 1 {
+				return fmt.Errorf("--history-limit must be at least 1")
+			}
+			if maxFindings < 1 {
+				return fmt.Errorf("--max-findings must be at least 1")
+			}
+			formatter, err := parseOutputFormat(outputFormat)
+			if err != nil {
+				return err
+			}
+
+			scanner := repoexposure.NewScanner(
+				nil,
+				repoexposure.WithHistoryLimit(historyLimit),
+				repoexposure.WithMaxFindings(maxFindings),
+			)
+			result, err := scanner.ScanRepository(context.Background(), repository)
+			if err != nil {
+				return fmt.Errorf("repo scan failed: %w", err)
+			}
+
+			switch formatter {
+			case outputJSON:
+				return writeJSON(out, result)
+			default:
+				if _, err := fmt.Fprintf(
+					out,
+					"Repo scan completed: repo=%s commits=%d files=%d findings=%d truncated=%t\n",
+					result.Repository,
+					result.CommitsScanned,
+					result.FilesScanned,
+					len(result.Findings),
+					result.Truncated,
+				); err != nil {
+					return err
+				}
+				return renderFindingsTable(out, result.Findings)
+			}
+		},
+	}
+
+	cmd.Flags().StringVar(&repository, "repo", "", "Repository target (owner/repo, URL, or local git path)")
+	cmd.Flags().StringVar(&outputFormat, "output", formatTable, "Output format: table|json")
+	cmd.Flags().IntVar(&historyLimit, "history-limit", 500, "Maximum number of commits to inspect for history secret exposure")
+	cmd.Flags().IntVar(&maxFindings, "max-findings", 200, "Maximum findings to emit before truncating scan output")
 	return cmd
 }
 

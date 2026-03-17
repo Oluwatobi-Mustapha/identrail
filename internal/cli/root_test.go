@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -112,6 +114,7 @@ func TestExecuteKubernetesScan(t *testing.T) {
 	stateFile := filepath.Join(t.TempDir(), "k8s-state.json")
 	sa := repoFixturePathForProvider(t, "kubernetes", "service_account_payments.json")
 	rb := repoFixturePathForProvider(t, "kubernetes", "role_binding_cluster_admin.json")
+	role := repoFixturePathForProvider(t, "kubernetes", "cluster_role_cluster_admin.json")
 	pod := repoFixturePathForProvider(t, "kubernetes", "pod_payments.json")
 
 	var out bytes.Buffer
@@ -119,6 +122,7 @@ func TestExecuteKubernetesScan(t *testing.T) {
 		"--state-file", stateFile,
 		"scan",
 		"--fixture", sa,
+		"--fixture", role,
 		"--fixture", rb,
 		"--fixture", pod,
 		"--output", "table",
@@ -129,6 +133,76 @@ func TestExecuteKubernetesScan(t *testing.T) {
 	lower := strings.ToLower(out.String())
 	if !strings.Contains(lower, "broadly privileged") {
 		t.Fatalf("expected overprivileged finding in output, got %q", out.String())
+	}
+}
+
+func TestExecuteRepoScan(t *testing.T) {
+	cfg := config.Config{ServiceName: "identrail-test", Provider: "aws"}
+	repo := initCLITestRepoWithSecret(t)
+
+	var out bytes.Buffer
+	err := Execute(cfg, []string{
+		"repo-scan",
+		"--repo", repo,
+		"--history-limit", "50",
+		"--max-findings", "20",
+		"--output", "json",
+	}, &out)
+	if err != nil {
+		t.Fatalf("repo scan failed: %v", err)
+	}
+	body := out.String()
+	if !strings.Contains(body, "\"secret_exposure\"") {
+		t.Fatalf("expected secret finding output, got %q", body)
+	}
+	if strings.Contains(body, "ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234") {
+		t.Fatalf("expected redacted output, got %q", body)
+	}
+}
+
+func TestExecuteRepoScanValidationErrors(t *testing.T) {
+	cfg := config.Config{ServiceName: "identrail-test", Provider: "aws"}
+	var out bytes.Buffer
+
+	if err := Execute(cfg, []string{"repo-scan"}, &out); err == nil {
+		t.Fatal("expected --repo validation error")
+	}
+	if err := Execute(cfg, []string{"repo-scan", "--repo", ".", "--history-limit", "0"}, &out); err == nil {
+		t.Fatal("expected history-limit validation error")
+	}
+	if err := Execute(cfg, []string{"repo-scan", "--repo", ".", "--max-findings", "0"}, &out); err == nil {
+		t.Fatal("expected max-findings validation error")
+	}
+	if err := Execute(cfg, []string{"repo-scan", "--repo", ".", "--output", "xml"}, &out); err == nil {
+		t.Fatal("expected output validation error")
+	}
+}
+
+func initCLITestRepoWithSecret(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	runCLITestGit(t, repo, "init", "-q")
+
+	if err := os.WriteFile(filepath.Join(repo, "app.env"), []byte("AWS_SECRET_ACCESS_KEY=ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234\n"), 0o600); err != nil {
+		t.Fatalf("write secret file: %v", err)
+	}
+	runCLITestGit(t, repo, "add", "app.env")
+	runCLITestGit(t, repo, "commit", "-q", "-m", "add secret")
+	return repo
+}
+
+func runCLITestGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=identrail-test",
+		"GIT_AUTHOR_EMAIL=identrail-test@example.com",
+		"GIT_COMMITTER_NAME=identrail-test",
+		"GIT_COMMITTER_EMAIL=identrail-test@example.com",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(output))
 	}
 }
 

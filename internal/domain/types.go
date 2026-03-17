@@ -51,6 +51,8 @@ const (
 	FindingStaleIdentity    FindingType = "stale_identity"
 	FindingOwnerless        FindingType = "ownerless_identity"
 	FindingRiskyTrustPolicy FindingType = "risky_trust_policy"
+	FindingSecretExposure   FindingType = "secret_exposure"
+	FindingRepoMisconfig    FindingType = "repo_misconfiguration"
 )
 
 // Identity is a normalized machine identity across providers.
