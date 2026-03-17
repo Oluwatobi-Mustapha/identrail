@@ -47,7 +47,7 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		logger.Warn("scan alert delivery failed", telemetry.ZapError(alertErr))
 	}
 
-	trigger := func(runCtx context.Context) error {
+	cloudTrigger := func(runCtx context.Context) error {
 		result, runErr := svc.RunScan(runCtx)
 		if runErr != nil {
 			if errors.Is(runErr, api.ErrScanInProgress) {
@@ -60,31 +60,86 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		logger.Info("scheduled scan completed", telemetry.String("scan_id", result.Scan.ID))
 		return nil
 	}
-
-	if cfg.WorkerRunNow {
-		if err := trigger(ctx); err != nil {
-			return err
+	repoTrigger := func(runCtx context.Context) error {
+		failures := 0
+		for _, target := range cfg.WorkerRepoScanTargets {
+			repoRun, runErr := svc.RunRepoScanPersisted(runCtx, api.RepoScanRequest{
+				Repository:   target,
+				HistoryLimit: cfg.WorkerRepoScanHistory,
+				MaxFindings:  cfg.WorkerRepoScanFindings,
+			})
+			if runErr != nil {
+				if errors.Is(runErr, api.ErrRepoScanInProgress) {
+					logger.Info("repo scan skipped because another run is in progress", telemetry.String("repository", target))
+					continue
+				}
+				failures++
+				logger.Error("scheduled repo scan failed", telemetry.String("repository", target), telemetry.ZapError(runErr))
+				continue
+			}
+			logger.Info(
+				"scheduled repo scan completed",
+				telemetry.String("repository", target),
+				telemetry.String("repo_scan_id", repoRun.RepoScan.ID),
+			)
 		}
+		if failures > 0 {
+			return fmt.Errorf("repo scan batch failed for %d target(s)", failures)
+		}
+		return nil
 	}
 
-	runner := scheduler.Runner{
-		Interval: cfg.ScanInterval,
-		Key:      "scan:" + cfg.Provider,
-		Trigger:  trigger,
+	type scheduledRunner struct {
+		name   string
+		runNow bool
+		runner scheduler.Runner
+	}
+
+	runners := []scheduledRunner{{
+		name:   "cloud",
+		runNow: cfg.WorkerRunNow,
+		runner: scheduler.Runner{
+			Interval: cfg.ScanInterval,
+			Key:      "scan:" + cfg.Provider,
+			Trigger:  cloudTrigger,
+		},
+	}}
+	if cfg.WorkerRepoScanEnabled {
+		runners = append(runners, scheduledRunner{
+			name:   "repo",
+			runNow: cfg.WorkerRepoScanRunNow,
+			runner: scheduler.Runner{
+				Interval: cfg.WorkerRepoScanInterval,
+				Key:      "repo-scan",
+				Trigger:  repoTrigger,
+			},
+		})
+	}
+
+	for _, item := range runners {
+		if !item.runNow {
+			continue
+		}
+		if err := item.runner.RunOnce(ctx); err != nil {
+			return fmt.Errorf("%s startup run: %w", item.name, err)
+		}
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	errCh := make(chan error, 1)
-	go func() {
-		err := runner.Start(runCtx)
-		if err != nil && !errors.Is(err, context.Canceled) {
-			errCh <- err
-			return
-		}
-		errCh <- nil
-	}()
+	errCh := make(chan error, len(runners))
+	for _, item := range runners {
+		runSpec := item
+		go func() {
+			err := runSpec.runner.Start(runCtx)
+			if err != nil && !errors.Is(err, context.Canceled) {
+				errCh <- fmt.Errorf("%s runner failed: %w", runSpec.name, err)
+				return
+			}
+			errCh <- nil
+		}()
+	}
 
 	select {
 	case <-ctx.Done():

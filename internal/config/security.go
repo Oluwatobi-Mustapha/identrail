@@ -174,6 +174,32 @@ func ValidateSecurity(cfg Config) error {
 	if maxFindings > maxFindingsMax {
 		return fmt.Errorf("IDENTRAIL_REPO_SCAN_MAX_FINDINGS must be <= IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX")
 	}
+	if cfg.WorkerRepoScanEnabled {
+		if !cfg.RepoScanEnabled {
+			return fmt.Errorf("IDENTRAIL_WORKER_REPO_SCAN_ENABLED requires IDENTRAIL_REPO_SCAN_ENABLED=true")
+		}
+		if cfg.WorkerRepoScanInterval <= 0 {
+			return fmt.Errorf("IDENTRAIL_WORKER_REPO_SCAN_INTERVAL must be > 0")
+		}
+		if len(cfg.WorkerRepoScanTargets) == 0 {
+			return fmt.Errorf("IDENTRAIL_WORKER_REPO_SCAN_TARGETS must include at least one repository when worker repo scans are enabled")
+		}
+		for _, target := range cfg.WorkerRepoScanTargets {
+			normalized := strings.TrimSpace(target)
+			if normalized == "" {
+				continue
+			}
+			if !configRepoTargetAllowed(normalized, cfg.RepoScanAllowlist) {
+				return fmt.Errorf("worker repo scan target %q is outside IDENTRAIL_REPO_SCAN_ALLOWLIST", normalized)
+			}
+		}
+		if cfg.WorkerRepoScanHistory > 0 && cfg.WorkerRepoScanHistory > historyLimitMax {
+			return fmt.Errorf("IDENTRAIL_WORKER_REPO_SCAN_HISTORY_LIMIT must be <= IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX")
+		}
+		if cfg.WorkerRepoScanFindings > 0 && cfg.WorkerRepoScanFindings > maxFindingsMax {
+			return fmt.Errorf("IDENTRAIL_WORKER_REPO_SCAN_MAX_FINDINGS must be <= IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX")
+		}
+	}
 	if len(cfg.APIKeys) == 0 && len(cfg.APIKeyScopes) == 0 {
 		return fmt.Errorf("no API keys configured: set IDENTRAIL_API_KEYS or IDENTRAIL_API_KEY_SCOPES to enable authentication")
 	}
@@ -218,4 +244,31 @@ func validateForwardURL(raw string) error {
 	default:
 		return fmt.Errorf("unsupported audit forward url scheme %q", parsed.Scheme)
 	}
+}
+
+func configRepoTargetAllowed(target string, allowlist []string) bool {
+	if len(allowlist) == 0 {
+		return true
+	}
+	normalizedTarget := strings.ToLower(strings.TrimSpace(target))
+	if normalizedTarget == "" {
+		return false
+	}
+	for _, pattern := range allowlist {
+		normalizedPattern := strings.ToLower(strings.TrimSpace(pattern))
+		if normalizedPattern == "" {
+			continue
+		}
+		if strings.HasSuffix(normalizedPattern, "*") {
+			prefix := strings.TrimSuffix(normalizedPattern, "*")
+			if strings.HasPrefix(normalizedTarget, prefix) {
+				return true
+			}
+			continue
+		}
+		if normalizedTarget == normalizedPattern {
+			return true
+		}
+	}
+	return false
 }

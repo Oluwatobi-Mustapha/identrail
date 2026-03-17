@@ -48,6 +48,12 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX", "")
 	t.Setenv("IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX", "")
 	t.Setenv("IDENTRAIL_REPO_SCAN_ALLOWLIST", "")
+	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_ENABLED", "")
+	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_RUN_NOW", "")
+	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_INTERVAL", "")
+	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_TARGETS", "")
+	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_HISTORY_LIMIT", "")
+	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_MAX_FINDINGS", "")
 
 	cfg := Load()
 	if cfg.HTTPAddr != defaultHTTPAddr {
@@ -170,6 +176,24 @@ func TestLoadDefaults(t *testing.T) {
 	if len(cfg.RepoScanAllowlist) != 0 {
 		t.Fatalf("expected empty repo scan allowlist by default, got %+v", cfg.RepoScanAllowlist)
 	}
+	if cfg.WorkerRepoScanEnabled {
+		t.Fatal("expected worker repo scan disabled by default")
+	}
+	if cfg.WorkerRepoScanRunNow {
+		t.Fatal("expected worker repo scan run now disabled by default")
+	}
+	if cfg.WorkerRepoScanInterval != defaultWorkerRepoScanInterval {
+		t.Fatalf("expected default worker repo scan interval %v, got %v", defaultWorkerRepoScanInterval, cfg.WorkerRepoScanInterval)
+	}
+	if len(cfg.WorkerRepoScanTargets) != 0 {
+		t.Fatalf("expected no worker repo scan targets by default, got %+v", cfg.WorkerRepoScanTargets)
+	}
+	if cfg.WorkerRepoScanHistory != 0 {
+		t.Fatalf("expected default worker repo scan history override 0, got %d", cfg.WorkerRepoScanHistory)
+	}
+	if cfg.WorkerRepoScanFindings != 0 {
+		t.Fatalf("expected default worker repo scan findings override 0, got %d", cfg.WorkerRepoScanFindings)
+	}
 }
 
 func TestLoadFromEnv(t *testing.T) {
@@ -214,6 +238,12 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX", "9000")
 	t.Setenv("IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX", "1400")
 	t.Setenv("IDENTRAIL_REPO_SCAN_ALLOWLIST", "trusted/*,owner/repo")
+	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_ENABLED", "true")
+	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_RUN_NOW", "true")
+	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_INTERVAL", "45m")
+	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_TARGETS", "owner/repo,trusted/infra")
+	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_HISTORY_LIMIT", "700")
+	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_MAX_FINDINGS", "80")
 
 	cfg := Load()
 	if cfg.HTTPAddr != "127.0.0.1:9090" {
@@ -335,6 +365,24 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if len(cfg.RepoScanAllowlist) != 2 || cfg.RepoScanAllowlist[0] != "trusted/*" || cfg.RepoScanAllowlist[1] != "owner/repo" {
 		t.Fatalf("unexpected repo scan allowlist: %+v", cfg.RepoScanAllowlist)
+	}
+	if !cfg.WorkerRepoScanEnabled {
+		t.Fatal("expected worker repo scan enabled")
+	}
+	if !cfg.WorkerRepoScanRunNow {
+		t.Fatal("expected worker repo scan run now enabled")
+	}
+	if cfg.WorkerRepoScanInterval != 45*time.Minute {
+		t.Fatalf("unexpected worker repo scan interval: %v", cfg.WorkerRepoScanInterval)
+	}
+	if len(cfg.WorkerRepoScanTargets) != 2 || cfg.WorkerRepoScanTargets[0] != "owner/repo" || cfg.WorkerRepoScanTargets[1] != "trusted/infra" {
+		t.Fatalf("unexpected worker repo scan targets: %+v", cfg.WorkerRepoScanTargets)
+	}
+	if cfg.WorkerRepoScanHistory != 700 {
+		t.Fatalf("unexpected worker repo scan history override: %d", cfg.WorkerRepoScanHistory)
+	}
+	if cfg.WorkerRepoScanFindings != 80 {
+		t.Fatalf("unexpected worker repo scan findings override: %d", cfg.WorkerRepoScanFindings)
 	}
 }
 

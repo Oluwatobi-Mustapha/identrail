@@ -369,6 +369,10 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid repo scan request"})
 				return
 			}
+			if errors.Is(err, ErrRepoScanInProgress) {
+				c.JSON(http.StatusConflict, gin.H{"error": "repo scan already in progress"})
+				return
+			}
 			if errors.Is(err, ErrRepoTargetNotAllowed) {
 				c.JSON(http.StatusForbidden, gin.H{"error": "repo target not allowed"})
 				return

@@ -215,6 +215,63 @@ func TestValidateSecurityRejectsInvalidRepoScanBounds(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityWorkerRepoScanRequiresTargets(t *testing.T) {
+	cfg := Config{
+		APIKeys:                []string{"reader"},
+		RepoScanEnabled:        true,
+		WorkerRepoScanEnabled:  true,
+		WorkerRepoScanInterval: 30 * time.Minute,
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected worker repo target validation error")
+	}
+}
+
+func TestValidateSecurityWorkerRepoScanRequiresRepoScanEnabled(t *testing.T) {
+	cfg := Config{
+		APIKeys:                []string{"reader"},
+		RepoScanEnabled:        false,
+		WorkerRepoScanEnabled:  true,
+		WorkerRepoScanInterval: 30 * time.Minute,
+		WorkerRepoScanTargets:  []string{"owner/repo"},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected repo scan enabled dependency error")
+	}
+}
+
+func TestValidateSecurityWorkerRepoScanAllowlistEnforced(t *testing.T) {
+	cfg := Config{
+		APIKeys:                []string{"reader"},
+		RepoScanEnabled:        true,
+		RepoScanAllowlist:      []string{"trusted/*"},
+		WorkerRepoScanEnabled:  true,
+		WorkerRepoScanInterval: 30 * time.Minute,
+		WorkerRepoScanTargets:  []string{"owner/repo"},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected allowlist violation")
+	}
+}
+
+func TestValidateSecurityWorkerRepoScanSuccess(t *testing.T) {
+	cfg := Config{
+		APIKeys:                 []string{"reader"},
+		RepoScanEnabled:         true,
+		RepoScanAllowlist:       []string{"trusted/*"},
+		RepoScanHistoryLimitMax: 5000,
+		RepoScanMaxFindingsMax:  1000,
+		WorkerRepoScanEnabled:   true,
+		WorkerRepoScanInterval:  30 * time.Minute,
+		WorkerRepoScanTargets:   []string{"trusted/repo"},
+		WorkerRepoScanHistory:   300,
+		WorkerRepoScanFindings:  100,
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected worker repo scan config valid, got %v", err)
+	}
+}
+
 func TestSecurityWarningsRepoScanAllowlist(t *testing.T) {
 	cfg := Config{
 		APIKeys:         []string{"reader"},

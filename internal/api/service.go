@@ -123,6 +123,9 @@ var ErrRepoTargetNotAllowed = errors.New("repo target is not allowed")
 // ErrInvalidRepoScanRequest indicates invalid repository scan request input.
 var ErrInvalidRepoScanRequest = errors.New("invalid repo scan request")
 
+// ErrRepoScanInProgress is returned when the same repository scan target is already running.
+var ErrRepoScanInProgress = errors.New("repo scan already in progress")
+
 // NewService creates an API service with defaults.
 func NewService(store db.Store, scanner ScannerRunner, provider string) *Service {
 	return &Service{
@@ -239,6 +242,13 @@ func (s *Service) RunRepoScanPersisted(ctx context.Context, request RepoScanRequ
 	}
 	if !repoTargetAllowed(target, s.RepoScanAllowedTargets) {
 		return RunRepoScanResult{}, ErrRepoTargetNotAllowed
+	}
+	if s.Locker != nil {
+		release, ok := s.Locker.TryAcquire("repo-scan:" + strings.ToLower(target))
+		if !ok {
+			return RunRepoScanResult{}, ErrRepoScanInProgress
+		}
+		defer release()
 	}
 	historyLimit, err := sanitizeRepoScanLimit(request.HistoryLimit, s.RepoScanDefaultHistoryLimit, s.RepoScanMaxHistoryLimit)
 	if err != nil {

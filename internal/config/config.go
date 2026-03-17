@@ -24,6 +24,9 @@ const (
 	defaultRepoScanMaxFindings         = 200
 	defaultRepoScanHistoryLimitMax     = 5000
 	defaultRepoScanMaxFindingsLimitMax = 1000
+	defaultWorkerRepoScanEnabled       = false
+	defaultWorkerRepoScanRunNow        = false
+	defaultWorkerRepoScanInterval      = 1 * time.Hour
 )
 
 // Config centralizes process-level configuration. It keeps module wiring simple
@@ -70,6 +73,12 @@ type Config struct {
 	RepoScanHistoryLimitMax  int
 	RepoScanMaxFindingsMax   int
 	RepoScanAllowlist        []string
+	WorkerRepoScanEnabled    bool
+	WorkerRepoScanRunNow     bool
+	WorkerRepoScanInterval   time.Duration
+	WorkerRepoScanTargets    []string
+	WorkerRepoScanHistory    int
+	WorkerRepoScanFindings   int
 }
 
 // Load reads environment variables and applies safe defaults for local and CI use.
@@ -116,6 +125,12 @@ func Load() Config {
 		RepoScanHistoryLimitMax:  parseInt(getEnv("IDENTRAIL_REPO_SCAN_HISTORY_LIMIT_MAX", "5000"), defaultRepoScanHistoryLimitMax),
 		RepoScanMaxFindingsMax:   parseInt(getEnv("IDENTRAIL_REPO_SCAN_MAX_FINDINGS_MAX", "1000"), defaultRepoScanMaxFindingsLimitMax),
 		RepoScanAllowlist:        parseCommaSeparated(getEnv("IDENTRAIL_REPO_SCAN_ALLOWLIST", "")),
+		WorkerRepoScanEnabled:    parseBool(getEnv("IDENTRAIL_WORKER_REPO_SCAN_ENABLED", "false"), defaultWorkerRepoScanEnabled),
+		WorkerRepoScanRunNow:     parseBool(getEnv("IDENTRAIL_WORKER_REPO_SCAN_RUN_NOW", "false"), defaultWorkerRepoScanRunNow),
+		WorkerRepoScanInterval:   parseDuration(getEnv("IDENTRAIL_WORKER_REPO_SCAN_INTERVAL", defaultWorkerRepoScanInterval.String()), defaultWorkerRepoScanInterval),
+		WorkerRepoScanTargets:    parseCommaSeparated(getEnv("IDENTRAIL_WORKER_REPO_SCAN_TARGETS", "")),
+		WorkerRepoScanHistory:    parseInt(getEnv("IDENTRAIL_WORKER_REPO_SCAN_HISTORY_LIMIT", "0"), 0),
+		WorkerRepoScanFindings:   parseInt(getEnv("IDENTRAIL_WORKER_REPO_SCAN_MAX_FINDINGS", "0"), 0),
 	}
 }
 

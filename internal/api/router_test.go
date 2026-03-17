@@ -341,6 +341,30 @@ func TestRouterScanConflictWhenLocked(t *testing.T) {
 	}
 }
 
+func TestRouterRepoScanConflictWhenLocked(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	locker := scheduler.NewInMemoryLocker()
+	release, ok := locker.TryAcquire("repo-scan:owner/repo")
+	if !ok {
+		t.Fatal("expected lock acquire")
+	}
+	defer release()
+	svc.Locker = locker
+
+	r := NewRouter(logger, metrics, svc, RouterOptions{})
+	req := httptest.NewRequest(http.MethodPost, "/v1/repo-scans", bytes.NewBufferString(`{"repository":"owner/repo"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected status 409, got %d", w.Code)
+	}
+}
+
 func TestRouterRequiresAPIKeyForV1(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()

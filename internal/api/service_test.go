@@ -571,6 +571,22 @@ func TestServiceRunRepoScanGuards(t *testing.T) {
 	}
 }
 
+func TestServiceRunRepoScanLocked(t *testing.T) {
+	store := db.NewMemoryStore()
+	svc := NewService(store, fakeScanner{}, "aws")
+	locker := scheduler.NewInMemoryLocker()
+	release, ok := locker.TryAcquire("repo-scan:owner/repo")
+	if !ok {
+		t.Fatal("expected repo lock acquire")
+	}
+	defer release()
+	svc.Locker = locker
+
+	if _, err := svc.RunRepoScanPersisted(context.Background(), RepoScanRequest{Repository: "owner/repo"}); !errors.Is(err, ErrRepoScanInProgress) {
+		t.Fatalf("expected repo scan in progress error, got %v", err)
+	}
+}
+
 func TestServiceListFindingsWrapperAndRepoScanDetailGuard(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 17, 15, 10, 0, 0, time.UTC)

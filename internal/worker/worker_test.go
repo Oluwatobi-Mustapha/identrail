@@ -93,3 +93,57 @@ func TestRunFailsWithInvalidSecurityConfig(t *testing.T) {
 		t.Fatal("expected security validation error")
 	}
 }
+
+func TestRunWithCancelledContextAndRepoWorkerEnabled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	cfg := config.Config{
+		LogLevel:               "info",
+		ServiceName:            "identrail-test",
+		Provider:               "aws",
+		ScanInterval:           10 * time.Millisecond,
+		WorkerRunNow:           false,
+		AWSFixturePath:         []string{"testdata/aws/role_with_policies.json"},
+		APIKeys:                []string{"test-read"},
+		WriteAPIKeys:           []string{"test-read"},
+		RepoScanEnabled:        true,
+		WorkerRepoScanEnabled:  true,
+		WorkerRepoScanRunNow:   false,
+		WorkerRepoScanInterval: 15 * time.Minute,
+		WorkerRepoScanTargets:  []string{"owner/repo"},
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	if err := Run(ctx, cfg, sigCh); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+}
+
+func TestRunFailsWhenWorkerRepoStartupScanTargetIsInvalid(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cfg := config.Config{
+		LogLevel:               "info",
+		ServiceName:            "identrail-test",
+		Provider:               "aws",
+		ScanInterval:           10 * time.Millisecond,
+		WorkerRunNow:           false,
+		AWSFixturePath:         []string{"testdata/aws/role_with_policies.json"},
+		APIKeys:                []string{"test-read"},
+		WriteAPIKeys:           []string{"test-read"},
+		RepoScanEnabled:        true,
+		WorkerRepoScanEnabled:  true,
+		WorkerRepoScanRunNow:   true,
+		WorkerRepoScanInterval: 15 * time.Minute,
+		WorkerRepoScanTargets:  []string{"/path/does/not/exist"},
+		WorkerRepoScanHistory:  1,
+		WorkerRepoScanFindings: 10,
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	if err := Run(ctx, cfg, sigCh); err == nil {
+		t.Fatal("expected worker repo startup scan error")
+	}
+}
