@@ -211,3 +211,9 @@ This file tracks major decisions in simple terms.
 - Decision: Add first-class deploy profiles for Docker Compose, Kubernetes manifests, and systemd units.
 - Why: Make adoption practical across startups and enterprises without forcing one platform choice.
 - Tradeoff: More deployment artifacts to maintain in sync with runtime config changes.
+
+## ADR-036: Add Kubernetes Live Collection Mode via Kubectl
+- Date: 2026-03-17
+- Decision: Add `IDENTRAIL_K8S_SOURCE=kubectl` mode for read-only live cluster collection while keeping fixture mode as default.
+- Why: Enable real environment scans now without blocking on full client-go integration complexity.
+- Tradeoff: Requires `kubectl` binary/context availability and shell execution controls.

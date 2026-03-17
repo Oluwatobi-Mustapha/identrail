@@ -11,6 +11,8 @@
 
 1. `cp deploy/docker/.env.example deploy/docker/.env`
 2. Edit keys and secrets in `deploy/docker/.env`
+   - for live k8s collection: set `IDENTRAIL_K8S_SOURCE=kubectl`
+   - optional context override: `IDENTRAIL_KUBE_CONTEXT`
 3. `docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env up -d --build`
 
 ## Verify

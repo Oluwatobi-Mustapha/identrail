@@ -172,6 +172,11 @@ Simple threat list for current system.
 - Fix: Ship versioned deployment profiles and env templates (Docker, Kubernetes, systemd) with explicit required variables.
 - Status: Implemented.
 
+## 35) Wrong Kubernetes Context Collection
+- Threat: Running with the wrong kube context can collect from the wrong cluster and generate misleading findings.
+- Fix: Explicit `IDENTRAIL_KUBE_CONTEXT` support and startup validation for allowed k8s source modes.
+- Status: Implemented.
+
 ## Current Gaps (Next)
 - Add encrypted secret management and external KMS guidance.
 - Add audit sink forwarding guide for centralized log pipelines.

@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Added Kubernetes live collection mode via kubectl:
+  - new collector: `internal/providers/kubernetes/kubectl_collector.go`
+  - read-only `kubectl get` ingestion for service accounts, role bindings, cluster role bindings, and pods
+  - runtime + CLI source selection via `IDENTRAIL_K8S_SOURCE=fixture|kubectl`
+  - new config vars: `IDENTRAIL_KUBECTL_PATH`, `IDENTRAIL_KUBE_CONTEXT`
+  - startup validation for allowed Kubernetes source modes
 - Added portable deployment assets:
   - multi-stage backend image (`deploy/docker/Dockerfile.backend`) for API/worker
   - web image (`deploy/docker/Dockerfile.web`) with hardened nginx static serving

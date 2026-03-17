@@ -55,5 +55,6 @@ Use this where Kubernetes is not required.
 ## Notes
 
 - Current provider collection mode is fixture-based for deterministic scans.
+- Kubernetes can now run in fixture mode or live kubectl mode (`IDENTRAIL_K8S_SOURCE=kubectl`).
 - Use PostgreSQL in non-local deployments.
 - Set HTTPS endpoints for alert/audit forwarding in production.

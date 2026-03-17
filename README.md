@@ -11,6 +11,9 @@ Web shell scaffold: `web/` (React + TypeScript + Vite).
 ## Current Capabilities
 
 - AWS scan pipeline: collector -> normalizer -> graph -> risk engine
+- Kubernetes scan pipeline:
+  - fixture mode (`IDENTRAIL_K8S_SOURCE=fixture`)
+  - live kubectl mode (`IDENTRAIL_K8S_SOURCE=kubectl`)
 - CLI workflows:
   - `identrail scan`
   - `identrail findings`
@@ -55,6 +58,10 @@ Web shell scaffold: `web/` (React + TypeScript + Vite).
 - Startup migration support:
   - `IDENTRAIL_RUN_MIGRATIONS`
   - `IDENTRAIL_MIGRATIONS_DIR`
+- Kubernetes live collection config:
+  - `IDENTRAIL_K8S_SOURCE` (`fixture` or `kubectl`)
+  - `IDENTRAIL_KUBECTL_PATH`
+  - `IDENTRAIL_KUBE_CONTEXT`
 - CI gates:
   - GitHub Actions pipeline for Go quality checks, coverage, Postgres integration tests, and web build validation
 

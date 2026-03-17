@@ -25,6 +25,12 @@ Add first Kubernetes support for identity/workload mapping and core risk detecti
 - Runtime and CLI wiring:
   - provider switch now supports `aws` and `kubernetes`
   - new config support: `IDENTRAIL_K8S_FIXTURES`
+  - collection source mode: `IDENTRAIL_K8S_SOURCE=fixture|kubectl`
+  - optional live collection controls: `IDENTRAIL_KUBECTL_PATH`, `IDENTRAIL_KUBE_CONTEXT`
+- Kubernetes kubectl collector:
+  - read-only `kubectl get` calls for service accounts, role bindings, cluster role bindings, and pods
+  - deterministic deduplication and typed raw assets
+  - unit tests for command errors, malformed output, and context mode args
 
 ## User stories covered
 
@@ -34,6 +40,6 @@ Add first Kubernetes support for identity/workload mapping and core risk detecti
 
 ## Next Kubernetes slices
 
-1. Real Kubernetes API collector (read-only service account, role, role binding, pod fetchers).
+1. Native Kubernetes API client collector (client-go) as an alternative to kubectl command execution.
 2. Namespace-aware policy semantics (Role vs ClusterRole resolution by actual rules).
 3. Additional rules (secret-read concentration, broad binding fanout, default SA abuse).
