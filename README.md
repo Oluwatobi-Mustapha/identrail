@@ -9,3 +9,5 @@ It helps teams:
 - improve audit readiness with consistent identity risk visibility over time
 
 Business outcome: fewer identity-driven incidents, faster remediation cycles, and stronger security posture at lower operational cost.
+
+Will update this README once I'm done Building the first version. Thanks for paying attention to these matter!
