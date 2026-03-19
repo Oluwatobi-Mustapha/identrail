@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- Locked first five V1 finalization priorities:
+  - scope freeze guardrails for `aws|kubernetes` runtime providers
+  - standards baseline with OIDC/OAuth2-compatible auth and findings export mappings
+  - reliability hardening with AWS retry jitter
+  - data contract hardening with explicit supported relationship semantics
+  - deterministic risk evidence ordering for stable reruns/diffs
+- Added OIDC/OAuth2-compatible API auth path:
+  - `IDENTRAIL_OIDC_ISSUER_URL`, `IDENTRAIL_OIDC_AUDIENCE`, `IDENTRAIL_OIDC_WRITE_SCOPES`
+  - OIDC-only auth mode now enforced when API keys are absent
+  - write endpoints now honor OIDC write scopes
+- Added finding standards module wiring:
+  - enrich findings with compliance control references and schema metadata
+  - new endpoint: `GET /v1/findings/:finding_id/exports` (OCSF + ASFF payloads)
+  - exports are available for persisted cloud and repo findings
+- Added fixture-based graph contract tests for AWS and Kubernetes pipelines.
 - Added distributed lock backend support:
   - `IDENTRAIL_LOCK_BACKEND=auto|postgres|inmemory`
   - `IDENTRAIL_LOCK_NAMESPACE` for lock isolation across environments

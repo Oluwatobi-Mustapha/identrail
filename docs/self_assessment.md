@@ -35,6 +35,7 @@ Updated only at major milestones.
 - Distributed lock safety: Postgres advisory lock backend added for multi-instance deployments (`IDENTRAIL_LOCK_BACKEND`).
 - API scalability: cursor pagination (`cursor`, `next_cursor`) added for list endpoints.
 - Ownership workflow: ownership-signal endpoint added (`GET /v1/ownership/signals`) from identity metadata hints.
+- V1 baseline freeze (first 5): scope guardrails, standards mapping/export, OIDC auth path, graph contract tests, and deterministic risk evidence are now locked.
 - Worker: scheduled process runs scans with shared runtime bootstrap.
 - Migrations: startup migration runner added for Postgres mode.
 - Test health: `go test ./... -cover` passing, coverage above 80%.

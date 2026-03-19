@@ -222,6 +222,31 @@ Simple threat list for current system.
 - Fix: Add cursor pagination (`cursor`, `next_cursor`) to list endpoints while preserving backward compatibility.
 - Status: Implemented.
 
+## 45) OIDC-Only Deployments Accidentally Running Unauthenticated
+- Threat: If API key lists are empty and OIDC auth is configured incorrectly in middleware, `/v1/*` could become unintentionally open.
+- Fix: Enforce auth middleware for OIDC-only mode and require a valid verified bearer token when API keys are absent.
+- Status: Implemented.
+
+## 46) Inconsistent Write Authorization Across API Keys and OIDC Scopes
+- Threat: Mixed auth modes can allow write endpoints without explicit write scope checks.
+- Fix: Normalize auth scopes in middleware and enforce write access via `write` scope (or admin) for both scoped keys and OIDC tokens.
+- Status: Implemented.
+
+## 47) Graph Semantic Drift
+- Threat: New or mistyped relationship names can silently enter storage and break path logic and findings.
+- Fix: Validate relationships against an explicit supported semantic contract and enforce fixture-based contract tests.
+- Status: Implemented.
+
+## 48) Non-Deterministic Finding Evidence
+- Threat: Same scan input can produce evidence in different orders, creating noisy diffs and reducing operator trust.
+- Fix: Sort risk evidence deterministically before generating findings and cover with determinism tests.
+- Status: Implemented.
+
+## 49) Thundering-Herd Retry Under AWS Throttling
+- Threat: Synchronized retries during IAM rate limits can worsen outage duration and throttling pressure.
+- Fix: Add bounded jitter to AWS retry backoff.
+- Status: Implemented.
+
 ## Current Gaps (Next)
 - Add encrypted secret management and external KMS guidance.
 - Add audit sink forwarding guide for centralized log pipelines.

@@ -265,3 +265,39 @@ This file tracks major decisions in simple terms.
 - Decision: Add additive cursor pagination (`cursor`, `next_cursor`) to list endpoints and `GET /v1/ownership/signals` inferred from identity metadata.
 - Why: Keep API stable for large datasets and improve remediation accountability without introducing heavy new persistence paths.
 - Tradeoff: Current cursor strategy is offset-based and can be less efficient at very high offsets.
+
+## ADR-045: Freeze V1 Runtime Scope to AWS + Kubernetes
+- Date: 2026-03-19
+- Decision: Enforce provider guardrails so V1 runtime only accepts `aws` or `kubernetes`; keep repository exposure scanning optional and isolated.
+- Why: Protect V1 delivery quality by locking scope to core machine identity workflows and preventing unstable multi-provider drift.
+- Tradeoff: Azure runtime collection remains deferred until post-V1 milestones.
+
+## ADR-046: Add OIDC/OAuth2-Compatible Auth Alongside API Keys
+- Date: 2026-03-19
+- Decision: Add OIDC issuer/audience verification support and allow bearer-token auth with scope-based write authorization.
+- Why: Support enterprise SSO/IdP patterns (including Keycloak-compatible setups) without breaking existing API-key automation.
+- Tradeoff: Mixed API key + OIDC deployments increase auth-path complexity and require explicit operational testing.
+
+## ADR-047: Add Standards-Aligned Finding Enrichment and Export
+- Date: 2026-03-19
+- Decision: Enrich findings with control references/framework metadata and add OCSF/ASFF export payload support.
+- Why: Keep internal typed finding contracts while enabling downstream integrations and compliance mapping with minimal friction.
+- Tradeoff: Requires ongoing maintenance of control mapping catalog as rules evolve.
+
+## ADR-048: Freeze Graph Semantics with Explicit Relationship Contract
+- Date: 2026-03-19
+- Decision: Explicitly define supported relationship semantics (`can_assume`, `attached_policy`, `attached_to`, `bound_to`, `can_access`, `can_impersonate`) and validate relationship types against this contract.
+- Why: Prevent silent graph-schema drift that would break findings logic, API consumers, and path analysis semantics.
+- Tradeoff: New relationship types require explicit contract updates before rollout.
+
+## ADR-049: Enforce Deterministic Risk Evidence Ordering
+- Date: 2026-03-19
+- Decision: Sort access risks before building overprivileged/escalation findings so evidence and path selection remain deterministic.
+- Why: Stable finding evidence is required for reliable scan diffs, regression tests, and operator trust.
+- Tradeoff: Small additional sorting overhead during rule evaluation.
+
+## ADR-050: Add Retry Jitter to AWS Live Collector
+- Date: 2026-03-19
+- Decision: Add bounded jitter to AWS IAM retry backoff with deterministic override hooks for tests.
+- Why: Reduce synchronized retry bursts under throttling and improve production scan reliability.
+- Tradeoff: Retry timing becomes non-uniform, so deterministic tests need explicit jitter overrides.
