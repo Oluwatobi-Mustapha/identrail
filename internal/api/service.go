@@ -11,6 +11,7 @@ import (
 	"github.com/Oluwatobi-Mustapha/identrail/internal/app"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/findings/standards"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/repoexposure"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
 )
@@ -109,6 +110,12 @@ type TrendPoint struct {
 	BySeverity map[string]int `json:"by_severity"`
 }
 
+// FindingExports returns standards-aligned payloads for one finding.
+type FindingExports struct {
+	OCSF map[string]any `json:"ocsf"`
+	ASFF map[string]any `json:"asff"`
+}
+
 // OwnershipFilter narrows ownership-signal query scope.
 type OwnershipFilter struct {
 	ScanID string
@@ -180,6 +187,7 @@ func (s *Service) RunScan(ctx context.Context) (RunScanResult, error) {
 		_ = s.Store.CompleteScan(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, err.Error())
 		return RunScanResult{}, err
 	}
+	result.Findings = enrichFindings(result.Findings)
 
 	if err := s.Store.UpsertArtifacts(ctx, record.ID, db.ScanArtifacts{
 		RawAssets:     result.RawAssets,
@@ -279,6 +287,7 @@ func (s *Service) RunRepoScanPersisted(ctx context.Context, request RepoScanRequ
 		_ = s.Store.CompleteRepoScan(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, err.Error())
 		return RunRepoScanResult{}, err
 	}
+	result.Findings = enrichFindings(result.Findings)
 	if err := s.Store.UpsertRepoFindings(ctx, record.ID, result.Findings); err != nil {
 		_ = s.Store.CompleteRepoScan(ctx, record.ID, "failed", s.Now().UTC(), result.CommitsScanned, result.FilesScanned, 0, result.Truncated, err.Error())
 		return RunRepoScanResult{}, fmt.Errorf("persist repo findings: %w", err)
@@ -322,13 +331,21 @@ func (s *Service) GetRepoScan(ctx context.Context, repoScanID string) (db.RepoSc
 
 // ListRepoFindings returns repository findings using optional filters.
 func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.RepoFindingFilter) ([]domain.Finding, error) {
-	return s.Store.ListRepoFindings(ctx, filter, limit)
+	findings, err := s.Store.ListRepoFindings(ctx, filter, limit)
+	if err != nil {
+		return nil, err
+	}
+	return enrichFindings(findings), nil
 }
 
 // ListFindingsFiltered returns findings with optional scan/type/severity filters.
 func (s *Service) ListFindingsFiltered(ctx context.Context, limit int, filter FindingsFilter) ([]domain.Finding, error) {
 	if strings.TrimSpace(filter.ScanID) == "" && strings.TrimSpace(filter.Severity) == "" && strings.TrimSpace(filter.Type) == "" {
-		return s.Store.ListFindings(ctx, limit)
+		items, err := s.Store.ListFindings(ctx, limit)
+		if err != nil {
+			return nil, err
+		}
+		return enrichFindings(items), nil
 	}
 
 	loadLimit := limit
@@ -365,7 +382,7 @@ func (s *Service) ListFindingsFiltered(ctx context.Context, limit int, filter Fi
 			break
 		}
 	}
-	return result, nil
+	return enrichFindings(result), nil
 }
 
 // GetFinding returns one finding by id, optionally scoped to one scan.
@@ -384,6 +401,18 @@ func (s *Service) GetFinding(ctx context.Context, findingID string, scanID strin
 		}
 	}
 	return domain.Finding{}, db.ErrNotFound
+}
+
+// GetFindingExports returns OCSF-aligned and ASFF payloads for one finding.
+func (s *Service) GetFindingExports(ctx context.Context, findingID string, scanID string) (FindingExports, error) {
+	finding, err := s.GetFinding(ctx, findingID, scanID)
+	if err != nil {
+		return FindingExports{}, err
+	}
+	return FindingExports{
+		OCSF: standards.BuildOCSFAlignedExport(finding),
+		ASFF: standards.BuildASFFExport(finding, "", "", ""),
+	}, nil
 }
 
 // ListScans returns persisted scans.
@@ -697,6 +726,17 @@ func sanitizeRepoScanLimit(candidate int, fallback int, maxAllowed int) (int, er
 		return 0, ErrInvalidRepoScanRequest
 	}
 	return candidate, nil
+}
+
+func enrichFindings(findings []domain.Finding) []domain.Finding {
+	if len(findings) == 0 {
+		return findings
+	}
+	enriched := make([]domain.Finding, 0, len(findings))
+	for _, finding := range findings {
+		enriched = append(enriched, standards.EnrichFinding(finding))
+	}
+	return enriched
 }
 
 func repoTargetAllowed(target string, allowlist []string) bool {

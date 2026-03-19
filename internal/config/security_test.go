@@ -12,6 +12,25 @@ func TestValidateSecurityRejectsNoAPIKeys(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityAcceptsOIDCWithoutAPIKeys(t *testing.T) {
+	cfg := Config{
+		OIDCIssuerURL: "https://iam.example.com/realms/identrail",
+		OIDCAudience:  "identrail-api",
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected oidc-only auth to be valid, got %v", err)
+	}
+}
+
+func TestValidateSecurityRejectsOIDCIssuerWithoutAudience(t *testing.T) {
+	cfg := Config{
+		OIDCIssuerURL: "https://iam.example.com/realms/identrail",
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected missing oidc audience error")
+	}
+}
+
 func TestValidateSecurityWriteKeyMustBeInAPIKeys(t *testing.T) {
 	cfg := Config{
 		APIKeys:      []string{"reader"},

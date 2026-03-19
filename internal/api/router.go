@@ -33,12 +33,25 @@ const (
 
 // RouterOptions controls API middleware behavior.
 type RouterOptions struct {
-	APIKeys        []string
-	WriteAPIKeys   []string
-	APIKeyScopes   map[string][]string
-	RateLimitRPM   int
-	RateLimitBurst int
-	AuditSink      AuditSink
+	APIKeys           []string
+	WriteAPIKeys      []string
+	APIKeyScopes      map[string][]string
+	OIDCTokenVerifier TokenVerifier
+	OIDCWriteScopes   []string
+	RateLimitRPM      int
+	RateLimitBurst    int
+	AuditSink         AuditSink
+}
+
+// VerifiedToken contains normalized claims extracted from a validated OIDC token.
+type VerifiedToken struct {
+	Subject string
+	Scopes  []string
+}
+
+// TokenVerifier validates bearer tokens and returns normalized claims.
+type TokenVerifier interface {
+	VerifyToken(ctx context.Context, rawToken string) (VerifiedToken, error)
 }
 
 // NewRouter builds the REST surface area and observability endpoints.
@@ -61,7 +74,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	r.GET("/metrics", gin.WrapH(promhttp.HandlerFor(registry, promhttp.HandlerOpts{})))
 
 	v1 := r.Group("/v1")
-	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes))
+	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes))
 	v1.Use(requireReadableScopeMiddleware(opts.APIKeyScopes))
 	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink))
@@ -71,6 +84,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			c.JSON(http.StatusOK, gin.H{"items": []any{}})
 		})
 		v1.GET("/findings/:finding_id", func(c *gin.Context) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
+		})
+		v1.GET("/findings/:finding_id/exports", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
 		})
 		v1.GET("/findings/trends", func(c *gin.Context) {
@@ -171,6 +187,24 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		c.JSON(http.StatusOK, item)
+	})
+
+	v1.GET("/findings/:finding_id/exports", func(c *gin.Context) {
+		exports, err := svc.GetFindingExports(
+			c.Request.Context(),
+			strings.TrimSpace(c.Param("finding_id")),
+			strings.TrimSpace(c.Query("scan_id")),
+		)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "finding not found"})
+				return
+			}
+			logger.Error("get finding exports", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to export finding"})
+			return
+		}
+		c.JSON(http.StatusOK, exports)
 	})
 
 	v1.GET("/findings/trends", func(c *gin.Context) {
@@ -533,72 +567,80 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 	}
 }
 
-func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string) gin.HandlerFunc {
-	if len(scopedKeys) > 0 {
-		allowed := map[string]scopeSet{}
-		for key, scopes := range scopedKeys {
-			trimmed := strings.TrimSpace(key)
-			if trimmed == "" {
-				continue
-			}
-			allowed[trimmed] = newScopeSet(scopes)
-		}
-		if len(allowed) == 0 {
-			return func(c *gin.Context) { c.Next() }
-		}
-		return func(c *gin.Context) {
-			candidate := readAPIKey(c)
-			scopeSet, ok := allowed[candidate]
-			if !ok {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-				return
-			}
-			c.Set("auth.api_key", candidate)
-			c.Set("auth.scope_set", scopeSet)
-			c.Next()
-		}
-	}
+func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVerifier TokenVerifier, oidcWriteScopes []string) gin.HandlerFunc {
+	oidcWriteScopeSet := newScopeSet(oidcWriteScopes)
 
-	allowed := map[string]struct{}{}
-	for _, key := range keys {
+	scopedAllowed := map[string]scopeSet{}
+	for key, scopes := range scopedKeys {
 		trimmed := strings.TrimSpace(key)
 		if trimmed == "" {
 			continue
 		}
-		allowed[trimmed] = struct{}{}
+		scopedAllowed[trimmed] = newScopeSet(scopes)
 	}
-	if len(allowed) == 0 {
+
+	// Scoped keys are the source of truth when configured.
+	legacyAllowed := map[string]struct{}{}
+	if len(scopedAllowed) == 0 {
+		for _, key := range keys {
+			trimmed := strings.TrimSpace(key)
+			if trimmed == "" {
+				continue
+			}
+			legacyAllowed[trimmed] = struct{}{}
+		}
+	}
+
+	if len(scopedAllowed) == 0 && len(legacyAllowed) == 0 && tokenVerifier == nil {
 		return func(c *gin.Context) { c.Next() }
 	}
 
 	return func(c *gin.Context) {
-		candidate := readAPIKey(c)
-		if _, ok := allowed[candidate]; !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-			return
+		if candidate := readAPIKey(c); candidate != "" {
+			if scopes, ok := scopedAllowed[candidate]; ok {
+				c.Set("auth.api_key", candidate)
+				c.Set("auth.scope_set", scopes)
+				c.Next()
+				return
+			}
+			if _, ok := legacyAllowed[candidate]; ok {
+				c.Set("auth.api_key", candidate)
+				c.Next()
+				return
+			}
 		}
-		c.Set("auth.api_key", candidate)
-		c.Next()
+
+		rawBearer := readBearerToken(c)
+		if tokenVerifier != nil && rawBearer != "" {
+			token, err := tokenVerifier.VerifyToken(c.Request.Context(), rawBearer)
+			if err == nil {
+				c.Set("auth.subject", token.Subject)
+				c.Set("auth.scope_set", scopeSetFromOIDCToken(token, oidcWriteScopeSet))
+				c.Next()
+				return
+			}
+		}
+
+		// Backward-compatible fallback for legacy clients sending API key via Bearer token.
+		if rawBearer != "" {
+			if scopes, ok := scopedAllowed[rawBearer]; ok {
+				c.Set("auth.api_key", rawBearer)
+				c.Set("auth.scope_set", scopes)
+				c.Next()
+				return
+			}
+			if _, ok := legacyAllowed[rawBearer]; ok {
+				c.Set("auth.api_key", rawBearer)
+				c.Next()
+				return
+			}
+		}
+
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 	}
 }
 
 func requireWriteKeyMiddleware(writeKeys []string, scopedKeys map[string][]string) gin.HandlerFunc {
-	if len(scopedKeys) > 0 {
-		return func(c *gin.Context) {
-			scopeSetValue, exists := c.Get("auth.scope_set")
-			if !exists {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-				return
-			}
-			scopes, ok := scopeSetValue.(scopeSet)
-			if !ok || !scopes.has(scopeWrite) {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-				return
-			}
-			c.Next()
-		}
-	}
-
 	allowed := map[string]struct{}{}
 	for _, key := range writeKeys {
 		trimmed := strings.TrimSpace(key)
@@ -607,11 +649,30 @@ func requireWriteKeyMiddleware(writeKeys []string, scopedKeys map[string][]strin
 		}
 		allowed[trimmed] = struct{}{}
 	}
-	if len(allowed) == 0 {
-		return func(c *gin.Context) { c.Next() }
-	}
 
+	// When scoped auth exists (scoped API keys or OIDC token scopes), prefer scope-based write checks.
+	// This keeps API keys backward compatible while allowing OAuth/OIDC write scopes.
 	return func(c *gin.Context) {
+		if scopeSetValue, exists := c.Get("auth.scope_set"); exists {
+			scopes, ok := scopeSetValue.(scopeSet)
+			if !ok || !scopes.has(scopeWrite) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
+			c.Next()
+			return
+		}
+
+		if len(scopedKeys) > 0 {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+
+		if len(allowed) == 0 {
+			c.Next()
+			return
+		}
+
 		apiKeyValue, exists := c.Get("auth.api_key")
 		if !exists {
 			// If API key auth is disabled, write authorization cannot be enforced.
@@ -628,22 +689,22 @@ func requireWriteKeyMiddleware(writeKeys []string, scopedKeys map[string][]strin
 }
 
 func requireReadableScopeMiddleware(scopedKeys map[string][]string) gin.HandlerFunc {
-	if len(scopedKeys) == 0 {
-		return func(c *gin.Context) { c.Next() }
-	}
-	return func(c *gin.Context) {
-		scopeSetValue, exists := c.Get("auth.scope_set")
-		if !exists {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-			return
+	if len(scopedKeys) > 0 {
+		return func(c *gin.Context) {
+			scopeSetValue, exists := c.Get("auth.scope_set")
+			if !exists {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
+			scopes, ok := scopeSetValue.(scopeSet)
+			if !ok || !scopes.has(scopeRead) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
+			c.Next()
 		}
-		scopes, ok := scopeSetValue.(scopeSet)
-		if !ok || !scopes.has(scopeRead) {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-			return
-		}
-		c.Next()
 	}
+	return func(c *gin.Context) { c.Next() }
 }
 
 type ipRateLimiter struct {
@@ -730,10 +791,10 @@ func auditLogMiddleware(logger *zap.Logger, sink AuditSink) gin.HandlerFunc {
 }
 
 func readAPIKey(c *gin.Context) string {
-	candidate := strings.TrimSpace(c.GetHeader("X-API-Key"))
-	if candidate != "" {
-		return candidate
-	}
+	return strings.TrimSpace(c.GetHeader("X-API-Key"))
+}
+
+func readBearerToken(c *gin.Context) string {
 	authz := strings.TrimSpace(c.GetHeader("Authorization"))
 	if strings.HasPrefix(strings.ToLower(authz), "bearer ") {
 		return strings.TrimSpace(authz[7:])
@@ -769,4 +830,28 @@ func (s scopeSet) has(required string) bool {
 	}
 	_, ok := s[required]
 	return ok
+}
+
+func scopeSetFromOIDCToken(token VerifiedToken, writeScopeOverrides scopeSet) scopeSet {
+	set := scopeSet{scopeRead: {}}
+	for _, scope := range token.Scopes {
+		normalized := strings.ToLower(strings.TrimSpace(scope))
+		if normalized == "" {
+			continue
+		}
+		switch normalized {
+		case scopeAdmin, "identrail.admin":
+			set[scopeAdmin] = struct{}{}
+			set[scopeWrite] = struct{}{}
+			set[scopeRead] = struct{}{}
+		case scopeWrite, "identrail.write":
+			set[scopeWrite] = struct{}{}
+		case scopeRead, "identrail.read":
+			set[scopeRead] = struct{}{}
+		}
+		if _, ok := writeScopeOverrides[normalized]; ok {
+			set[scopeWrite] = struct{}{}
+		}
+	}
+	return set
 }

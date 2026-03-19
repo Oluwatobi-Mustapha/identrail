@@ -249,6 +249,37 @@ func TestServiceGetFinding(t *testing.T) {
 	}
 }
 
+func TestServiceGetFindingExports(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	scan, _ := store.CreateScan(context.Background(), "aws", now)
+	_ = store.UpsertFindings(context.Background(), scan.ID, []domain.Finding{
+		{
+			ID:        "finding-1",
+			Type:      domain.FindingOverPrivileged,
+			Severity:  domain.SeverityHigh,
+			Title:     "Overprivileged role",
+			CreatedAt: now,
+		},
+	})
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	exports, err := svc.GetFindingExports(context.Background(), "finding-1", scan.ID)
+	if err != nil {
+		t.Fatalf("get finding exports: %v", err)
+	}
+	findingInfo, ok := exports.OCSF["finding_info"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected finding_info object, got %+v", exports.OCSF)
+	}
+	if findingInfo["uid"] != "finding-1" {
+		t.Fatalf("expected OCSF payload, got %+v", exports.OCSF)
+	}
+	if exports.ASFF["SchemaVersion"] != "2018-10-08" {
+		t.Fatalf("expected ASFF schema version, got %+v", exports.ASFF)
+	}
+}
+
 func TestServiceGetScanDiff(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)

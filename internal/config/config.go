@@ -29,6 +29,7 @@ const (
 	defaultWorkerRepoScanInterval      = 1 * time.Hour
 	defaultLockBackend                 = "auto"
 	defaultLockNamespace               = "identrail"
+	defaultOIDCWriteScopes             = "identrail.write,identrail.admin,write,admin"
 )
 
 // Config centralizes process-level configuration. It keeps module wiring simple
@@ -83,6 +84,9 @@ type Config struct {
 	WorkerRepoScanFindings   int
 	LockBackend              string
 	LockNamespace            string
+	OIDCIssuerURL            string
+	OIDCAudience             string
+	OIDCWriteScopes          []string
 }
 
 // Load reads environment variables and applies safe defaults for local and CI use.
@@ -137,6 +141,9 @@ func Load() Config {
 		WorkerRepoScanFindings:   parseInt(getEnv("IDENTRAIL_WORKER_REPO_SCAN_MAX_FINDINGS", "0"), 0),
 		LockBackend:              strings.ToLower(getEnv("IDENTRAIL_LOCK_BACKEND", defaultLockBackend)),
 		LockNamespace:            getEnv("IDENTRAIL_LOCK_NAMESPACE", defaultLockNamespace),
+		OIDCIssuerURL:            getEnv("IDENTRAIL_OIDC_ISSUER_URL", ""),
+		OIDCAudience:             getEnv("IDENTRAIL_OIDC_AUDIENCE", ""),
+		OIDCWriteScopes:          parseCommaSeparated(getEnv("IDENTRAIL_OIDC_WRITE_SCOPES", defaultOIDCWriteScopes)),
 	}
 }
 

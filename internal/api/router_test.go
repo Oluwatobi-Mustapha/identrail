@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -41,6 +42,18 @@ func (routerScanner) Run(_ context.Context) (app.ScanResult, error) {
 type recordingAuditSink struct {
 	mu     sync.Mutex
 	events []AuditEvent
+}
+
+type fakeTokenVerifier struct {
+	tokens map[string]VerifiedToken
+}
+
+func (v fakeTokenVerifier) VerifyToken(_ context.Context, rawToken string) (VerifiedToken, error) {
+	token, ok := v.tokens[rawToken]
+	if !ok {
+		return VerifiedToken{}, errors.New("invalid token")
+	}
+	return token, nil
 }
 
 func (s *recordingAuditSink) Write(event AuditEvent) error {
@@ -151,6 +164,30 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 	r.ServeHTTP(findingW, findingReq)
 	if findingW.Code != http.StatusOK {
 		t.Fatalf("expected finding by id 200, got %d", findingW.Code)
+	}
+
+	exportReq := httptest.NewRequest(http.MethodGet, "/v1/findings/f1/exports", nil)
+	exportW := httptest.NewRecorder()
+	r.ServeHTTP(exportW, exportReq)
+	if exportW.Code != http.StatusOK {
+		t.Fatalf("expected finding exports 200, got %d", exportW.Code)
+	}
+	var exportBody struct {
+		OCSF map[string]any `json:"ocsf"`
+		ASFF map[string]any `json:"asff"`
+	}
+	if err := json.Unmarshal(exportW.Body.Bytes(), &exportBody); err != nil {
+		t.Fatalf("decode export body: %v", err)
+	}
+	findingInfo, ok := exportBody.OCSF["finding_info"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected finding_info object in OCSF payload, got %+v", exportBody.OCSF)
+	}
+	if findingInfo["uid"] != "f1" {
+		t.Fatalf("expected ocsf payload, got %+v", exportBody.OCSF)
+	}
+	if exportBody.ASFF["SchemaVersion"] != "2018-10-08" {
+		t.Fatalf("expected ASFF schema version, got %+v", exportBody.ASFF)
 	}
 
 	scansReq := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
@@ -328,6 +365,13 @@ func TestRouterUnavailableWhenServiceMissing(t *testing.T) {
 	r.ServeHTTP(findingW, findingReq)
 	if findingW.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected finding-by-id 503 without service, got %d", findingW.Code)
+	}
+
+	exportsReq := httptest.NewRequest(http.MethodGet, "/v1/findings/f1/exports", nil)
+	exportsW := httptest.NewRecorder()
+	r.ServeHTTP(exportsW, exportsReq)
+	if exportsW.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected finding exports 503 without service, got %d", exportsW.Code)
 	}
 
 	identityReq := httptest.NewRequest(http.MethodGet, "/v1/identities", nil)
@@ -524,6 +568,65 @@ func TestRouterScopedAuthorizationPrefersScopeMap(t *testing.T) {
 	r.ServeHTTP(badScopeW, badScopeReq)
 	if badScopeW.Code != http.StatusForbidden {
 		t.Fatalf("expected bad-key read to be forbidden, got %d", badScopeW.Code)
+	}
+}
+
+func TestRouterOIDCOnlyAuthentication(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		OIDCTokenVerifier: fakeTokenVerifier{
+			tokens: map[string]VerifiedToken{
+				"good-token": {Subject: "user-1", Scopes: []string{"read"}},
+			},
+		},
+	})
+
+	unauthReq := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	unauthW := httptest.NewRecorder()
+	r.ServeHTTP(unauthW, unauthReq)
+	if unauthW.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for missing token, got %d", unauthW.Code)
+	}
+
+	authReq := httptest.NewRequest(http.MethodGet, "/v1/scans", nil)
+	authReq.Header.Set("Authorization", "Bearer good-token")
+	authW := httptest.NewRecorder()
+	r.ServeHTTP(authW, authReq)
+	if authW.Code != http.StatusOK {
+		t.Fatalf("expected 200 with valid oidc token, got %d", authW.Code)
+	}
+}
+
+func TestRouterOIDCWriteScopeAuthorization(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		OIDCTokenVerifier: fakeTokenVerifier{
+			tokens: map[string]VerifiedToken{
+				"reader-token": {Subject: "user-read", Scopes: []string{"identrail.read"}},
+				"writer-token": {Subject: "user-write", Scopes: []string{"identrail.write"}},
+			},
+		},
+		OIDCWriteScopes: []string{"identrail.write"},
+	})
+
+	readerWriteReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
+	readerWriteReq.Header.Set("Authorization", "Bearer reader-token")
+	readerWriteW := httptest.NewRecorder()
+	r.ServeHTTP(readerWriteW, readerWriteReq)
+	if readerWriteW.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for read-only token on write path, got %d", readerWriteW.Code)
+	}
+
+	writerReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
+	writerReq.Header.Set("Authorization", "Bearer writer-token")
+	writerW := httptest.NewRecorder()
+	r.ServeHTTP(writerW, writerReq)
+	if writerW.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 for writer token, got %d", writerW.Code)
 	}
 }
 

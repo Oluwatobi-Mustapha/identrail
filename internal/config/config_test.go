@@ -202,6 +202,15 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.LockNamespace != defaultLockNamespace {
 		t.Fatalf("expected default lock namespace %q, got %q", defaultLockNamespace, cfg.LockNamespace)
 	}
+	if cfg.OIDCIssuerURL != "" {
+		t.Fatalf("expected empty oidc issuer by default, got %q", cfg.OIDCIssuerURL)
+	}
+	if cfg.OIDCAudience != "" {
+		t.Fatalf("expected empty oidc audience by default, got %q", cfg.OIDCAudience)
+	}
+	if len(cfg.OIDCWriteScopes) == 0 {
+		t.Fatal("expected default oidc write scopes")
+	}
 }
 
 func TestLoadFromEnv(t *testing.T) {
@@ -254,6 +263,9 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_WORKER_REPO_SCAN_MAX_FINDINGS", "80")
 	t.Setenv("IDENTRAIL_LOCK_BACKEND", "postgres")
 	t.Setenv("IDENTRAIL_LOCK_NAMESPACE", "prod-identrail")
+	t.Setenv("IDENTRAIL_OIDC_ISSUER_URL", "https://iam.example.com/realms/identrail")
+	t.Setenv("IDENTRAIL_OIDC_AUDIENCE", "identrail-api")
+	t.Setenv("IDENTRAIL_OIDC_WRITE_SCOPES", "identrail.write,identrail.admin")
 
 	cfg := Load()
 	if cfg.HTTPAddr != "127.0.0.1:9090" {
@@ -399,6 +411,15 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.LockNamespace != "prod-identrail" {
 		t.Fatalf("unexpected lock namespace: %q", cfg.LockNamespace)
+	}
+	if cfg.OIDCIssuerURL != "https://iam.example.com/realms/identrail" {
+		t.Fatalf("unexpected oidc issuer url: %q", cfg.OIDCIssuerURL)
+	}
+	if cfg.OIDCAudience != "identrail-api" {
+		t.Fatalf("unexpected oidc audience: %q", cfg.OIDCAudience)
+	}
+	if len(cfg.OIDCWriteScopes) != 2 || cfg.OIDCWriteScopes[0] != "identrail.write" || cfg.OIDCWriteScopes[1] != "identrail.admin" {
+		t.Fatalf("unexpected oidc write scopes: %+v", cfg.OIDCWriteScopes)
 	}
 }
 

@@ -47,8 +47,30 @@ var allowedLockBackends = map[string]struct{}{
 	"postgres": {},
 }
 
+var allowedProviders = map[string]struct{}{
+	"aws":        {},
+	"kubernetes": {},
+}
+
 // ValidateSecurity checks hard-fail security misconfigurations.
 func ValidateSecurity(cfg Config) error {
+	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
+	if provider == "" {
+		provider = defaultProvider
+	}
+	if _, ok := allowedProviders[provider]; !ok {
+		return fmt.Errorf("invalid IDENTRAIL_PROVIDER %q: v1 supports aws or kubernetes", cfg.Provider)
+	}
+
+	oidcIssuer := strings.TrimSpace(cfg.OIDCIssuerURL)
+	oidcAudience := strings.TrimSpace(cfg.OIDCAudience)
+	if oidcIssuer != "" && oidcAudience == "" {
+		return fmt.Errorf("IDENTRAIL_OIDC_AUDIENCE must be set when IDENTRAIL_OIDC_ISSUER_URL is configured")
+	}
+	if oidcAudience != "" && oidcIssuer == "" {
+		return fmt.Errorf("IDENTRAIL_OIDC_ISSUER_URL must be set when IDENTRAIL_OIDC_AUDIENCE is configured")
+	}
+
 	if len(cfg.APIKeyScopes) > 0 {
 		for key, scopes := range cfg.APIKeyScopes {
 			trimmedKey := strings.TrimSpace(key)
@@ -216,8 +238,8 @@ func ValidateSecurity(cfg Config) error {
 	if lockBackend == "postgres" && strings.TrimSpace(cfg.DatabaseURL) == "" {
 		return fmt.Errorf("IDENTRAIL_LOCK_BACKEND=postgres requires IDENTRAIL_DATABASE_URL")
 	}
-	if len(cfg.APIKeys) == 0 && len(cfg.APIKeyScopes) == 0 {
-		return fmt.Errorf("no API keys configured: set IDENTRAIL_API_KEYS or IDENTRAIL_API_KEY_SCOPES to enable authentication")
+	if len(cfg.APIKeys) == 0 && len(cfg.APIKeyScopes) == 0 && oidcIssuer == "" {
+		return fmt.Errorf("no authentication configured: set API keys or OIDC configuration")
 	}
 	return nil
 }
@@ -227,6 +249,9 @@ func SecurityWarnings(cfg Config) []string {
 	warnings := []string{}
 	if len(cfg.APIKeys) > 0 && len(cfg.APIKeyScopes) > 0 {
 		warnings = append(warnings, "IDENTRAIL_API_KEYS is ignored when IDENTRAIL_API_KEY_SCOPES is configured")
+	}
+	if strings.TrimSpace(cfg.OIDCIssuerURL) != "" && (len(cfg.APIKeys) > 0 || len(cfg.APIKeyScopes) > 0) {
+		warnings = append(warnings, "both API key auth and OIDC are enabled; verify expected precedence in clients and automation")
 	}
 	if strings.TrimSpace(cfg.AuditLogFile) == "" {
 		warnings = append(warnings, "audit file sink is disabled; configure IDENTRAIL_AUDIT_LOG_FILE for durable local audit records")

@@ -89,13 +89,29 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		auditSink = api.NewMultiAuditSink(auditSinks...)
 	}
 
+	var tokenVerifier api.TokenVerifier
+	if cfg.OIDCIssuerURL != "" {
+		verifier, verifierErr := api.NewOIDCTokenVerifier(ctx, cfg.OIDCIssuerURL, cfg.OIDCAudience)
+		if verifierErr != nil {
+			for _, sink := range auditSinks {
+				_ = sink.Close()
+			}
+			_ = closeStore()
+			_ = logger.Sync()
+			return Bootstrap{}, fmt.Errorf("initialize oidc verifier: %w", verifierErr)
+		}
+		tokenVerifier = verifier
+	}
+
 	router := api.NewRouter(logger, metrics, svc, api.RouterOptions{
-		APIKeys:        cfg.APIKeys,
-		WriteAPIKeys:   cfg.WriteAPIKeys,
-		APIKeyScopes:   cfg.APIKeyScopes,
-		RateLimitRPM:   cfg.RateLimitRPM,
-		RateLimitBurst: cfg.RateLimitBurst,
-		AuditSink:      auditSink,
+		APIKeys:           cfg.APIKeys,
+		WriteAPIKeys:      cfg.WriteAPIKeys,
+		APIKeyScopes:      cfg.APIKeyScopes,
+		OIDCTokenVerifier: tokenVerifier,
+		OIDCWriteScopes:   cfg.OIDCWriteScopes,
+		RateLimitRPM:      cfg.RateLimitRPM,
+		RateLimitBurst:    cfg.RateLimitBurst,
+		AuditSink:         auditSink,
 	})
 	return Bootstrap{
 		Logger:        logger,
