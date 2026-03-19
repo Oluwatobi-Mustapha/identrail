@@ -10,7 +10,27 @@ import (
 
 // OIDCTokenVerifier validates OIDC bearer tokens using issuer discovery and JWKS verification.
 type OIDCTokenVerifier struct {
+	verifier rawTokenVerifier
+}
+
+type tokenClaimsDecoder interface {
+	Claims(v interface{}) error
+}
+
+type rawTokenVerifier interface {
+	Verify(ctx context.Context, rawToken string) (tokenClaimsDecoder, error)
+}
+
+type oidcRawTokenVerifier struct {
 	verifier *oidc.IDTokenVerifier
+}
+
+func (v oidcRawTokenVerifier) Verify(ctx context.Context, rawToken string) (tokenClaimsDecoder, error) {
+	idToken, err := v.verifier.Verify(ctx, rawToken)
+	if err != nil {
+		return nil, err
+	}
+	return idToken, nil
 }
 
 // NewOIDCTokenVerifier constructs a verifier from issuer URL and expected audience.
@@ -28,12 +48,16 @@ func NewOIDCTokenVerifier(ctx context.Context, issuerURL string, audience string
 		return nil, fmt.Errorf("discover oidc provider: %w", err)
 	}
 	verifier := provider.Verifier(&oidc.Config{ClientID: clientID})
-	return &OIDCTokenVerifier{verifier: verifier}, nil
+	return &OIDCTokenVerifier{verifier: oidcRawTokenVerifier{verifier: verifier}}, nil
 }
 
 // VerifyToken verifies one raw bearer token and extracts normalized claims.
 func (v *OIDCTokenVerifier) VerifyToken(ctx context.Context, rawToken string) (VerifiedToken, error) {
-	idToken, err := v.verifier.Verify(ctx, strings.TrimSpace(rawToken))
+	if v == nil || v.verifier == nil {
+		return VerifiedToken{}, fmt.Errorf("oidc verifier is not configured")
+	}
+
+	token, err := v.verifier.Verify(ctx, strings.TrimSpace(rawToken))
 	if err != nil {
 		return VerifiedToken{}, err
 	}
@@ -43,7 +67,7 @@ func (v *OIDCTokenVerifier) VerifyToken(ctx context.Context, rawToken string) (V
 		Scope   string   `json:"scope"`
 		SCP     []string `json:"scp"`
 	}
-	if err := idToken.Claims(&claims); err != nil {
+	if err := token.Claims(&claims); err != nil {
 		return VerifiedToken{}, fmt.Errorf("decode oidc claims: %w", err)
 	}
 
