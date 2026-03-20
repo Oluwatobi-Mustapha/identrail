@@ -84,3 +84,45 @@ func TestRunnerValidation(t *testing.T) {
 		t.Fatal("expected interval validation error")
 	}
 }
+
+func TestRunnerRunOnceRetriesThenSucceeds(t *testing.T) {
+	var calls int32
+	runner := Runner{
+		MaxAttempts:  3,
+		RetryBackoff: 1 * time.Millisecond,
+		Trigger: func(context.Context) error {
+			if atomic.AddInt32(&calls, 1) < 3 {
+				return errors.New("transient failure")
+			}
+			return nil
+		},
+	}
+
+	if err := runner.RunOnce(context.Background()); err != nil {
+		t.Fatalf("expected retry success, got %v", err)
+	}
+	if calls != 3 {
+		t.Fatalf("expected 3 calls, got %d", calls)
+	}
+}
+
+func TestRunnerRunOnceDeadLetterOnFailure(t *testing.T) {
+	var deadLetterCalls int32
+	runner := Runner{
+		MaxAttempts:  2,
+		RetryBackoff: 1 * time.Millisecond,
+		Trigger: func(context.Context) error {
+			return errors.New("persistent failure")
+		},
+		OnDeadLetter: func(context.Context, error) {
+			atomic.AddInt32(&deadLetterCalls, 1)
+		},
+	}
+
+	if err := runner.RunOnce(context.Background()); err == nil {
+		t.Fatal("expected persistent failure")
+	}
+	if deadLetterCalls != 1 {
+		t.Fatalf("expected one dead-letter callback, got %d", deadLetterCalls)
+	}
+}

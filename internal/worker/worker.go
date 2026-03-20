@@ -14,6 +14,11 @@ import (
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 )
 
+const (
+	defaultWorkerTriggerMaxAttempts = 3
+	defaultWorkerRetryBackoff       = 2 * time.Second
+)
+
 // Run starts the scheduled worker loop and exits on signal or context cancellation.
 func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error {
 	logger, err := telemetry.NewLogger(cfg.LogLevel)
@@ -99,9 +104,14 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 		name:   "cloud",
 		runNow: cfg.WorkerRunNow,
 		runner: scheduler.Runner{
-			Interval: cfg.ScanInterval,
-			Key:      "scan:" + cfg.Provider,
-			Trigger:  cloudTrigger,
+			Interval:     cfg.ScanInterval,
+			Key:          "scan:" + cfg.Provider,
+			Trigger:      cloudTrigger,
+			MaxAttempts:  defaultWorkerTriggerMaxAttempts,
+			RetryBackoff: defaultWorkerRetryBackoff,
+			OnDeadLetter: func(_ context.Context, err error) {
+				logger.Error("cloud trigger exhausted retries; dead-letter event emitted", telemetry.ZapError(err))
+			},
 		},
 	}}
 	if cfg.WorkerRepoScanEnabled {
@@ -109,9 +119,14 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 			name:   "repo",
 			runNow: cfg.WorkerRepoScanRunNow,
 			runner: scheduler.Runner{
-				Interval: cfg.WorkerRepoScanInterval,
-				Key:      "repo-scan",
-				Trigger:  repoTrigger,
+				Interval:     cfg.WorkerRepoScanInterval,
+				Key:          "repo-scan",
+				Trigger:      repoTrigger,
+				MaxAttempts:  defaultWorkerTriggerMaxAttempts,
+				RetryBackoff: defaultWorkerRetryBackoff,
+				OnDeadLetter: func(_ context.Context, err error) {
+					logger.Error("repo trigger exhausted retries; dead-letter event emitted", telemetry.ZapError(err))
+				},
 			},
 		})
 	}
