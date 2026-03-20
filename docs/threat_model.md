@@ -297,6 +297,30 @@ Simple threat list for current system.
 - Fix: Add CLI smoke and dockerized API smoke gates in CI.
 - Status: Implemented.
 
+## 60) API Key Timing Side-Channel Risk
+- Threat: Direct string comparison on API keys can leak timing signals and aid brute-force attempts.
+- Fix: Use constant-time key comparison for scoped and legacy API key matching.
+- Status: Implemented.
+
+## 61) Weak API Key Entropy in Runtime Config
+- Threat: Short API keys are easier to brute force and often reused across environments.
+- Fix: Add startup security warning for keys shorter than recommended entropy length.
+- Status: Implemented.
+
+## 62) Hidden Degradation in Scan Health Dashboards
+- Threat: Without explicit success/failure/partial counters, operators cannot detect scan health drift quickly.
+- Fix: Add dedicated scan outcome metrics and repo scan reliability metrics.
+- Status: Implemented.
+
+## 63) Missing End-to-End Trace Across Scan Pipeline
+- Threat: Debugging stage-level bottlenecks or failures is slower without scanner stage traces.
+- Fix: Add OpenTelemetry spans for collect/normalize/permissions/relationships/risk stages.
+- Status: Implemented.
+
+## 64) IaC Drift in Deployment Artifacts
+- Threat: Helm/Terraform drift can reach production when artifacts are not validated in CI.
+- Fix: Add CI gates for `helm lint` and `terraform validate`.
+- Status: Implemented.
+
 ## Current Gaps (Next)
-- Add encrypted secret management and external KMS guidance.
-- Add audit sink forwarding guide for centralized log pipelines.
+- Add native secret-manager/KMS integration (today uses environment/secret injection patterns).

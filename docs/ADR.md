@@ -361,3 +361,33 @@ This file tracks major decisions in simple terms.
 - Decision: Extend CI with CLI smoke tests and compose-backed API smoke verification against Postgres.
 - Why: Catch release-breaking runtime issues not covered by unit tests alone.
 - Tradeoff: CI runtime increases modestly due to container startup and command smoke execution.
+
+## ADR-061: Use Constant-Time API Key Comparison
+- Date: 2026-03-20
+- Decision: Use constant-time comparison for scoped and legacy API key checks in auth middleware.
+- Why: Reduce timing side-channel risk from key comparison operations.
+- Tradeoff: Authorization checks become slightly more expensive due to constant-time comparisons.
+
+## ADR-062: Expand Scan Reliability Metrics Contract
+- Date: 2026-03-20
+- Decision: Add explicit scan success/failure/partial and repo-scan reliability metrics in Prometheus surface.
+- Why: Operators need measurable scan health and failure trend visibility for SLO tracking.
+- Tradeoff: Metric surface area and dashboard maintenance both increase.
+
+## ADR-063: Add Scanner Pipeline Tracing Spans
+- Date: 2026-03-20
+- Decision: Emit OpenTelemetry spans for scanner pipeline stages (`collect`, `normalize`, `permissions`, `relationships`, `risk`).
+- Why: Improve root-cause analysis for degraded scans and provider latency spikes.
+- Tradeoff: Minor runtime overhead and tracing backend setup complexity for operators.
+
+## ADR-064: Standardize Kubernetes Deployments on Helm Baseline
+- Date: 2026-03-20
+- Decision: Add a first-class Helm chart (`deploy/helm/identrail`) for API/worker/web deployment.
+- Why: Keep Kubernetes rollout and upgrade path reproducible across customer environments.
+- Tradeoff: Another deployment artifact must stay in sync with config/runtime changes.
+
+## ADR-065: Add Terraform Helm Module for Deploy Automation
+- Date: 2026-03-20
+- Decision: Add Terraform baseline module to deploy Helm release with namespace and secret wiring.
+- Why: Give platform teams a reproducible IaC path for multi-environment rollout.
+- Tradeoff: Terraform users must manage provider auth and sensitive state handling carefully.

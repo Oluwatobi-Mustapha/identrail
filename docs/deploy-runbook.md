@@ -7,6 +7,11 @@ Portable deployment profiles:
 - Kubernetes: `deploy/kubernetes/`
 - Linux VM/systemd: `deploy/systemd/`
 - Guide: `docs/deployment-anywhere.md`
+- Operator readiness: `docs/operator-readiness.md`
+- Troubleshooting playbook: `docs/troubleshooting.md`
+- Incident workflow: `docs/incident-response.md`
+- Security baseline: `docs/security-hardening.md`
+- Observability baseline: `docs/observability.md`
 - API contract: `docs/openapi-v1.yaml`
 - Migration policy: `docs/migrations.md`
 

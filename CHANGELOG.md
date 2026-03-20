@@ -1,6 +1,25 @@
 # Changelog
 
 ## Unreleased
+- Locked V1 finalization priorities 16-20:
+  - security hardening (constant-time API key checks, key-strength warning, least-privilege policy templates)
+  - observability baseline (scan outcome metrics + repo scan metrics + scanner tracing spans)
+  - deployment-anywhere baseline extended with Helm chart and Terraform Helm module
+  - operator readiness docs (install/handoff guide, troubleshooting, incident workflow)
+  - governance updates across ADR, threat model, and V1 baseline docs
+- Added infrastructure CI gate:
+  - Helm chart lint (`helm lint deploy/helm/identrail`)
+  - Terraform format + validation checks for `deploy/terraform`
+- Added deployment artifacts:
+  - Helm chart: `deploy/helm/identrail`
+  - Terraform baseline + module: `deploy/terraform` and `deploy/terraform/modules/identrail-helm`
+  - read-only collector policy templates: `deploy/policies/aws/*`, `deploy/policies/kubernetes/*`
+- Added operator/security/observability docs:
+  - `docs/security-hardening.md`
+  - `docs/observability.md`
+  - `docs/operator-readiness.md`
+  - `docs/troubleshooting.md`
+  - `docs/incident-response.md`
 - Locked V1 finalization priorities 11-15:
   - API hardening with consistent `sort_by`/`sort_order` list contract
   - published OpenAPI v1 contract (`docs/openapi-v1.yaml`) with contract presence tests

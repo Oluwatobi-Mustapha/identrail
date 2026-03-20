@@ -1,6 +1,6 @@
-# V1 Scope And Baseline (First 15 Priorities)
+# V1 Scope And Baseline (First 20 Priorities)
 
-This document locks the first fifteen non-negotiable V1 priorities.
+This document locks the first twenty non-negotiable V1 priorities.
 
 ## 1) Scope Freeze
 
@@ -123,3 +123,35 @@ This document locks the first fifteen non-negotiable V1 priorities.
 - Added CLI smoke gate in CI.
 - Added dockerized API smoke gate (`postgres + api + fixture scan`) in CI deploy portability job.
 - Contract safety now includes OpenAPI presence checks in tests.
+
+## 16) Security Hardening
+
+- Constant-time API key matching added to reduce timing side-channel risk.
+- Security warnings now include weak API key length detection.
+- Read-only integration policy templates added for AWS and Kubernetes.
+- Dedicated security baseline guide added for secret handling and key rotation.
+
+## 17) Observability Baseline
+
+- Expanded Prometheus metrics for success/failure/partial scan tracking.
+- Added repository scan reliability metrics.
+- Added scanner pipeline tracing spans for each stage.
+- Added SLO baseline and alert thresholds in operator docs.
+
+## 18) Deploy-Anywhere Baseline
+
+- Docker Compose remains first-class local/prod-like baseline.
+- Added Helm chart for Kubernetes upgrades and repeatable release flow.
+- Added Terraform module baseline to deploy Helm with namespace/secret wiring.
+
+## 19) Operator Readiness
+
+- Added operator readiness handoff checklist.
+- Added troubleshooting playbook for common failure scenarios.
+- Added incident response workflow for high-severity findings.
+- Deploy runbook now links all operational docs in one place.
+
+## 20) Governance Docs
+
+- ADR, threat model, and changelog updated for priorities 16-20.
+- Governance updates now explicitly include deployment model and observability decisions.
