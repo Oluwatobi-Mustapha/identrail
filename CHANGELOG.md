@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Hardened API client IP handling against spoofed `X-Forwarded-For` by default:
+  - added trusted proxy configuration (`IDENTRAIL_TRUSTED_PROXIES`)
+  - default behavior now trusts no proxy hops unless explicitly configured
+  - added validation/tests for trusted proxy IP/CIDR entries
 - Fixed Helm chart default to avoid startup failure on nonroot containers:
   - `IDENTRAIL_AUDIT_LOG_FILE` now defaults to empty (opt-in)
   - Helm docs now require writable mount path when enabling file audit sink

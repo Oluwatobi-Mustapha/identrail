@@ -112,6 +112,7 @@ func NewBootstrap(ctx context.Context, cfg config.Config) (Bootstrap, error) {
 		RateLimitRPM:      cfg.RateLimitRPM,
 		RateLimitBurst:    cfg.RateLimitBurst,
 		AuditSink:         auditSink,
+		TrustedProxies:    cfg.TrustedProxies,
 	})
 	return Bootstrap{
 		Logger:        logger,

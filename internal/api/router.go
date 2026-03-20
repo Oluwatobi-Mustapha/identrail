@@ -44,6 +44,7 @@ type RouterOptions struct {
 	RateLimitRPM      int
 	RateLimitBurst    int
 	AuditSink         AuditSink
+	TrustedProxies    []string
 }
 
 // VerifiedToken contains normalized claims extracted from a validated OIDC token.
@@ -61,6 +62,7 @@ type TokenVerifier interface {
 func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opts RouterOptions) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
+	configureTrustedProxies(r, logger, opts.TrustedProxies)
 	r.Use(gin.Recovery())
 	r.Use(securityHeadersMiddleware())
 
@@ -546,6 +548,42 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	})
 
 	return r
+}
+
+func configureTrustedProxies(r *gin.Engine, logger *zap.Logger, proxies []string) {
+	normalized := normalizeTrustedProxies(proxies)
+	var err error
+	if len(normalized) == 0 {
+		err = r.SetTrustedProxies(nil)
+	} else {
+		err = r.SetTrustedProxies(normalized)
+	}
+	if err != nil {
+		if logger != nil {
+			logger.Warn("invalid trusted proxy configuration; disabling proxy trust", telemetry.ZapError(err))
+		}
+		_ = r.SetTrustedProxies(nil)
+	}
+}
+
+func normalizeTrustedProxies(proxies []string) []string {
+	if len(proxies) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(proxies))
+	normalized := make([]string, 0, len(proxies))
+	for _, item := range proxies {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+	return normalized
 }
 
 func parseLimit(raw string, fallback int, max int) int {

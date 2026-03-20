@@ -39,6 +39,7 @@ type Config struct {
 	LogLevel                 string
 	Provider                 string
 	ServiceName              string
+	TrustedProxies           []string
 	DatabaseURL              string
 	AWSSource                string
 	AWSRegion                string
@@ -96,6 +97,7 @@ func Load() Config {
 		LogLevel:                 strings.ToLower(getEnv("IDENTRAIL_LOG_LEVEL", defaultLogLevel)),
 		Provider:                 strings.ToLower(getEnv("IDENTRAIL_PROVIDER", defaultProvider)),
 		ServiceName:              getEnv("IDENTRAIL_SERVICE_NAME", defaultServiceName),
+		TrustedProxies:           parseCommaSeparated(getEnv("IDENTRAIL_TRUSTED_PROXIES", "")),
 		DatabaseURL:              getEnv("IDENTRAIL_DATABASE_URL", ""),
 		AWSSource:                strings.ToLower(getEnv("IDENTRAIL_AWS_SOURCE", defaultAWSSource)),
 		AWSRegion:                getEnv("IDENTRAIL_AWS_REGION", defaultAWSRegion),

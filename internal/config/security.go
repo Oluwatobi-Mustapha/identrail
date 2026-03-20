@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -241,6 +242,21 @@ func ValidateSecurity(cfg Config) error {
 	}
 	if len(cfg.APIKeys) == 0 && len(cfg.APIKeyScopes) == 0 && oidcIssuer == "" {
 		return fmt.Errorf("no authentication configured: set API keys or OIDC configuration")
+	}
+	for _, trustedProxy := range cfg.TrustedProxies {
+		normalized := strings.TrimSpace(trustedProxy)
+		if normalized == "" {
+			continue
+		}
+		if strings.Contains(normalized, "/") {
+			if _, err := netip.ParsePrefix(normalized); err != nil {
+				return fmt.Errorf("invalid IDENTRAIL_TRUSTED_PROXIES entry %q: %w", normalized, err)
+			}
+			continue
+		}
+		if _, err := netip.ParseAddr(normalized); err != nil {
+			return fmt.Errorf("invalid IDENTRAIL_TRUSTED_PROXIES entry %q: %w", normalized, err)
+		}
 	}
 	return nil
 }
