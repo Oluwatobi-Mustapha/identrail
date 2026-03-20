@@ -466,7 +466,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		metrics.ScanRunsTotal.Inc()
 		metrics.ScanInFlight.Inc()
 		defer metrics.ScanInFlight.Dec()
-		defer metrics.ScanDurationMS.Observe(float64(time.Since(start).Milliseconds()))
+		defer func() {
+			metrics.ScanDurationMS.Observe(float64(time.Since(start).Milliseconds()))
+		}()
 
 		requestCtx, cancel := context.WithTimeout(c.Request.Context(), scanRequestTimeout)
 		defer cancel()
@@ -499,7 +501,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	v1.POST("/repo-scans", requireWriteKeyMiddleware(opts.WriteAPIKeys, opts.APIKeyScopes), func(c *gin.Context) {
 		start := time.Now()
 		metrics.RepoScanRunsTotal.Inc()
-		defer metrics.RepoScanDurationMS.Observe(float64(time.Since(start).Milliseconds()))
+		defer func() {
+			metrics.RepoScanDurationMS.Observe(float64(time.Since(start).Milliseconds()))
+		}()
 
 		var request RepoScanRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
