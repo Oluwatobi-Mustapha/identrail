@@ -72,6 +72,7 @@ type Collector struct {
 	sleep    Sleeper
 	randFn   func() float64
 	now      func() time.Time
+	issues   []providers.SourceError
 }
 
 // Option customizes Collector behavior.
@@ -171,9 +172,20 @@ func NewCollector(client IAMAPI, opts ...Option) *Collector {
 
 // Collect pulls IAM role assets from AWS and deduplicates results by role ARN.
 func (c *Collector) Collect(ctx context.Context) ([]providers.RawAsset, error) {
+	assets, _, err := c.collectInternal(ctx)
+	return assets, err
+}
+
+// CollectWithDiagnostics pulls IAM role assets and includes non-fatal source errors.
+func (c *Collector) CollectWithDiagnostics(ctx context.Context) ([]providers.RawAsset, []providers.SourceError, error) {
+	return c.collectInternal(ctx)
+}
+
+func (c *Collector) collectInternal(ctx context.Context) ([]providers.RawAsset, []providers.SourceError, error) {
 	if c.client == nil {
-		return nil, errors.New("collector requires IAM client")
+		return nil, nil, errors.New("collector requires IAM client")
 	}
+	c.issues = c.issues[:0]
 
 	assets := make([]providers.RawAsset, 0, c.pageSize)
 	seen := map[string]struct{}{}
@@ -181,20 +193,26 @@ func (c *Collector) Collect(ctx context.Context) ([]providers.RawAsset, error) {
 
 	for page := 1; ; page++ {
 		if page > c.maxPages {
-			return nil, fmt.Errorf("iam list roles exceeded max pages (%d)", c.maxPages)
+			return nil, nil, fmt.Errorf("iam list roles exceeded max pages (%d)", c.maxPages)
 		}
 
 		response, err := c.withRetry(ctx, func(callCtx context.Context) (ListRolesPage, error) {
 			return c.client.ListRoles(callCtx, nextToken, c.pageSize)
 		})
 		if err != nil {
-			return nil, fmt.Errorf("list roles page %d: %w", page, err)
+			return nil, nil, fmt.Errorf("list roles page %d: %w", page, err)
 		}
 
 		for _, role := range response.Roles {
 			sourceID := strings.TrimSpace(role.ARN)
 			if sourceID == "" {
 				// ARN is the stable identifier across scans and accounts; skip invalid rows.
+				c.addIssue(providers.SourceError{
+					Collector: "aws_iam_collector",
+					Code:      "missing_role_arn",
+					Message:   "skipped IAM role record without ARN",
+					Retryable: false,
+				})
 				continue
 			}
 			if _, exists := seen[sourceID]; exists {
@@ -203,7 +221,7 @@ func (c *Collector) Collect(ctx context.Context) ([]providers.RawAsset, error) {
 
 			payload, err := json.Marshal(role)
 			if err != nil {
-				return nil, fmt.Errorf("marshal role %q: %w", sourceID, err)
+				return nil, nil, fmt.Errorf("marshal role %q: %w", sourceID, err)
 			}
 
 			assets = append(assets, providers.RawAsset{
@@ -221,7 +239,8 @@ func (c *Collector) Collect(ctx context.Context) ([]providers.RawAsset, error) {
 		nextToken = response.NextToken
 	}
 
-	return assets, nil
+	issues := append([]providers.SourceError(nil), c.issues...)
+	return assets, issues, nil
 }
 
 func (c *Collector) withRetry(ctx context.Context, fn func(context.Context) (ListRolesPage, error)) (ListRolesPage, error) {
@@ -304,4 +323,11 @@ func defaultSleeper(ctx context.Context, delay time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func (c *Collector) addIssue(issue providers.SourceError) {
+	if strings.TrimSpace(issue.Code) == "" || strings.TrimSpace(issue.Message) == "" {
+		return
+	}
+	c.issues = append(c.issues, issue)
 }

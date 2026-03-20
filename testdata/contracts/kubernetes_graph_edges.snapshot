@@ -1,0 +1,3 @@
+attached_policy|k8s:identity:sa:apps:payments-api|k8s:policy:cluster:payments-cluster-admin:k8s:identity:sa:apps:payments-api
+bound_to|k8s:workload:pod:apps:payments-api-0|k8s:identity:sa:apps:payments-api
+can_access|k8s:identity:sa:apps:payments-api|k8s:access:*:*

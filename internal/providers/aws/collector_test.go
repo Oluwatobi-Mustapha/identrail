@@ -88,6 +88,31 @@ func TestCollectFromFixturesPaginationAndDedup(t *testing.T) {
 	}
 }
 
+func TestCollectWithDiagnosticsForMissingRoleARN(t *testing.T) {
+	client := &fakeIAMClient{
+		listFn: func(_ context.Context, _ string, _ int32) (ListRolesPage, error) {
+			return ListRolesPage{Roles: []IAMRole{
+				{Name: "missing-arn"},
+				{ARN: "arn:aws:iam::123:role/app", Name: "app"},
+			}}, nil
+		},
+	}
+	collector := NewCollector(client)
+	assets, diagnostics, err := collector.CollectWithDiagnostics(context.Background())
+	if err != nil {
+		t.Fatalf("collect with diagnostics failed: %v", err)
+	}
+	if len(assets) != 1 {
+		t.Fatalf("expected one valid asset, got %d", len(assets))
+	}
+	if len(diagnostics) != 1 {
+		t.Fatalf("expected one diagnostic issue, got %+v", diagnostics)
+	}
+	if diagnostics[0].Code != "missing_role_arn" {
+		t.Fatalf("unexpected diagnostic code %+v", diagnostics[0])
+	}
+}
+
 func TestCollectRetriesOnThrottleThenSucceeds(t *testing.T) {
 	attempt := 0
 	delays := make([]time.Duration, 0, 2)

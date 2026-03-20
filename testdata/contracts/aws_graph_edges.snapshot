@@ -1,0 +1,7 @@
+attached_policy|aws:identity:arn:aws:iam::123456789012:role/payments-app|aws:identity:arn:aws:iam::123456789012:role/payments-app:policy:payments-readwrite
+can_access|aws:identity:arn:aws:iam::123456789012:role/payments-app|aws:access:kms%3ADecrypt:arn%3Aaws%3Akms%3Aus-east-1%3A123456789012%3Akey%2Fabcd
+can_access|aws:identity:arn:aws:iam::123456789012:role/payments-app|aws:access:s3%3AGetObject:arn%3Aaws%3As3%3A%3A%3Apayments-data%2F%2A
+can_access|aws:identity:arn:aws:iam::123456789012:role/payments-app|aws:access:s3%3APutObject:arn%3Aaws%3As3%3A%3A%3Apayments-data%2F%2A
+can_assume|aws:principal:arn:aws:iam::111122223333:role/external-ci|aws:identity:arn:aws:iam::123456789012:role/payments-app
+can_assume|aws:principal:arn:aws:iam::123456789012:role/eks-irsa|aws:identity:arn:aws:iam::123456789012:role/payments-app
+can_assume|aws:principal:arn:aws:iam::123456789012:role/etl-runner|aws:identity:arn:aws:iam::123456789012:role/analytics-app

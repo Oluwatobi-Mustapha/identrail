@@ -12,6 +12,7 @@ import (
 type ScanResult struct {
 	Assets        int
 	RawAssets     []providers.RawAsset
+	SourceErrors  []providers.SourceError
 	Bundle        providers.NormalizedBundle
 	Permissions   []providers.PermissionTuple
 	Relationships []domain.Relationship
@@ -31,13 +32,25 @@ type Scanner struct {
 // Run executes a deterministic scan pipeline. Each dependency is injected so
 // provider modules can evolve independently while keeping orchestration stable.
 func (s Scanner) Run(ctx context.Context) (ScanResult, error) {
-	raw, err := s.Collector.Collect(ctx)
+	var (
+		raw          []providers.RawAsset
+		sourceErrors []providers.SourceError
+		err          error
+	)
+	if diagnosticCollector, ok := s.Collector.(providers.DiagnosticCollector); ok {
+		raw, sourceErrors, err = diagnosticCollector.CollectWithDiagnostics(ctx)
+	} else {
+		raw, err = s.Collector.Collect(ctx)
+	}
 	if err != nil {
 		return ScanResult{}, err
 	}
 
 	bundle, err := s.Normalizer.Normalize(ctx, raw)
 	if err != nil {
+		return ScanResult{}, err
+	}
+	if err := providers.ValidateNormalizedBundle(bundle); err != nil {
 		return ScanResult{}, err
 	}
 
@@ -50,6 +63,9 @@ func (s Scanner) Run(ctx context.Context) (ScanResult, error) {
 	if err != nil {
 		return ScanResult{}, err
 	}
+	if err := providers.ValidateGraphContract(bundle, relationships); err != nil {
+		return ScanResult{}, err
+	}
 
 	findings, err := s.RiskRuleSet.Evaluate(ctx, bundle, relationships)
 	if err != nil {
@@ -59,6 +75,7 @@ func (s Scanner) Run(ctx context.Context) (ScanResult, error) {
 	return ScanResult{
 		Assets:        len(raw),
 		RawAssets:     raw,
+		SourceErrors:  sourceErrors,
 		Bundle:        bundle,
 		Permissions:   permissions,
 		Relationships: relationships,
