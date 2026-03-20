@@ -90,6 +90,67 @@ func TestRouterHealthz(t *testing.T) {
 	}
 }
 
+func TestRouterIgnoresForwardedIPWhenNoTrustedProxies(t *testing.T) {
+	logger := zap.NewNop()
+	metrics := telemetry.NewMetrics()
+	sink := &recordingAuditSink{}
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		AuditSink:      sink,
+		RateLimitRPM:   10000,
+		RateLimitBurst: 1000,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/findings", nil)
+	req.RemoteAddr = "10.1.1.1:12345"
+	req.Header.Set("X-Forwarded-For", "203.0.113.10")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.events) == 0 {
+		t.Fatal("expected at least one audit event")
+	}
+	last := sink.events[len(sink.events)-1]
+	if last.ClientIP != "10.1.1.1" {
+		t.Fatalf("expected remote ip to be used, got %q", last.ClientIP)
+	}
+}
+
+func TestRouterUsesForwardedIPWhenTrustedProxyConfigured(t *testing.T) {
+	logger := zap.NewNop()
+	metrics := telemetry.NewMetrics()
+	sink := &recordingAuditSink{}
+	r := NewRouter(logger, metrics, nil, RouterOptions{
+		AuditSink:      sink,
+		RateLimitRPM:   10000,
+		RateLimitBurst: 1000,
+		TrustedProxies: []string{"10.0.0.0/8"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/findings", nil)
+	req.RemoteAddr = "10.1.1.1:12345"
+	req.Header.Set("X-Forwarded-For", "203.0.113.10")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.events) == 0 {
+		t.Fatal("expected at least one audit event")
+	}
+	last := sink.events[len(sink.events)-1]
+	if last.ClientIP != "203.0.113.10" {
+		t.Fatalf("expected forwarded ip to be used, got %q", last.ClientIP)
+	}
+}
+
 func TestRouterRunsScanAndListsData(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()

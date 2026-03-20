@@ -312,6 +312,26 @@ func TestValidateSecurityRejectsPostgresLockWithoutDatabase(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRejectsInvalidTrustedProxyEntry(t *testing.T) {
+	cfg := Config{
+		APIKeys:        []string{"reader"},
+		TrustedProxies: []string{"not-a-cidr"},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected trusted proxy validation error")
+	}
+}
+
+func TestValidateSecurityAcceptsTrustedProxyEntries(t *testing.T) {
+	cfg := Config{
+		APIKeys:        []string{"reader"},
+		TrustedProxies: []string{"10.0.0.0/8", "127.0.0.1"},
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected trusted proxy config to be valid, got %v", err)
+	}
+}
+
 func TestSecurityWarningsInMemoryLockInDatabaseMode(t *testing.T) {
 	cfg := Config{
 		APIKeys:         []string{"reader"},
