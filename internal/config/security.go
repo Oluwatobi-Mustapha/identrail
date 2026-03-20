@@ -54,6 +54,13 @@ var allowedProviders = map[string]struct{}{
 	"kubernetes": {},
 }
 
+var placeholderAPIKeys = map[string]struct{}{
+	"replace-read-key":              {},
+	"replace-write-key":             {},
+	"replace-with-strong-read-key":  {},
+	"replace-with-strong-write-key": {},
+}
+
 // ValidateSecurity checks hard-fail security misconfigurations.
 func ValidateSecurity(cfg Config) error {
 	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
@@ -243,6 +250,17 @@ func ValidateSecurity(cfg Config) error {
 	if len(cfg.APIKeys) == 0 && len(cfg.APIKeyScopes) == 0 && oidcIssuer == "" {
 		return fmt.Errorf("no authentication configured: set API keys or OIDC configuration")
 	}
+	// Placeholder validation follows the active API key mode.
+	// Scoped keys take precedence over legacy API_KEYS/WRITE_API_KEYS.
+	if len(cfg.APIKeyScopes) > 0 {
+		if key, found := findPlaceholderAPIKey(nil, nil, cfg.APIKeyScopes); found {
+			return fmt.Errorf("placeholder API key %q is not allowed in runtime configuration; provision real secrets", key)
+		}
+	} else {
+		if key, found := findPlaceholderAPIKey(cfg.APIKeys, cfg.WriteAPIKeys, nil); found {
+			return fmt.Errorf("placeholder API key %q is not allowed in runtime configuration; provision real secrets", key)
+		}
+	}
 	for _, trustedProxy := range cfg.TrustedProxies {
 		normalized := strings.TrimSpace(trustedProxy)
 		if normalized == "" {
@@ -307,6 +325,37 @@ func hasShortAPIKey(keys []string, scoped map[string][]string) bool {
 		}
 	}
 	return false
+}
+
+func findPlaceholderAPIKey(keys []string, writeKeys []string, scoped map[string][]string) (string, bool) {
+	for _, key := range keys {
+		normalized := strings.ToLower(strings.TrimSpace(key))
+		if normalized == "" {
+			continue
+		}
+		if _, exists := placeholderAPIKeys[normalized]; exists {
+			return key, true
+		}
+	}
+	for _, key := range writeKeys {
+		normalized := strings.ToLower(strings.TrimSpace(key))
+		if normalized == "" {
+			continue
+		}
+		if _, exists := placeholderAPIKeys[normalized]; exists {
+			return key, true
+		}
+	}
+	for key := range scoped {
+		normalized := strings.ToLower(strings.TrimSpace(key))
+		if normalized == "" {
+			continue
+		}
+		if _, exists := placeholderAPIKeys[normalized]; exists {
+			return key, true
+		}
+	}
+	return "", false
 }
 
 func validateForwardURL(raw string) error {
