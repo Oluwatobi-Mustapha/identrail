@@ -353,6 +353,29 @@ func TestValidateSecurityRejectsPlaceholderScopedAPIKey(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityAllowsLegacyPlaceholderKeysWhenScopedKeysAreConfigured(t *testing.T) {
+	cfg := Config{
+		APIKeys:      []string{"replace-read-key"},
+		WriteAPIKeys: []string{"replace-write-key"},
+		APIKeyScopes: map[string][]string{
+			"real-scoped-key-123456789012345678901234": {"read"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected scoped key mode to ignore legacy placeholder keys, got %v", err)
+	}
+}
+
+func TestValidateSecurityRejectsPlaceholderWriteKeyInLegacyMode(t *testing.T) {
+	cfg := Config{
+		APIKeys:      []string{"real-reader-key-123456789012"},
+		WriteAPIKeys: []string{"replace-write-key"},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected placeholder write key validation error in legacy mode")
+	}
+}
+
 func TestSecurityWarningsInMemoryLockInDatabaseMode(t *testing.T) {
 	cfg := Config{
 		APIKeys:         []string{"reader"},

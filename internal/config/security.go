@@ -250,8 +250,16 @@ func ValidateSecurity(cfg Config) error {
 	if len(cfg.APIKeys) == 0 && len(cfg.APIKeyScopes) == 0 && oidcIssuer == "" {
 		return fmt.Errorf("no authentication configured: set API keys or OIDC configuration")
 	}
-	if key, found := findPlaceholderAPIKey(cfg.APIKeys, cfg.WriteAPIKeys, cfg.APIKeyScopes); found {
-		return fmt.Errorf("placeholder API key %q is not allowed in runtime configuration; provision real secrets", key)
+	// Placeholder validation follows the active API key mode.
+	// Scoped keys take precedence over legacy API_KEYS/WRITE_API_KEYS.
+	if len(cfg.APIKeyScopes) > 0 {
+		if key, found := findPlaceholderAPIKey(nil, nil, cfg.APIKeyScopes); found {
+			return fmt.Errorf("placeholder API key %q is not allowed in runtime configuration; provision real secrets", key)
+		}
+	} else {
+		if key, found := findPlaceholderAPIKey(cfg.APIKeys, cfg.WriteAPIKeys, nil); found {
+			return fmt.Errorf("placeholder API key %q is not allowed in runtime configuration; provision real secrets", key)
+		}
 	}
 	for _, trustedProxy := range cfg.TrustedProxies {
 		normalized := strings.TrimSpace(trustedProxy)
