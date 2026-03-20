@@ -322,5 +322,25 @@ Simple threat list for current system.
 - Fix: Add CI gates for `helm lint` and `terraform validate`.
 - Status: Implemented.
 
+## 65) Silent API Contract Drift
+- Threat: Non-breaking code changes can still alter JSON response shape and break downstream consumers.
+- Fix: Add snapshot contract tests for critical `/v1` API response payloads.
+- Status: Implemented.
+
+## 66) Finding Export Shape Drift
+- Threat: OCSF/ASFF payload shape changes can break external integrations without compile-time failures.
+- Fix: Add snapshot compatibility tests for enriched findings, OCSF export, and ASFF export payloads.
+- Status: Implemented.
+
+## 67) Legacy Persisted Row Parsing Regressions
+- Threat: Existing rows with nullable/legacy field combinations may fail parse/export after migration or mapper changes.
+- Fix: Add integration compatibility test that seeds legacy rows and validates list/export behavior.
+- Status: Implemented.
+
+## 68) Unqualified Release Tagging
+- Threat: RC/GA tags can be pushed without complete quality evidence, causing unstable production releases.
+- Fix: Add explicit V1 release qualification runner and documented RC/GA tag flow.
+- Status: Implemented.
+
 ## Current Gaps (Next)
 - Add native secret-manager/KMS integration (today uses environment/secret injection patterns).

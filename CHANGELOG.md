@@ -1,6 +1,17 @@
 # Changelog
 
 ## Unreleased
+- Locked V1 finalization priorities 21-22:
+  - snapshot-based backward compatibility tests for core API payloads and finding exports
+  - migration compatibility integration check for legacy persisted rows
+  - release qualification runner and V1 RC/GA tagging playbook
+- Added release-readiness artifacts:
+  - `internal/api/contract_snapshot_test.go`
+  - `internal/findings/standards/compatibility_snapshot_test.go`
+  - `internal/integration/migration_compatibility_integration_test.go`
+  - `internal/api/slo_smoke_test.go`
+  - `scripts/v1_release_qualify.sh`
+  - `docs/v1_release_qualification.md`
 - Fixed deploy portability smoke stability:
   - removed forced API audit-file path from Docker Compose default runtime
   - removed default audit volume mount that could fail for non-root container writes

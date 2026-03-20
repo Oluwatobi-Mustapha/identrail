@@ -14,6 +14,7 @@ Portable deployment profiles:
 - Observability baseline: `docs/observability.md`
 - API contract: `docs/openapi-v1.yaml`
 - Migration policy: `docs/migrations.md`
+- V1 release qualification: `docs/v1_release_qualification.md`
 
 ## 1) Pre-Deploy Checklist
 

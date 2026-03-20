@@ -155,3 +155,22 @@ This document locks the first twenty non-negotiable V1 priorities.
 
 - ADR, threat model, and changelog updated for priorities 16-20.
 - Governance updates now explicitly include deployment model and observability decisions.
+
+## 21) Backward Compatibility Safeguards
+
+- API response contract snapshots added for:
+  - `POST /v1/scans`
+  - `GET /v1/findings`
+  - `GET /v1/findings/:finding_id/exports`
+- Finding payload compatibility snapshots added for:
+  - enriched internal finding payload
+  - OCSF export payload
+  - ASFF export payload
+- Migration compatibility integration test added for legacy persisted rows with nullable fields.
+
+## 22) Release Qualification
+
+- Added release qualification runner script: `scripts/v1_release_qualify.sh`.
+- Added API latency SLO smoke test for findings list endpoint.
+- Added V1 release qualification and tagging playbook: `docs/v1_release_qualification.md`.
+- V1 lock process now includes explicit RC and GA tagging steps.

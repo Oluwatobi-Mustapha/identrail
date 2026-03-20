@@ -391,3 +391,21 @@ This file tracks major decisions in simple terms.
 - Decision: Add Terraform baseline module to deploy Helm release with namespace and secret wiring.
 - Why: Give platform teams a reproducible IaC path for multi-environment rollout.
 - Tradeoff: Terraform users must manage provider auth and sensitive state handling carefully.
+
+## ADR-066: Add Snapshot-Based API and Finding Compatibility Gates
+- Date: 2026-03-20
+- Decision: Add contract snapshot tests for critical `/v1` responses and finding payload/export shapes.
+- Why: Prevent accidental response-shape drift and preserve backward compatibility for dashboard and integration clients.
+- Tradeoff: Contract updates now require explicit snapshot review and regeneration.
+
+## ADR-067: Validate Legacy Row Compatibility in Integration Tests
+- Date: 2026-03-20
+- Decision: Add integration test that reads/exports legacy persisted findings with nullable fields after current migrations.
+- Why: Ensure migration evolution does not break existing customer data readability.
+- Tradeoff: Integration suite scope grows and requires consistent test database hygiene.
+
+## ADR-068: Add Explicit V1 Release Qualification Runner
+- Date: 2026-03-20
+- Decision: Add `scripts/v1_release_qualify.sh` and document RC/GA tagging flow.
+- Why: Standardize V1 release decisions with repeatable checks instead of ad-hoc manual steps.
+- Tradeoff: Release pipeline is stricter and may block tagging when local tooling is incomplete.
