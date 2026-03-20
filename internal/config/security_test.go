@@ -332,6 +332,27 @@ func TestValidateSecurityAcceptsTrustedProxyEntries(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityRejectsPlaceholderAPIKeys(t *testing.T) {
+	cfg := Config{
+		APIKeys:      []string{"replace-read-key", "real-reader-key-123456789012"},
+		WriteAPIKeys: []string{"real-reader-key-123456789012"},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected placeholder api key validation error")
+	}
+}
+
+func TestValidateSecurityRejectsPlaceholderScopedAPIKey(t *testing.T) {
+	cfg := Config{
+		APIKeyScopes: map[string][]string{
+			"replace-with-strong-read-key": {"read"},
+		},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected placeholder scoped api key validation error")
+	}
+}
+
 func TestSecurityWarningsInMemoryLockInDatabaseMode(t *testing.T) {
 	cfg := Config{
 		APIKeys:         []string{"reader"},
