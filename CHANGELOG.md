@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Hardened AWS deterministic ID hashing for findings and relationships:
+  - replaced truncated SHA-1 IDs with SHA-256-derived 128-bit ID prefixes
+  - reduced collision risk in large multi-account datasets
+  - added deterministic ID regression tests for hash format and stability
 - Hardened repository exposure scanner clone target validation:
   - reject insecure `http://` repository clone URLs
   - allow `https://`, `ssh://`, and `git@` forms
