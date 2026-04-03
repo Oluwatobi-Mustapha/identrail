@@ -1,0 +1,94 @@
+- name: action/needs-triage
+  color: "ededed"
+  description: New issue/PR awaiting triage
+- name: action/missing-info
+  color: "f9d0c4"
+  description: More information is required before work can proceed
+- name: action/question
+  color: "d4c5f9"
+  description: Clarification is needed
+- name: action/invalid
+  color: "e4e669"
+  description: Report or request is not valid for this project
+
+- name: kind/bug
+  color: "d73a4a"
+  description: Something is not working correctly
+- name: kind/enhancement
+  color: "a2eeef"
+  description: Improvement to existing behavior
+- name: kind/feature
+  color: "7057ff"
+  description: New capability request
+- name: kind/task
+  color: "0e8a16"
+  description: Maintenance or implementation task
+- name: kind/docs
+  color: "0075ca"
+  description: Documentation-only change
+- name: kind/cve
+  color: "b60205"
+  description: Security vulnerability issue
+
+- name: priority/blocker
+  color: "b60205"
+  description: Release-blocking issue
+- name: priority/important
+  color: "d93f0b"
+  description: High-priority work item
+- name: priority/normal
+  color: "fbca04"
+  description: Normal priority
+- name: priority/low
+  color: "0e8a16"
+  description: Nice-to-have or low urgency
+
+- name: area/iam
+  color: "5319e7"
+  description: Identity and access management rules or behavior
+- name: area/ui
+  color: "1d76db"
+  description: Frontend and user experience
+- name: area/api
+  color: "0052cc"
+  description: HTTP API surface and contracts
+- name: area/cli
+  color: "006b75"
+  description: CLI commands and UX
+- name: area/worker
+  color: "c2e0c6"
+  description: Background scan scheduling and worker runtime
+- name: area/storage
+  color: "bfdadc"
+  description: Database, migrations, and persistence
+- name: area/deploy
+  color: "bfd4f2"
+  description: Deployment assets and infrastructure
+- name: area/docs
+  color: "0366d6"
+  description: Documentation and runbooks
+- name: area/dependencies
+  color: "1f883d"
+  description: Third-party dependency updates
+- name: area/security
+  color: "b60205"
+  description: Security hardening and vulnerability handling
+- name: area/observability
+  color: "5319e7"
+  description: Metrics, tracing, and logging
+- name: area/workflows
+  color: "c5def5"
+  description: CI/CD and GitHub workflows
+
+- name: dependencies
+  color: "1f883d"
+  description: Dependency update pull request
+- name: good first issue
+  color: "7057ff"
+  description: Suitable for first-time contributors
+- name: help wanted
+  color: "008672"
+  description: Extra attention is needed
+- name: question
+  color: "d876e3"
+  description: Further information is requested

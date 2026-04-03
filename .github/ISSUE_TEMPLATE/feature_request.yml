@@ -2,8 +2,8 @@ name: Feature request
 description: Propose an improvement with clear problem framing
 title: "[Feature]: "
 labels:
-  - enhancement
-  - needs-triage
+  - kind/enhancement
+  - action/needs-triage
 body:
   - type: checkboxes
     id: preflight
@@ -28,6 +28,27 @@ body:
     attributes:
       label: Proposed solution
       description: Describe your preferred solution and why.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Select the area primarily affected by this request.
+      options:
+        - iam
+        - ui
+        - api
+        - cli
+        - worker
+        - storage
+        - deploy
+        - docs
+        - dependencies
+        - observability
+        - security
+        - workflows
     validations:
       required: true
 

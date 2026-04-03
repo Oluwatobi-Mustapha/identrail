@@ -2,8 +2,8 @@ name: Bug report
 description: Report a reproducible defect in Identrail
 title: "[Bug]: "
 labels:
-  - bug
-  - needs-triage
+  - kind/bug
+  - action/needs-triage
 body:
   - type: markdown
     attributes:
@@ -24,18 +24,23 @@ body:
           required: true
 
   - type: dropdown
-    id: component
+    id: area
     attributes:
-      label: Component
-      description: Where does the bug occur?
+      label: Area
+      description: Select the main area affected.
       options:
+        - iam
+        - ui
         - api
-        - worker
         - cli
-        - web
+        - worker
+        - storage
         - deploy
         - docs
-        - other
+        - dependencies
+        - observability
+        - security
+        - workflows
     validations:
       required: true
 

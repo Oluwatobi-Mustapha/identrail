@@ -1,0 +1,81 @@
+name: Issue Area Labeler
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  label:
+    name: Label issue area
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Apply area label from issue form
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const body = issue.body || "";
+            const areaMatch = body.match(/### Area\s*\n+([^\n]+)/i);
+
+            if (!areaMatch) {
+              core.info(`No area field found for issue #${issue.number}.`);
+              return;
+            }
+
+            const selectedArea = areaMatch[1].trim().toLowerCase();
+            const areaMap = {
+              iam: "area/iam",
+              ui: "area/ui",
+              api: "area/api",
+              cli: "area/cli",
+              worker: "area/worker",
+              storage: "area/storage",
+              deploy: "area/deploy",
+              docs: "area/docs",
+              dependencies: "area/dependencies",
+              observability: "area/observability",
+              security: "area/security",
+              workflows: "area/workflows"
+            };
+
+            const label = areaMap[selectedArea];
+            if (!label) {
+              core.info(`Area '${selectedArea}' does not map to a managed label.`);
+              return;
+            }
+
+            const currentLabels = issue.labels.map((item) => item.name);
+            const currentAreaLabels = currentLabels.filter((name) => name.startsWith("area/"));
+
+            for (const existing of currentAreaLabels) {
+              if (existing === label) {
+                continue;
+              }
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  name: existing,
+                });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+              }
+            }
+
+            if (!currentLabels.includes(label)) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: [label],
+              });
+            }

@@ -1,0 +1,84 @@
+area/ui:
+  - changed-files:
+      - any-glob-to-any-file:
+          - web/**
+
+area/iam:
+  - changed-files:
+      - any-glob-to-any-file:
+          - internal/providers/**
+          - internal/findings/**
+          - docs/threat_model.md
+
+area/api:
+  - changed-files:
+      - any-glob-to-any-file:
+          - internal/api/**
+          - cmd/server/**
+          - docs/openapi-v1.yaml
+
+area/cli:
+  - changed-files:
+      - any-glob-to-any-file:
+          - internal/cli/**
+          - cmd/cli/**
+
+area/worker:
+  - changed-files:
+      - any-glob-to-any-file:
+          - internal/worker/**
+          - cmd/worker/**
+          - internal/scheduler/**
+
+area/storage:
+  - changed-files:
+      - any-glob-to-any-file:
+          - internal/db/**
+          - migrations/**
+          - sqlc/**
+
+area/deploy:
+  - changed-files:
+      - any-glob-to-any-file:
+          - deploy/**
+
+area/docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - docs/**
+          - README.md
+          - CONTRIBUTING.md
+          - SECURITY.md
+          - CODE_OF_CONDUCT.md
+
+area/security:
+  - changed-files:
+      - any-glob-to-any-file:
+          - SECURITY.md
+          - internal/config/security.go
+          - internal/config/security_test.go
+          - internal/api/oidc.go
+          - internal/api/oidc_test.go
+
+area/dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - go.mod
+          - go.sum
+          - web/package.json
+          - web/package-lock.json
+          - .github/dependabot.yml
+
+area/workflows:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/**
+
+kind/docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - docs/**
+          - README.md
+          - CONTRIBUTING.md
+          - SECURITY.md
+          - CODE_OF_CONDUCT.md
