@@ -506,7 +506,7 @@ func (p *PostgresStore) ListFindingTriageEvents(ctx context.Context, findingID s
 	}
 	defer rows.Close()
 
-	result := make([]FindingTriageEvent, 0, limit)
+	result := []FindingTriageEvent{}
 	for rows.Next() {
 		var event FindingTriageEvent
 		var suppressionExpiresAt sql.NullTime

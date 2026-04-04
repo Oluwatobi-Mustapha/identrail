@@ -138,7 +138,7 @@ type Finding struct {
 	Evidence     map[string]any  `json:"evidence,omitempty"`
 	Remediation  string          `json:"remediation"`
 	CreatedAt    time.Time       `json:"created_at"`
-	Triage       FindingTriage   `json:"triage,omitempty"`
+	Triage       FindingTriage   `json:"triage,omitzero"`
 }
 
 // OwnershipSignal tracks ownership hints and confidence.
