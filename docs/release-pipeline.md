@@ -6,7 +6,15 @@ Identrail release automation is defined in:
 ## Trigger Modes
 
 - Tag push: `v*.*.*` (for example `v1.2.3`)
-- Manual dispatch with an existing tag input
+- Manual dispatch with:
+  - `tag` (required)
+  - `web_api_url` (optional override for web image build)
+
+## Required Configuration
+
+- Set repository variable `IDENTRAIL_WEB_API_URL` to the public HTTPS API base URL
+  used by production web builds (for example `https://api.identrail.io`).
+- For manual runs, you can override this with the `web_api_url` dispatch input.
 
 ## What the Pipeline Publishes
 
