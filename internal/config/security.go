@@ -235,7 +235,7 @@ func ValidateSecurity(cfg Config) error {
 		return fmt.Errorf("IDENTRAIL_REPO_SCAN_QUEUE_MAX_PENDING must be > 0 and <= %d", maxRepoQueueMaxPending)
 	}
 	workerAPIJobQueueInterval := cfg.WorkerAPIJobQueueInterval
-	if workerAPIJobQueueInterval <= 0 {
+	if workerAPIJobQueueInterval == 0 {
 		workerAPIJobQueueInterval = defaultWorkerAPIJobQueueInterval
 	}
 	if workerAPIJobQueueInterval <= 0 {
