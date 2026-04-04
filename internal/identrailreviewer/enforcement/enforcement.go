@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -139,15 +140,33 @@ func hasProtectedPathChange(patterns []string, changedFiles []model.ChangedFile)
 }
 
 func matchesPathPattern(pattern, file string) bool {
-	if strings.HasSuffix(pattern, "/**") {
-		prefix := strings.TrimSuffix(pattern, "/**")
-		return strings.HasPrefix(file, prefix+"/") || file == prefix
+	normalizedPattern := normalizeRepoPath(pattern)
+	normalizedFile := normalizeRepoPath(file)
+
+	if strings.HasSuffix(normalizedPattern, "/**") {
+		prefix := strings.TrimSuffix(normalizedPattern, "/**")
+		prefix = strings.TrimSuffix(prefix, "/")
+		return strings.HasPrefix(normalizedFile, prefix+"/") || normalizedFile == prefix
 	}
-	ok, err := filepath.Match(filepath.FromSlash(pattern), filepath.FromSlash(file))
+
+	ok, err := path.Match(normalizedPattern, normalizedFile)
 	if err != nil {
 		return false
 	}
 	return ok
+}
+
+func normalizeRepoPath(value string) string {
+	normalized := strings.TrimSpace(value)
+	normalized = strings.ReplaceAll(normalized, "\\", "/")
+	normalized = filepath.ToSlash(normalized)
+	for strings.HasPrefix(normalized, "./") {
+		normalized = strings.TrimPrefix(normalized, "./")
+	}
+	for strings.Contains(normalized, "//") {
+		normalized = strings.ReplaceAll(normalized, "//", "/")
+	}
+	return normalized
 }
 
 func defaultConfig() Config {

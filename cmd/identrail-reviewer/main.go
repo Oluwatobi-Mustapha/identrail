@@ -16,7 +16,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fatal("usage: identrail-reviewer <review-pr|review-issue> [flags]")
+		fatal("usage: identrail-reviewer <review-pr|review-issue|enforce> [flags]")
 	}
 
 	switch os.Args[1] {
