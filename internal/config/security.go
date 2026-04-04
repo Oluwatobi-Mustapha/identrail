@@ -242,7 +242,7 @@ func ValidateSecurity(cfg Config) error {
 		return fmt.Errorf("IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL must be > 0")
 	}
 	workerAPIJobQueueBatchSize := cfg.WorkerAPIJobQueueBatchSize
-	if workerAPIJobQueueBatchSize <= 0 {
+	if workerAPIJobQueueBatchSize == 0 {
 		workerAPIJobQueueBatchSize = defaultWorkerAPIJobQueueBatchSize
 	}
 	if workerAPIJobQueueBatchSize <= 0 || workerAPIJobQueueBatchSize > maxWorkerQueueBatchSize {
