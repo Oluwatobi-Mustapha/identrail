@@ -11,11 +11,19 @@ CREATE INDEX IF NOT EXISTS idx_finding_triage_states_assignee
 CREATE INDEX IF NOT EXISTS idx_finding_triage_events_finding_created
     ON finding_triage_events (finding_id, created_at DESC);
 
-DELETE FROM finding_triage_states a
-USING finding_triage_states b
-WHERE a.finding_id = b.finding_id
-  AND (a.tenant_id, a.workspace_id) <> (b.tenant_id, b.workspace_id)
-  AND a.ctid < b.ctid;
+WITH ranked_states AS (
+    SELECT
+        ctid,
+        ROW_NUMBER() OVER (
+            PARTITION BY finding_id
+            ORDER BY updated_at DESC, tenant_id ASC, workspace_id ASC
+        ) AS row_rank
+    FROM finding_triage_states
+)
+DELETE FROM finding_triage_states s
+USING ranked_states r
+WHERE s.ctid = r.ctid
+  AND r.row_rank > 1;
 
 ALTER TABLE finding_triage_states
     DROP CONSTRAINT IF EXISTS finding_triage_states_pkey;
