@@ -36,13 +36,43 @@ function formatAbstentions(abstentions) {
   return body;
 }
 
-function renderBody({ marker, heading, result, maxFindings }) {
+function formatGate(gate) {
+  if (!gate || typeof gate !== "object") {
+    return "";
+  }
+
+  let body = "";
+  if (typeof gate.status === "string") {
+    const phase = typeof gate.phase === "string" ? gate.phase : "";
+    body += `Gate: **${gate.status}**`;
+    if (phase.length > 0) {
+      body += ` (phase: \`${phase}\`)`;
+    }
+    body += "\n";
+  }
+
+  if (typeof gate.reason === "string" && gate.reason.length > 0) {
+    body += `Gate reason: ${gate.reason}\n`;
+  }
+
+  if (Array.isArray(gate.blocking_finding_ids) && gate.blocking_finding_ids.length > 0) {
+    body += `Blocking findings: ${gate.blocking_finding_ids.join(", ")}\n`;
+  }
+
+  if (body.length > 0) {
+    return `${body}\n`;
+  }
+  return "";
+}
+
+function renderBody({ marker, heading, result, gate, maxFindings }) {
   const findings = Array.isArray(result.findings) ? result.findings : [];
   const abstentions = Array.isArray(result.abstentions) ? result.abstentions : [];
 
   let body = `${marker}\n${heading}\n`;
   body += `Status: **${result.status}**\n\n`;
   body += `${result.summary}\n\n`;
+  body += formatGate(gate);
   body += formatFindings(findings, maxFindings);
   body += formatAbstentions(abstentions);
   body += `\n_Reviewer version: ${result.version}_\n`;
@@ -57,6 +87,7 @@ async function upsertReviewComment({
   heading,
   issueNumber,
   maxFindings,
+  gatePath,
 }) {
   if (!issueNumber || issueNumber <= 0) {
     throw new Error("issue number is required for comment upsert");
@@ -65,10 +96,12 @@ async function upsertReviewComment({
   const owner = context.repo.owner;
   const repo = context.repo.repo;
   const result = JSON.parse(fs.readFileSync(reviewPath, "utf8"));
+  const gate = gatePath ? JSON.parse(fs.readFileSync(gatePath, "utf8")) : undefined;
   const body = renderBody({
     marker,
     heading,
     result,
+    gate,
     maxFindings,
   });
 
