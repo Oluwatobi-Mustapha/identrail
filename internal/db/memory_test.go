@@ -612,6 +612,9 @@ func TestMemoryStoreRBACRoleBindingAndPermissionResolution(t *testing.T) {
 	if err := store.DeleteRBACBinding(defaultCtx, bindings[0].ID); err != nil {
 		t.Fatalf("delete binding: %v", err)
 	}
+	if len(store.rbacBindingByID) != 0 {
+		t.Fatalf("expected binding index to be pruned after delete, got %+v", store.rbacBindingByID)
+	}
 	if err := store.DeleteRBACRole(defaultCtx, viewerRole.ID); err != nil {
 		t.Fatalf("delete role: %v", err)
 	}

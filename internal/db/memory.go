@@ -1170,6 +1170,13 @@ func (m *MemoryStore) DeleteRBACBinding(ctx context.Context, bindingID string) e
 		return ErrNotFound
 	}
 	delete(m.rbacBindings, normalizedID)
+	filtered := m.rbacBindingByID[:0]
+	for _, id := range m.rbacBindingByID {
+		if id != normalizedID {
+			filtered = append(filtered, id)
+		}
+	}
+	m.rbacBindingByID = filtered
 	return nil
 }
 

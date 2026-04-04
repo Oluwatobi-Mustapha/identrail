@@ -12,6 +12,7 @@ ALTER TABLE rbac_roles DISABLE ROW LEVEL SECURITY;
 
 DROP INDEX IF EXISTS idx_rbac_bindings_scope_subject;
 DROP INDEX IF EXISTS idx_rbac_bindings_scope_subject_role;
+DROP INDEX IF EXISTS idx_rbac_bindings_role_id;
 DROP INDEX IF EXISTS idx_rbac_roles_scope_name;
 
 DROP TABLE IF EXISTS rbac_bindings;

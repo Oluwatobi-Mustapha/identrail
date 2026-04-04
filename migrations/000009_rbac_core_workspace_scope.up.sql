@@ -36,6 +36,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_rbac_bindings_scope_subject_role
 CREATE INDEX IF NOT EXISTS idx_rbac_bindings_scope_subject
     ON rbac_bindings (tenant_id, workspace_id, subject_type, subject_id, created_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_rbac_bindings_role_id
+    ON rbac_bindings (role_id);
+
 ALTER TABLE rbac_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rbac_roles FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS rbac_roles_scope_isolation ON rbac_roles;

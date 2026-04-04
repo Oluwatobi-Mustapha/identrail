@@ -173,6 +173,7 @@ func TestNinthMigrationContainsRBACCoreTables(t *testing.T) {
 		"CREATE TABLE IF NOT EXISTS rbac_bindings",
 		"idx_rbac_roles_scope_name",
 		"idx_rbac_bindings_scope_subject_role",
+		"idx_rbac_bindings_role_id",
 		"rbac_roles_scope_isolation",
 		"rbac_bindings_scope_isolation",
 	}

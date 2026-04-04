@@ -1106,8 +1106,18 @@ func TestPostgresStoreListAndDeleteRBACRoles(t *testing.T) {
 	if len(roles) != 2 {
 		t.Fatalf("expected 2 roles, got %+v", roles)
 	}
-	if len(roles[0].Permissions) != 2 || roles[0].Permissions[0] != "findings.read" || roles[0].Permissions[1] != "scans.read" {
-		t.Fatalf("expected sorted deduped role permissions, got %+v", roles[0].Permissions)
+	viewer := RBACRole{}
+	for _, role := range roles {
+		if role.Name == "viewer" {
+			viewer = role
+			break
+		}
+	}
+	if viewer.Name != "viewer" {
+		t.Fatalf("expected viewer role, got %+v", roles)
+	}
+	if len(viewer.Permissions) != 2 || viewer.Permissions[0] != "findings.read" || viewer.Permissions[1] != "scans.read" {
+		t.Fatalf("expected sorted deduped role permissions, got %+v", viewer.Permissions)
 	}
 
 	mock.ExpectQuery("SELECT is_builtin").

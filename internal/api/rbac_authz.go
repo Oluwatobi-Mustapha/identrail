@@ -202,6 +202,23 @@ func (a *rbacAuthorizer) bootstrapAPIKeyBinding(c *gin.Context) error {
 		return nil
 	}
 
+	// Do not override administrator-managed bindings on every request.
+	// If any active binding already exists for this API key in scope, keep it.
+	existingBindings, err := a.store.ListRBACBindings(c.Request.Context())
+	if err != nil {
+		return err
+	}
+	now := a.nowUTC()
+	for _, binding := range existingBindings {
+		if binding.SubjectType != db.RBACSubjectTypeAPIKey || binding.SubjectID != principalID {
+			continue
+		}
+		if binding.ExpiresAt != nil && !binding.ExpiresAt.After(now) {
+			continue
+		}
+		return nil
+	}
+
 	roleName := "viewer"
 	switch {
 	case scopes.has(scopeAdmin):

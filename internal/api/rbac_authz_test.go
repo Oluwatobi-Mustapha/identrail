@@ -164,6 +164,53 @@ func TestRBACAuthorizerBootstrapAPIKeyBinding(t *testing.T) {
 	}
 }
 
+func TestRBACAuthorizerBootstrapAPIKeyBindingDoesNotOverrideExistingBinding(t *testing.T) {
+	store := db.NewMemoryStore()
+	a := &rbacAuthorizer{store: store, now: time.Now}
+	ctx := defaultScopeContext()
+	if err := a.ensureBuiltinRoles(ctx); err != nil {
+		t.Fatalf("seed builtin roles: %v", err)
+	}
+
+	customRole, err := store.UpsertRBACRole(ctx, db.RBACRole{
+		Name:        "custom-api-key-role",
+		Description: "admin managed binding",
+		Permissions: []string{rbacPermissionScansRun},
+	})
+	if err != nil {
+		t.Fatalf("upsert custom role: %v", err)
+	}
+	existing, err := store.UpsertRBACBinding(ctx, db.RBACBinding{
+		SubjectType: db.RBACSubjectTypeAPIKey,
+		SubjectID:   "key-fingerprint",
+		RoleID:      customRole.ID,
+	})
+	if err != nil {
+		t.Fatalf("upsert existing binding: %v", err)
+	}
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Request = req.WithContext(ctx)
+	c.Set("auth.principal_id", "key-fingerprint")
+	c.Set("auth.scope_set", newScopeSet([]string{scopeRead}))
+
+	if err := a.bootstrapAPIKeyBinding(c); err != nil {
+		t.Fatalf("bootstrap should preserve existing binding: %v", err)
+	}
+
+	bindings, err := store.ListRBACBindings(ctx)
+	if err != nil {
+		t.Fatalf("list bindings: %v", err)
+	}
+	if len(bindings) != 1 {
+		t.Fatalf("expected existing binding to remain unchanged, got %+v", bindings)
+	}
+	if bindings[0].ID != existing.ID || bindings[0].RoleID != customRole.ID {
+		t.Fatalf("expected existing admin-managed binding to remain, got %+v", bindings[0])
+	}
+}
+
 func TestRBACAuthorizerBootstrapAPIKeyBindingNoopCases(t *testing.T) {
 	store := db.NewMemoryStore()
 	a := &rbacAuthorizer{store: store, now: time.Now}

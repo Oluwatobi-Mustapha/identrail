@@ -647,7 +647,12 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			Permissions: req.Permissions,
 		})
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid rbac role"})
+			if isRBACRoleValidationError(err) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid rbac role"})
+				return
+			}
+			logger.Error("upsert rbac role", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert rbac role"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"role": role})
@@ -658,7 +663,12 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 				c.JSON(http.StatusNotFound, gin.H{"error": "rbac role not found"})
 				return
 			}
-			c.JSON(http.StatusBadRequest, gin.H{"error": "unable to delete rbac role"})
+			if strings.Contains(strings.ToLower(err.Error()), "built-in roles cannot be deleted") {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "unable to delete rbac role"})
+				return
+			}
+			logger.Error("delete rbac role", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete rbac role"})
 			return
 		}
 		c.Status(http.StatusNoContent)
@@ -699,7 +709,12 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 				c.JSON(http.StatusNotFound, gin.H{"error": "rbac role not found"})
 				return
 			}
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid rbac binding"})
+			if isRBACBindingValidationError(err) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid rbac binding"})
+				return
+			}
+			logger.Error("upsert rbac binding", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upsert rbac binding"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"binding": binding})
@@ -710,7 +725,8 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 				c.JSON(http.StatusNotFound, gin.H{"error": "rbac binding not found"})
 				return
 			}
-			c.JSON(http.StatusBadRequest, gin.H{"error": "unable to delete rbac binding"})
+			logger.Error("delete rbac binding", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete rbac binding"})
 			return
 		}
 		c.Status(http.StatusNoContent)
@@ -1586,4 +1602,24 @@ func scopeSetFromOIDCToken(token VerifiedToken, writeScopeOverrides scopeSet) sc
 		}
 	}
 	return set
+}
+
+func isRBACRoleValidationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "role name is required") ||
+		strings.Contains(msg, "role permissions are required")
+}
+
+func isRBACBindingValidationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "subject_id and role_id are required") ||
+		strings.Contains(msg, "subject id is required") ||
+		strings.Contains(msg, "role id is required") ||
+		strings.Contains(msg, "invalid rbac subject type")
 }
