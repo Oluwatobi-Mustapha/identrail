@@ -37,6 +37,10 @@ const (
 	defaultTenantID                    = "default"
 	defaultWorkspaceID                 = "default"
 	defaultOIDCWriteScopes             = "identrail.write,identrail.admin,write,admin"
+	defaultOIDCTenantClaim             = "tenant_id"
+	defaultOIDCWorkspaceClaim          = "workspace_id"
+	defaultOIDCGroupsClaim             = "groups"
+	defaultOIDCRolesClaim              = "roles"
 )
 
 // Config centralizes process-level configuration. It keeps module wiring simple
@@ -103,6 +107,10 @@ type Config struct {
 	OIDCIssuerURL              string
 	OIDCAudience               string
 	OIDCWriteScopes            []string
+	OIDCTenantClaim            string
+	OIDCWorkspaceClaim         string
+	OIDCGroupsClaim            string
+	OIDCRolesClaim             string
 }
 
 // Load reads environment variables and applies safe defaults for local and CI use.
@@ -169,6 +177,10 @@ func Load() Config {
 		OIDCIssuerURL:              getEnv("IDENTRAIL_OIDC_ISSUER_URL", ""),
 		OIDCAudience:               getEnv("IDENTRAIL_OIDC_AUDIENCE", ""),
 		OIDCWriteScopes:            parseCommaSeparated(getEnv("IDENTRAIL_OIDC_WRITE_SCOPES", defaultOIDCWriteScopes)),
+		OIDCTenantClaim:            getEnv("IDENTRAIL_OIDC_TENANT_CLAIM", defaultOIDCTenantClaim),
+		OIDCWorkspaceClaim:         getEnv("IDENTRAIL_OIDC_WORKSPACE_CLAIM", defaultOIDCWorkspaceClaim),
+		OIDCGroupsClaim:            getEnv("IDENTRAIL_OIDC_GROUPS_CLAIM", defaultOIDCGroupsClaim),
+		OIDCRolesClaim:             getEnv("IDENTRAIL_OIDC_ROLES_CLAIM", defaultOIDCRolesClaim),
 	}
 }
 
