@@ -945,4 +945,56 @@ func TestCheckedSliceCapacity(t *testing.T) {
 	if _, err := checkedSliceCapacity(maxInt, 1); !errors.Is(err, errQueryArgCapacityOverflow) {
 		t.Fatalf("expected overflow error, got %v", err)
 	}
+
+	if _, err := checkedSliceCapacity(-1, 1); err == nil {
+		t.Fatal("expected invalid input error")
+	}
+}
+
+func TestPostgresStoreDBAndScopeFlagHelpers(t *testing.T) {
+	var nilStore *PostgresStore
+	if got := nilStore.DB(); got != nil {
+		t.Fatalf("expected nil DB from nil store, got %v", got)
+	}
+	if nilStore.ScopeRLSEnforcementEnabled() {
+		t.Fatal("expected nil store scope rls enforcement to be false")
+	}
+
+	sqlDB := &sql.DB{}
+	store := NewPostgresStoreWithDB(sqlDB)
+	if got := store.DB(); got != sqlDB {
+		t.Fatalf("expected DB pointer to match")
+	}
+	if store.ScopeRLSEnforcementEnabled() {
+		t.Fatal("expected scope rls enforcement disabled by default")
+	}
+
+	store.SetScopeRLSEnforcement(true)
+	if !store.ScopeRLSEnforcementEnabled() {
+		t.Fatal("expected scope rls enforcement enabled")
+	}
+}
+
+func TestPostgresStoreWrapperScopeErrors(t *testing.T) {
+	store := &PostgresStore{}
+	store.SetScopeRLSEnforcement(true)
+
+	if _, err := store.execContext(context.Background(), "SELECT 1"); !errors.Is(err, ErrScopeRequired) {
+		t.Fatalf("expected ErrScopeRequired from execContext, got %v", err)
+	}
+	if _, err := store.queryContext(context.Background(), "SELECT 1"); !errors.Is(err, ErrScopeRequired) {
+		t.Fatalf("expected ErrScopeRequired from queryContext, got %v", err)
+	}
+	if err := store.queryRowContext(context.Background(), "SELECT 1").Scan(new(int)); !errors.Is(err, ErrScopeRequired) {
+		t.Fatalf("expected ErrScopeRequired from queryRowContext scan, got %v", err)
+	}
+}
+
+func TestErrorsIsNoRows(t *testing.T) {
+	if !errorsIsNoRows(sql.ErrNoRows) {
+		t.Fatal("expected true for sql.ErrNoRows")
+	}
+	if errorsIsNoRows(errors.New("different error")) {
+		t.Fatal("expected false for non-no-rows error")
+	}
 }
