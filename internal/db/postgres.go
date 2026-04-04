@@ -21,6 +21,10 @@ type PostgresStore struct {
 	queries *sqlcdb.Queries
 }
 
+type sqlExecutor interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 // NewPostgresStore opens a PostgreSQL connection and validates connectivity.
 func NewPostgresStore(databaseURL string) (*PostgresStore, error) {
 	db, err := sql.Open("pgx", databaseURL)
@@ -285,6 +289,252 @@ func (p *PostgresStore) UpsertFindings(ctx context.Context, scanID string, findi
 		return fmt.Errorf("commit findings transaction: %w", err)
 	}
 	return nil
+}
+
+// GetFindingTriageState returns triage workflow state for one finding id.
+func (p *PostgresStore) GetFindingTriageState(ctx context.Context, findingID string) (FindingTriageState, error) {
+	row := p.db.QueryRowContext(
+		ctx,
+		`SELECT finding_id, status, assignee, suppression_expires_at, updated_at, updated_by
+		 FROM finding_triage_states
+		 WHERE finding_id = $1`,
+		strings.TrimSpace(findingID),
+	)
+	var state FindingTriageState
+	var suppressionExpiresAt sql.NullTime
+	if err := row.Scan(
+		&state.FindingID,
+		&state.Status,
+		&state.Assignee,
+		&suppressionExpiresAt,
+		&state.UpdatedAt,
+		&state.UpdatedBy,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return FindingTriageState{}, ErrNotFound
+		}
+		return FindingTriageState{}, fmt.Errorf("query finding triage state: %w", err)
+	}
+	if suppressionExpiresAt.Valid {
+		value := suppressionExpiresAt.Time.UTC()
+		state.SuppressionExpiresAt = &value
+	}
+	state.UpdatedAt = state.UpdatedAt.UTC()
+	return state, nil
+}
+
+// ListFindingTriageStates returns triage states for provided finding ids.
+func (p *PostgresStore) ListFindingTriageStates(ctx context.Context, findingIDs []string) ([]FindingTriageState, error) {
+	unique := make([]string, 0, len(findingIDs))
+	seen := map[string]struct{}{}
+	for _, findingID := range findingIDs {
+		normalized := strings.TrimSpace(findingID)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		unique = append(unique, normalized)
+	}
+	if len(unique) == 0 {
+		return []FindingTriageState{}, nil
+	}
+
+	placeholders := make([]string, len(unique))
+	args := make([]any, len(unique))
+	for i, findingID := range unique {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = findingID
+	}
+	query := fmt.Sprintf(
+		`SELECT finding_id, status, assignee, suppression_expires_at, updated_at, updated_by
+		 FROM finding_triage_states
+		 WHERE finding_id IN (%s)`,
+		strings.Join(placeholders, ", "),
+	)
+	rows, err := p.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query finding triage states: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]FindingTriageState, 0, len(unique))
+	for rows.Next() {
+		var state FindingTriageState
+		var suppressionExpiresAt sql.NullTime
+		if err := rows.Scan(
+			&state.FindingID,
+			&state.Status,
+			&state.Assignee,
+			&suppressionExpiresAt,
+			&state.UpdatedAt,
+			&state.UpdatedBy,
+		); err != nil {
+			return nil, fmt.Errorf("scan finding triage state row: %w", err)
+		}
+		if suppressionExpiresAt.Valid {
+			value := suppressionExpiresAt.Time.UTC()
+			state.SuppressionExpiresAt = &value
+		}
+		state.UpdatedAt = state.UpdatedAt.UTC()
+		result = append(result, state)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("finding triage state rows: %w", err)
+	}
+	return result, nil
+}
+
+// UpsertFindingTriageState creates or updates mutable triage metadata.
+func (p *PostgresStore) UpsertFindingTriageState(ctx context.Context, state FindingTriageState) error {
+	return p.upsertFindingTriageStateWithExecutor(ctx, p.db, state)
+}
+
+func (p *PostgresStore) upsertFindingTriageStateWithExecutor(ctx context.Context, executor sqlExecutor, state FindingTriageState) error {
+	updatedAt := state.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
+	_, err := executor.ExecContext(
+		ctx,
+		`INSERT INTO finding_triage_states (finding_id, status, assignee, suppression_expires_at, updated_at, updated_by)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 ON CONFLICT (finding_id)
+		 DO UPDATE SET
+		   status = EXCLUDED.status,
+		   assignee = EXCLUDED.assignee,
+		   suppression_expires_at = EXCLUDED.suppression_expires_at,
+		   updated_at = EXCLUDED.updated_at,
+		   updated_by = EXCLUDED.updated_by`,
+		strings.TrimSpace(state.FindingID),
+		strings.TrimSpace(string(state.Status)),
+		strings.TrimSpace(state.Assignee),
+		state.SuppressionExpiresAt,
+		updatedAt.UTC(),
+		strings.TrimSpace(state.UpdatedBy),
+	)
+	if err != nil {
+		return fmt.Errorf("upsert finding triage state: %w", err)
+	}
+	return nil
+}
+
+// AppendFindingTriageEvent records one immutable triage action.
+func (p *PostgresStore) AppendFindingTriageEvent(ctx context.Context, event FindingTriageEvent) error {
+	return p.appendFindingTriageEventWithExecutor(ctx, p.db, event)
+}
+
+func (p *PostgresStore) appendFindingTriageEventWithExecutor(ctx context.Context, executor sqlExecutor, event FindingTriageEvent) error {
+	createdAt := event.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	eventID := strings.TrimSpace(event.ID)
+	if eventID == "" {
+		eventID = uuid.NewString()
+	}
+	_, err := executor.ExecContext(
+		ctx,
+		`INSERT INTO finding_triage_events (id, finding_id, action, from_status, to_status, assignee, suppression_expires_at, comment, actor, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		eventID,
+		strings.TrimSpace(event.FindingID),
+		strings.TrimSpace(event.Action),
+		strings.TrimSpace(string(event.FromStatus)),
+		strings.TrimSpace(string(event.ToStatus)),
+		strings.TrimSpace(event.Assignee),
+		event.SuppressionExpiresAt,
+		strings.TrimSpace(event.Comment),
+		strings.TrimSpace(event.Actor),
+		createdAt.UTC(),
+	)
+	if err != nil {
+		return fmt.Errorf("insert finding triage event: %w", err)
+	}
+	return nil
+}
+
+// ApplyFindingTriageTransition persists state and audit history atomically.
+func (p *PostgresStore) ApplyFindingTriageTransition(ctx context.Context, state FindingTriageState, event FindingTriageEvent) error {
+	if strings.TrimSpace(state.FindingID) == "" || strings.TrimSpace(event.FindingID) == "" {
+		return fmt.Errorf("finding id is required")
+	}
+	if strings.TrimSpace(state.FindingID) != strings.TrimSpace(event.FindingID) {
+		return fmt.Errorf("finding id mismatch between state and event")
+	}
+
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin triage transition tx: %w", err)
+	}
+	if err := p.upsertFindingTriageStateWithExecutor(ctx, tx, state); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := p.appendFindingTriageEventWithExecutor(ctx, tx, event); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit triage transition tx: %w", err)
+	}
+	return nil
+}
+
+// ListFindingTriageEvents returns triage history newest-first for one finding id.
+func (p *PostgresStore) ListFindingTriageEvents(ctx context.Context, findingID string, limit int) ([]FindingTriageEvent, error) {
+	const maxFindingTriageEventsLimit = 500
+	if limit <= 0 {
+		limit = 100
+	} else if limit > maxFindingTriageEventsLimit {
+		limit = maxFindingTriageEventsLimit
+	}
+	rows, err := p.db.QueryContext(
+		ctx,
+		`SELECT id, finding_id, action, from_status, to_status, assignee, suppression_expires_at, comment, actor, created_at
+		 FROM finding_triage_events
+		 WHERE finding_id = $1
+		 ORDER BY created_at DESC
+		 LIMIT $2`,
+		strings.TrimSpace(findingID),
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query finding triage events: %w", err)
+	}
+	defer rows.Close()
+
+	result := []FindingTriageEvent{}
+	for rows.Next() {
+		var event FindingTriageEvent
+		var suppressionExpiresAt sql.NullTime
+		if err := rows.Scan(
+			&event.ID,
+			&event.FindingID,
+			&event.Action,
+			&event.FromStatus,
+			&event.ToStatus,
+			&event.Assignee,
+			&suppressionExpiresAt,
+			&event.Comment,
+			&event.Actor,
+			&event.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan finding triage event row: %w", err)
+		}
+		if suppressionExpiresAt.Valid {
+			value := suppressionExpiresAt.Time.UTC()
+			event.SuppressionExpiresAt = &value
+		}
+		event.CreatedAt = event.CreatedAt.UTC()
+		result = append(result, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("finding triage event rows: %w", err)
+	}
+	return result, nil
 }
 
 // ListScans returns latest scans first.

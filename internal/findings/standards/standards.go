@@ -57,6 +57,10 @@ func ControlsForFinding(findingType domain.FindingType) []ControlRef {
 
 // EnrichFinding injects stable compliance metadata into evidence without changing core finding shape.
 func EnrichFinding(finding domain.Finding) domain.Finding {
+	if finding.Triage.Status == "" {
+		finding.Triage = domain.DefaultFindingTriage()
+	}
+
 	controls := ControlsForFinding(finding.Type)
 	if len(controls) == 0 {
 		return finding

@@ -14,6 +14,8 @@ func TestOpenAPIV1SpecContainsCoreEndpoints(t *testing.T) {
 		"openapi: 3.0.3",
 		"/v1/findings:",
 		"/v1/findings/{finding_id}:",
+		"/v1/findings/{finding_id}/history:",
+		"/v1/findings/{finding_id}/triage:",
 		"/v1/scans:",
 		"/v1/scans/{scan_id}/diff:",
 		"/v1/scans/{scan_id}/events:",
@@ -39,6 +41,8 @@ func TestOpenAPIV1SpecContainsPagingFilterSortParameters(t *testing.T) {
 		"name: scan_id",
 		"name: severity",
 		"name: type",
+		"name: lifecycle_status",
+		"name: assignee",
 		"name: previous_scan_id",
 		"next_cursor:",
 	}

@@ -114,6 +114,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		v1.GET("/findings/:finding_id", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
 		})
+		v1.GET("/findings/:finding_id/history", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"items": []any{}})
+		})
 		v1.GET("/findings/:finding_id/exports", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
 		})
@@ -157,6 +160,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		v1.POST("/scans", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
 		})
+		v1.PATCH("/findings/:finding_id/triage", func(c *gin.Context) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "scan service unavailable"})
+		})
 		v1.POST("/repo-scans", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "repo scan service unavailable"})
 		})
@@ -168,9 +174,11 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		offset := parseCursor(c.Query("cursor"))
 		sortBy, sortDesc := parseSortParams(c.Query("sort_by"), c.Query("sort_order"), "created_at")
 		items, err := svc.ListFindingsFiltered(c.Request.Context(), pageFetchLimit(offset, limit), FindingsFilter{
-			ScanID:   strings.TrimSpace(c.Query("scan_id")),
-			Severity: strings.TrimSpace(c.Query("severity")),
-			Type:     strings.TrimSpace(c.Query("type")),
+			ScanID:          strings.TrimSpace(c.Query("scan_id")),
+			Severity:        strings.TrimSpace(c.Query("severity")),
+			Type:            strings.TrimSpace(c.Query("type")),
+			LifecycleStatus: strings.TrimSpace(c.Query("lifecycle_status")),
+			Assignee:        strings.TrimSpace(c.Query("assignee")),
 		})
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
@@ -219,6 +227,26 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		c.JSON(http.StatusOK, item)
 	})
 
+	v1.GET("/findings/:finding_id/history", func(c *gin.Context) {
+		limit := parseLimit(c.Query("limit"), defaultEventsLimit, maxListLimit)
+		items, err := svc.ListFindingTriageHistory(
+			c.Request.Context(),
+			strings.TrimSpace(c.Param("finding_id")),
+			strings.TrimSpace(c.Query("scan_id")),
+			limit,
+		)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "finding not found"})
+				return
+			}
+			logger.Error("list finding history", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list finding history"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items})
+	})
+
 	v1.GET("/findings/:finding_id/exports", func(c *gin.Context) {
 		exports, err := svc.GetFindingExports(
 			c.Request.Context(),
@@ -251,6 +279,35 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"items": items})
+	})
+
+	v1.PATCH("/findings/:finding_id/triage", requireWriteKeyMiddleware(opts.WriteAPIKeys, opts.APIKeyScopes), func(c *gin.Context) {
+		var request FindingTriageRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		item, err := svc.TriageFinding(
+			c.Request.Context(),
+			strings.TrimSpace(c.Param("finding_id")),
+			strings.TrimSpace(c.Query("scan_id")),
+			request,
+			triageActorFromContext(c),
+		)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "finding not found"})
+				return
+			}
+			if errors.Is(err, ErrInvalidFindingTriageRequest) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid triage request"})
+				return
+			}
+			logger.Error("triage finding", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to triage finding"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"finding": item})
 	})
 
 	v1.GET("/identities", func(c *gin.Context) {
@@ -1382,6 +1439,29 @@ func auditLogMiddleware(logger *zap.Logger, sink AuditSink) gin.HandlerFunc {
 
 func readAPIKey(c *gin.Context) string {
 	return strings.TrimSpace(c.GetHeader("X-API-Key"))
+}
+
+func triageActorFromContext(c *gin.Context) string {
+	if c == nil {
+		return "unknown"
+	}
+	if subjectValue, exists := c.Get("auth.subject"); exists {
+		if subject, ok := subjectValue.(string); ok {
+			normalizedSubject := strings.TrimSpace(subject)
+			if normalizedSubject != "" {
+				return "subject:" + normalizedSubject
+			}
+		}
+	}
+	if apiKeyValue, exists := c.Get("auth.api_key"); exists {
+		if apiKey, ok := apiKeyValue.(string); ok {
+			normalizedKey := strings.TrimSpace(apiKey)
+			if normalizedKey != "" {
+				return "api_key:" + fingerprintAPIKey(normalizedKey)
+			}
+		}
+	}
+	return "unknown"
 }
 
 func readBearerToken(c *gin.Context) string {

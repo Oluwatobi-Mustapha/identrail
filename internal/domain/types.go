@@ -57,6 +57,30 @@ const (
 	FindingRepoMisconfig    FindingType = "repo_misconfiguration"
 )
 
+// FindingLifecycleStatus tracks operator triage state over time.
+type FindingLifecycleStatus string
+
+const (
+	FindingLifecycleOpen       FindingLifecycleStatus = "open"
+	FindingLifecycleAck        FindingLifecycleStatus = "ack"
+	FindingLifecycleSuppressed FindingLifecycleStatus = "suppressed"
+	FindingLifecycleResolved   FindingLifecycleStatus = "resolved"
+)
+
+// FindingTriage stores mutable workflow metadata for one finding id.
+type FindingTriage struct {
+	Status               FindingLifecycleStatus `json:"status"`
+	Assignee             string                 `json:"assignee,omitempty"`
+	SuppressionExpiresAt *time.Time             `json:"suppression_expires_at,omitempty"`
+	UpdatedAt            *time.Time             `json:"updated_at,omitempty"`
+	UpdatedBy            string                 `json:"updated_by,omitempty"`
+}
+
+// DefaultFindingTriage returns the baseline lifecycle state for new findings.
+func DefaultFindingTriage() FindingTriage {
+	return FindingTriage{Status: FindingLifecycleOpen}
+}
+
 // Identity is a normalized machine identity across providers.
 type Identity struct {
 	ID         string            `json:"id"`
@@ -114,6 +138,7 @@ type Finding struct {
 	Evidence     map[string]any  `json:"evidence,omitempty"`
 	Remediation  string          `json:"remediation"`
 	CreatedAt    time.Time       `json:"created_at"`
+	Triage       FindingTriage   `json:"triage,omitzero"`
 }
 
 // OwnershipSignal tracks ownership hints and confidence.

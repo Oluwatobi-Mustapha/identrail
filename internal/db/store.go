@@ -17,6 +17,14 @@ const (
 	ScanEventLevelInfo  = "info"
 	ScanEventLevelWarn  = "warn"
 	ScanEventLevelError = "error"
+
+	FindingTriageActionAcknowledged = "acknowledged"
+	FindingTriageActionSuppressed   = "suppressed"
+	FindingTriageActionResolved     = "resolved"
+	FindingTriageActionReopened     = "reopened"
+	FindingTriageActionAssigned     = "assignee_updated"
+	FindingTriageActionSuppression  = "suppression_updated"
+	FindingTriageActionCommented    = "commented"
 )
 
 // ScanRecord tracks persisted scan execution metadata.
@@ -69,6 +77,30 @@ type ScanEvent struct {
 	CreatedAt time.Time      `json:"created_at"`
 }
 
+// FindingTriageState stores mutable workflow metadata for one finding id.
+type FindingTriageState struct {
+	FindingID            string                        `json:"finding_id"`
+	Status               domain.FindingLifecycleStatus `json:"status"`
+	Assignee             string                        `json:"assignee,omitempty"`
+	SuppressionExpiresAt *time.Time                    `json:"suppression_expires_at,omitempty"`
+	UpdatedAt            time.Time                     `json:"updated_at"`
+	UpdatedBy            string                        `json:"updated_by,omitempty"`
+}
+
+// FindingTriageEvent records one immutable workflow action.
+type FindingTriageEvent struct {
+	ID                   string                        `json:"id"`
+	FindingID            string                        `json:"finding_id"`
+	Action               string                        `json:"action"`
+	FromStatus           domain.FindingLifecycleStatus `json:"from_status"`
+	ToStatus             domain.FindingLifecycleStatus `json:"to_status"`
+	Assignee             string                        `json:"assignee,omitempty"`
+	SuppressionExpiresAt *time.Time                    `json:"suppression_expires_at,omitempty"`
+	Comment              string                        `json:"comment,omitempty"`
+	Actor                string                        `json:"actor,omitempty"`
+	CreatedAt            time.Time                     `json:"created_at"`
+}
+
 // NormalizeScanEventLevel validates and normalizes event levels.
 func NormalizeScanEventLevel(level string) (string, error) {
 	switch level {
@@ -112,6 +144,12 @@ type Store interface {
 	CompleteScan(ctx context.Context, scanID string, status string, finishedAt time.Time, assetCount int, findingCount int, errorMessage string) error
 	UpsertArtifacts(ctx context.Context, scanID string, artifacts ScanArtifacts) error
 	UpsertFindings(ctx context.Context, scanID string, findings []domain.Finding) error
+	GetFindingTriageState(ctx context.Context, findingID string) (FindingTriageState, error)
+	ListFindingTriageStates(ctx context.Context, findingIDs []string) ([]FindingTriageState, error)
+	UpsertFindingTriageState(ctx context.Context, state FindingTriageState) error
+	AppendFindingTriageEvent(ctx context.Context, event FindingTriageEvent) error
+	ApplyFindingTriageTransition(ctx context.Context, state FindingTriageState, event FindingTriageEvent) error
+	ListFindingTriageEvents(ctx context.Context, findingID string, limit int) ([]FindingTriageEvent, error)
 	ListScans(ctx context.Context, limit int) ([]ScanRecord, error)
 	ListFindings(ctx context.Context, limit int) ([]domain.Finding, error)
 	ListFindingsByScan(ctx context.Context, scanID string, limit int) ([]domain.Finding, error)

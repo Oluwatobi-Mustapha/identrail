@@ -52,6 +52,13 @@ paths:
           name: type
           schema:
             $ref: "#/components/schemas/FindingType"
+        - in: query
+          name: lifecycle_status
+          schema:
+            $ref: "#/components/schemas/FindingLifecycleStatus"
+        - in: query
+          name: assignee
+          schema: { type: string }
       responses:
         "200":
           description: Findings page
@@ -126,6 +133,71 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Finding"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/findings/{finding_id}/history:
+    get:
+      tags: [Findings]
+      summary: List finding triage history
+      operationId: listFindingHistory
+      parameters:
+        - in: path
+          name: finding_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: scan_id
+          schema: { type: string }
+        - $ref: "#/components/parameters/limit"
+      responses:
+        "200":
+          description: Triage history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FindingTriageEvent"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/findings/{finding_id}/triage:
+    patch:
+      tags: [Findings]
+      summary: Update finding triage workflow metadata
+      operationId: triageFinding
+      parameters:
+        - in: path
+          name: finding_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: scan_id
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FindingTriageRequest"
+      responses:
+        "200":
+          description: Updated finding
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  finding:
+                    $ref: "#/components/schemas/Finding"
+        "400":
+          description: Invalid triage request
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Forbidden
         "404":
           $ref: "#/components/responses/NotFound"
   /v1/findings/{finding_id}/exports:
@@ -475,6 +547,59 @@ components:
         - risky_trust_policy
         - secret_exposure
         - repo_misconfiguration
+    FindingLifecycleStatus:
+      type: string
+      enum: [open, ack, suppressed, resolved]
+    FindingTriage:
+      type: object
+      properties:
+        status:
+          $ref: "#/components/schemas/FindingLifecycleStatus"
+        assignee:
+          type: string
+        suppression_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_by:
+          type: string
+    FindingTriageRequest:
+      type: object
+      properties:
+        status:
+          $ref: "#/components/schemas/FindingLifecycleStatus"
+        assignee:
+          type: string
+        suppression_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        comment:
+          type: string
+    FindingTriageEvent:
+      type: object
+      properties:
+        id: { type: string }
+        finding_id: { type: string }
+        action: { type: string }
+        from_status:
+          $ref: "#/components/schemas/FindingLifecycleStatus"
+        to_status:
+          $ref: "#/components/schemas/FindingLifecycleStatus"
+        assignee: { type: string }
+        suppression_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        comment: { type: string }
+        actor: { type: string }
+        created_at:
+          type: string
+          format: date-time
     Finding:
       type: object
       properties:
@@ -494,6 +619,8 @@ components:
         created_at:
           type: string
           format: date-time
+        triage:
+          $ref: "#/components/schemas/FindingTriage"
     FindingsSummary:
       type: object
       properties:

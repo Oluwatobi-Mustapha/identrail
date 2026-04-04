@@ -157,6 +157,9 @@ func TestRouterCORSPreflightBypassesAuth(t *testing.T) {
 	if got := w.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(got, http.MethodGet) {
 		t.Fatalf("expected allow methods header to include GET, got %q", got)
 	}
+	if got := w.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(got, http.MethodPatch) {
+		t.Fatalf("expected allow methods header to include PATCH, got %q", got)
+	}
 	if got := w.Header().Get("Access-Control-Allow-Headers"); !strings.Contains(strings.ToLower(got), "x-api-key") {
 		t.Fatalf("expected allow headers to include x-api-key, got %q", got)
 	}
@@ -984,6 +987,113 @@ func TestRouterWriteAuthorization(t *testing.T) {
 	r.ServeHTTP(writeAllowedW, writeAllowedReq)
 	if writeAllowedW.Code != http.StatusAccepted {
 		t.Fatalf("expected write with write-key to pass, got %d", writeAllowedW.Code)
+	}
+}
+
+func TestRouterFindingTriageWorkflowEndpoints(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	metrics := telemetry.NewMetrics()
+	store := db.NewMemoryStore()
+	svc := NewService(store, routerScanner{}, "aws")
+	r := NewRouter(logger, metrics, svc, RouterOptions{
+		APIKeys:      []string{"read-key", "write-key"},
+		WriteAPIKeys: []string{"write-key"},
+	})
+
+	triggerReq := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
+	triggerReq.Header.Set("X-API-Key", "write-key")
+	triggerW := httptest.NewRecorder()
+	r.ServeHTTP(triggerW, triggerReq)
+	if triggerW.Code != http.StatusAccepted {
+		t.Fatalf("expected scan trigger 202, got %d", triggerW.Code)
+	}
+	var triggerBody struct {
+		Scan db.ScanRecord `json:"scan"`
+	}
+	if err := json.Unmarshal(triggerW.Body.Bytes(), &triggerBody); err != nil {
+		t.Fatalf("decode scan trigger body: %v", err)
+	}
+	if triggerBody.Scan.ID == "" {
+		t.Fatal("expected scan id in trigger response")
+	}
+	processed, err := svc.ProcessNextQueuedScan(context.Background())
+	if err != nil {
+		t.Fatalf("process queued scan: %v", err)
+	}
+	if !processed {
+		t.Fatal("expected one queued scan to be processed")
+	}
+
+	triagePayload := bytes.NewBufferString(`{"status":"ack","assignee":"platform","comment":"acknowledged for follow-up"}`)
+	triageDeniedReq := httptest.NewRequest(http.MethodPatch, "/v1/findings/f1/triage?scan_id="+triggerBody.Scan.ID, bytes.NewBuffer(triagePayload.Bytes()))
+	triageDeniedReq.Header.Set("Content-Type", "application/json")
+	triageDeniedReq.Header.Set("X-API-Key", "read-key")
+	triageDeniedW := httptest.NewRecorder()
+	r.ServeHTTP(triageDeniedW, triageDeniedReq)
+	if triageDeniedW.Code != http.StatusForbidden {
+		t.Fatalf("expected read-key triage to be forbidden, got %d", triageDeniedW.Code)
+	}
+
+	triageReq := httptest.NewRequest(http.MethodPatch, "/v1/findings/f1/triage?scan_id="+triggerBody.Scan.ID, bytes.NewBuffer(triagePayload.Bytes()))
+	triageReq.Header.Set("Content-Type", "application/json")
+	triageReq.Header.Set("X-API-Key", "write-key")
+	triageW := httptest.NewRecorder()
+	r.ServeHTTP(triageW, triageReq)
+	if triageW.Code != http.StatusOK {
+		t.Fatalf("expected write-key triage to pass, got %d", triageW.Code)
+	}
+
+	var triageBody struct {
+		Finding domain.Finding `json:"finding"`
+	}
+	if err := json.Unmarshal(triageW.Body.Bytes(), &triageBody); err != nil {
+		t.Fatalf("decode triage body: %v", err)
+	}
+	if triageBody.Finding.Triage.Status != domain.FindingLifecycleAck {
+		t.Fatalf("expected ack triage status, got %q", triageBody.Finding.Triage.Status)
+	}
+	if triageBody.Finding.Triage.Assignee != "platform" {
+		t.Fatalf("expected platform assignee, got %q", triageBody.Finding.Triage.Assignee)
+	}
+
+	filteredReq := httptest.NewRequest(http.MethodGet, "/v1/findings?lifecycle_status=ack&assignee=platform", nil)
+	filteredReq.Header.Set("X-API-Key", "read-key")
+	filteredW := httptest.NewRecorder()
+	r.ServeHTTP(filteredW, filteredReq)
+	if filteredW.Code != http.StatusOK {
+		t.Fatalf("expected filtered findings 200, got %d", filteredW.Code)
+	}
+	var filteredBody struct {
+		Items []domain.Finding `json:"items"`
+	}
+	if err := json.Unmarshal(filteredW.Body.Bytes(), &filteredBody); err != nil {
+		t.Fatalf("decode filtered findings body: %v", err)
+	}
+	if len(filteredBody.Items) != 1 || filteredBody.Items[0].ID != "f1" {
+		t.Fatalf("unexpected filtered findings: %+v", filteredBody.Items)
+	}
+
+	historyReq := httptest.NewRequest(http.MethodGet, "/v1/findings/f1/history?scan_id="+triggerBody.Scan.ID, nil)
+	historyReq.Header.Set("X-API-Key", "read-key")
+	historyW := httptest.NewRecorder()
+	r.ServeHTTP(historyW, historyReq)
+	if historyW.Code != http.StatusOK {
+		t.Fatalf("expected triage history 200, got %d", historyW.Code)
+	}
+	var historyBody struct {
+		Items []db.FindingTriageEvent `json:"items"`
+	}
+	if err := json.Unmarshal(historyW.Body.Bytes(), &historyBody); err != nil {
+		t.Fatalf("decode history body: %v", err)
+	}
+	if len(historyBody.Items) != 1 {
+		t.Fatalf("expected one history event, got %d", len(historyBody.Items))
+	}
+	if historyBody.Items[0].Action != db.FindingTriageActionAcknowledged {
+		t.Fatalf("expected acknowledged action, got %q", historyBody.Items[0].Action)
+	}
+	if historyBody.Items[0].Actor == "" {
+		t.Fatalf("expected actor on history event, got %+v", historyBody.Items[0])
 	}
 }
 

@@ -288,6 +288,110 @@ func TestMemoryStoreRepoScanErrors(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreFindingTriageStateAndHistory(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 28, 9, 0, 0, 0, time.UTC)
+	expiry := now.Add(24 * time.Hour)
+
+	if _, err := store.GetFindingTriageState(context.Background(), "finding-1"); err == nil {
+		t.Fatal("expected missing triage state error")
+	}
+
+	state := FindingTriageState{
+		FindingID:            "finding-1",
+		Status:               domain.FindingLifecycleSuppressed,
+		Assignee:             "sec-oncall",
+		SuppressionExpiresAt: &expiry,
+		UpdatedAt:            now,
+		UpdatedBy:            "subject:alice",
+	}
+	if err := store.UpsertFindingTriageState(context.Background(), state); err != nil {
+		t.Fatalf("upsert triage state: %v", err)
+	}
+	gotState, err := store.GetFindingTriageState(context.Background(), "finding-1")
+	if err != nil {
+		t.Fatalf("get triage state: %v", err)
+	}
+	if gotState.Status != domain.FindingLifecycleSuppressed || gotState.Assignee != "sec-oncall" {
+		t.Fatalf("unexpected triage state: %+v", gotState)
+	}
+
+	states, err := store.ListFindingTriageStates(context.Background(), []string{"finding-1", "missing"})
+	if err != nil {
+		t.Fatalf("list triage states: %v", err)
+	}
+	if len(states) != 1 || states[0].FindingID != "finding-1" {
+		t.Fatalf("unexpected triage states: %+v", states)
+	}
+
+	firstEvent := FindingTriageEvent{
+		FindingID:  "finding-1",
+		Action:     FindingTriageActionSuppressed,
+		FromStatus: domain.FindingLifecycleOpen,
+		ToStatus:   domain.FindingLifecycleSuppressed,
+		Assignee:   "sec-oncall",
+		Comment:    "temporary exception",
+		Actor:      "subject:alice",
+		CreatedAt:  now,
+	}
+	secondEvent := FindingTriageEvent{
+		FindingID:  "finding-1",
+		Action:     FindingTriageActionCommented,
+		FromStatus: domain.FindingLifecycleSuppressed,
+		ToStatus:   domain.FindingLifecycleSuppressed,
+		Comment:    "reviewed",
+		Actor:      "subject:bob",
+		CreatedAt:  now.Add(1 * time.Minute),
+	}
+	if err := store.AppendFindingTriageEvent(context.Background(), firstEvent); err != nil {
+		t.Fatalf("append first triage event: %v", err)
+	}
+	if err := store.AppendFindingTriageEvent(context.Background(), secondEvent); err != nil {
+		t.Fatalf("append second triage event: %v", err)
+	}
+	events, err := store.ListFindingTriageEvents(context.Background(), "finding-1", 10)
+	if err != nil {
+		t.Fatalf("list triage events: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected 2 triage events, got %d", len(events))
+	}
+	if events[0].Action != FindingTriageActionCommented {
+		t.Fatalf("expected latest event first, got %+v", events)
+	}
+}
+
+func TestMemoryStoreApplyFindingTriageTransitionAtomic(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC)
+
+	err := store.ApplyFindingTriageTransition(context.Background(), FindingTriageState{
+		FindingID: "finding-1",
+		Status:    domain.FindingLifecycleAck,
+		UpdatedAt: now,
+		UpdatedBy: "subject:alice",
+	}, FindingTriageEvent{
+		FindingID:  "finding-2",
+		Action:     FindingTriageActionAcknowledged,
+		FromStatus: domain.FindingLifecycleOpen,
+		ToStatus:   domain.FindingLifecycleAck,
+		CreatedAt:  now,
+	})
+	if err == nil {
+		t.Fatal("expected mismatch error for triage transition")
+	}
+	if _, err := store.GetFindingTriageState(context.Background(), "finding-1"); err == nil {
+		t.Fatal("expected no state to be persisted after failed transition")
+	}
+	events, err := store.ListFindingTriageEvents(context.Background(), "finding-1", 10)
+	if err != nil {
+		t.Fatalf("list triage events after failed transition: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected no events to be persisted after failed transition, got %d", len(events))
+	}
+}
+
 func TestMemoryStoreScanQueueLifecycle(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 3, 21, 9, 0, 0, 0, time.UTC)

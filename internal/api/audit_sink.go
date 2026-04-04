@@ -3,10 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"net/url"
@@ -180,9 +179,10 @@ func fingerprintAPIKey(raw string) string {
 	if trimmed == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(trimmed))
-	// Truncated, deterministic identifier for correlation without exposing key material.
-	return "sha256:" + hex.EncodeToString(sum[:6])
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(trimmed))
+	// Deterministic correlation identifier; truncated for compact audit payloads.
+	return fmt.Sprintf("fnv64a:%012x", hasher.Sum64()&0xFFFFFFFFFFFF)
 }
 
 func validateAuditForwardURL(raw string) error {

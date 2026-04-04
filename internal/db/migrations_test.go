@@ -78,6 +78,26 @@ func TestFourthMigrationContainsPerformanceIndexes(t *testing.T) {
 	}
 }
 
+func TestFifthMigrationContainsFindingWorkflowTables(t *testing.T) {
+	path := filepath.Join("..", "..", "migrations", "000005_finding_workflow_maturity.up.sql")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	text := string(content)
+	required := []string{
+		"CREATE TABLE IF NOT EXISTS finding_triage_states",
+		"CREATE TABLE IF NOT EXISTS finding_triage_events",
+		"idx_finding_triage_states_status",
+		"idx_finding_triage_events_finding_created",
+	}
+	for _, item := range required {
+		if !strings.Contains(text, item) {
+			t.Fatalf("expected workflow migration to contain %q", item)
+		}
+	}
+}
+
 func TestSixthMigrationContainsTenantWorkspaceScope(t *testing.T) {
 	path := filepath.Join("..", "..", "migrations", "000006_tenant_workspace_scope.up.sql")
 	content, err := os.ReadFile(path)
