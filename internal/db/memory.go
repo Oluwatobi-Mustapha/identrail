@@ -1152,6 +1152,41 @@ func (m *MemoryStore) ListRBACBindings(ctx context.Context) ([]RBACBinding, erro
 	return result, nil
 }
 
+// ListRBACBindingsForSubject returns scoped bindings for one subject.
+func (m *MemoryStore) ListRBACBindingsForSubject(ctx context.Context, subjectType string, subjectID string) ([]RBACBinding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	normalizedType, err := normalizeRBACSubjectType(subjectType)
+	if err != nil {
+		return nil, err
+	}
+	normalizedSubjectID := strings.TrimSpace(subjectID)
+	if normalizedSubjectID == "" {
+		return []RBACBinding{}, nil
+	}
+
+	result := []RBACBinding{}
+	for _, bindingID := range m.rbacBindingByID {
+		binding, exists := m.rbacBindings[bindingID]
+		if !exists {
+			continue
+		}
+		if !MatchScope(scope, binding.TenantID, binding.WorkspaceID) {
+			continue
+		}
+		if binding.SubjectType != normalizedType || binding.SubjectID != normalizedSubjectID {
+			continue
+		}
+		result = append(result, binding)
+	}
+	return result, nil
+}
+
 // DeleteRBACBinding removes one binding by id in current scope.
 func (m *MemoryStore) DeleteRBACBinding(ctx context.Context, bindingID string) error {
 	m.mu.Lock()

@@ -1771,6 +1771,53 @@ func (p *PostgresStore) ListRBACBindings(ctx context.Context) ([]RBACBinding, er
 	return result, nil
 }
 
+// ListRBACBindingsForSubject returns scoped subject-role bindings for one subject.
+func (p *PostgresStore) ListRBACBindingsForSubject(ctx context.Context, subjectType string, subjectID string) ([]RBACBinding, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	normalizedType, err := normalizeRBACSubjectType(subjectType)
+	if err != nil {
+		return nil, err
+	}
+	normalizedSubjectID := strings.TrimSpace(subjectID)
+	if normalizedSubjectID == "" {
+		return []RBACBinding{}, nil
+	}
+	rows, err := p.queryContext(
+		ctx,
+		`SELECT id, tenant_id, workspace_id, subject_type, subject_id, role_id, created_at, expires_at
+		 FROM rbac_bindings
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND subject_type = $3
+		   AND subject_id = $4
+		 ORDER BY created_at DESC, id ASC`,
+		scope.TenantID,
+		scope.WorkspaceID,
+		normalizedType,
+		normalizedSubjectID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list rbac bindings for subject: %w", err)
+	}
+	defer rows.Close()
+
+	result := []RBACBinding{}
+	for rows.Next() {
+		binding, scanErr := scanRBACBinding(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan rbac binding row: %w", scanErr)
+		}
+		result = append(result, binding)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rbac binding rows: %w", err)
+	}
+	return result, nil
+}
+
 // DeleteRBACBinding removes one scoped binding.
 func (p *PostgresStore) DeleteRBACBinding(ctx context.Context, bindingID string) error {
 	scope, err := RequireScope(ctx)

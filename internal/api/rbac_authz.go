@@ -204,7 +204,7 @@ func (a *rbacAuthorizer) bootstrapAPIKeyBinding(c *gin.Context) error {
 
 	// Do not override administrator-managed bindings on every request.
 	// If any active binding already exists for this API key in scope, keep it.
-	existingBindings, err := a.store.ListRBACBindings(c.Request.Context())
+	existingBindings, err := a.store.ListRBACBindingsForSubject(c.Request.Context(), db.RBACSubjectTypeAPIKey, principalID)
 	if err != nil {
 		return err
 	}

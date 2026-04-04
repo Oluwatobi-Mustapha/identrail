@@ -608,6 +608,20 @@ func TestMemoryStoreRBACRoleBindingAndPermissionResolution(t *testing.T) {
 	if len(bindings) != 1 {
 		t.Fatalf("expected one binding, got %+v", bindings)
 	}
+	subjectBindings, err := store.ListRBACBindingsForSubject(defaultCtx, RBACSubjectTypeOIDCSubject, "user-1")
+	if err != nil {
+		t.Fatalf("list rbac bindings for subject: %v", err)
+	}
+	if len(subjectBindings) != 1 || subjectBindings[0].ID != bindings[0].ID {
+		t.Fatalf("expected one matching subject binding, got %+v", subjectBindings)
+	}
+	crossScopeBindings, err := store.ListRBACBindingsForSubject(otherCtx, RBACSubjectTypeOIDCSubject, "user-1")
+	if err != nil {
+		t.Fatalf("list cross-scope subject bindings: %v", err)
+	}
+	if len(crossScopeBindings) != 0 {
+		t.Fatalf("expected no cross-scope subject bindings, got %+v", crossScopeBindings)
+	}
 
 	if err := store.DeleteRBACBinding(defaultCtx, bindings[0].ID); err != nil {
 		t.Fatalf("delete binding: %v", err)

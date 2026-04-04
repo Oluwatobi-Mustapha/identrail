@@ -1178,6 +1178,19 @@ func TestPostgresStoreListAndDeleteRBACBindings(t *testing.T) {
 	if bindings[1].ExpiresAt == nil || !bindings[1].ExpiresAt.Equal(expires) {
 		t.Fatalf("expected second binding expiry to be set, got %+v", bindings[1].ExpiresAt)
 	}
+	subjectRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "subject_type", "subject_id", "role_id", "created_at", "expires_at"}).
+		AddRow("binding-2", "default", "default", "api_key", "fp-1", "role-2", now, expires)
+	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, subject_type, subject_id, role_id, created_at, expires_at").
+		WithArgs("default", "default", "api_key", "fp-1").
+		WillReturnRows(subjectRows)
+
+	subjectBindings, err := store.ListRBACBindingsForSubject(ctx, RBACSubjectTypeAPIKey, "fp-1")
+	if err != nil {
+		t.Fatalf("list rbac bindings for subject: %v", err)
+	}
+	if len(subjectBindings) != 1 || subjectBindings[0].ID != "binding-2" {
+		t.Fatalf("expected one api key binding, got %+v", subjectBindings)
+	}
 
 	mock.ExpectExec("DELETE FROM rbac_bindings").
 		WithArgs("binding-1", "default", "default").

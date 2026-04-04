@@ -176,6 +176,7 @@ type Store interface {
 	DeleteRBACRole(ctx context.Context, roleID string) error
 	UpsertRBACBinding(ctx context.Context, binding RBACBinding) (RBACBinding, error)
 	ListRBACBindings(ctx context.Context) ([]RBACBinding, error)
+	ListRBACBindingsForSubject(ctx context.Context, subjectType string, subjectID string) ([]RBACBinding, error)
 	DeleteRBACBinding(ctx context.Context, bindingID string) error
 	ListRBACPermissionsForSubject(ctx context.Context, subjectType string, subjectID string, asOf time.Time) ([]string, error)
 	Close() error
