@@ -485,8 +485,11 @@ func (p *PostgresStore) ApplyFindingTriageTransition(ctx context.Context, state 
 
 // ListFindingTriageEvents returns triage history newest-first for one finding id.
 func (p *PostgresStore) ListFindingTriageEvents(ctx context.Context, findingID string, limit int) ([]FindingTriageEvent, error) {
+	const maxFindingTriageEventsLimit = 500
 	if limit <= 0 {
 		limit = 100
+	} else if limit > maxFindingTriageEventsLimit {
+		limit = maxFindingTriageEventsLimit
 	}
 	rows, err := p.db.QueryContext(
 		ctx,
