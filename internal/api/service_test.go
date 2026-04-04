@@ -251,6 +251,136 @@ func TestServiceGetFinding(t *testing.T) {
 	}
 }
 
+func TestServiceFindingTriageLifecycleAndHistory(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 22, 9, 0, 0, 0, time.UTC)
+	scan, err := store.CreateScan(context.Background(), "aws", now)
+	if err != nil {
+		t.Fatalf("create scan: %v", err)
+	}
+	if err := store.UpsertFindings(context.Background(), scan.ID, []domain.Finding{
+		{ID: "finding-1", Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now},
+	}); err != nil {
+		t.Fatalf("upsert findings: %v", err)
+	}
+
+	clock := now
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return clock }
+
+	initial, err := svc.GetFinding(context.Background(), "finding-1", scan.ID)
+	if err != nil {
+		t.Fatalf("get initial finding: %v", err)
+	}
+	if initial.Triage.Status != domain.FindingLifecycleOpen {
+		t.Fatalf("expected default open status, got %q", initial.Triage.Status)
+	}
+
+	suppressed := string(domain.FindingLifecycleSuppressed)
+	assignee := "secops"
+	suppressionExpiry := clock.Add(2 * time.Hour).Format(time.RFC3339)
+	updated, err := svc.TriageFinding(
+		context.Background(),
+		"finding-1",
+		scan.ID,
+		FindingTriageRequest{
+			Status:               &suppressed,
+			Assignee:             &assignee,
+			SuppressionExpiresAt: &suppressionExpiry,
+			Comment:              "accepted risk until patch lands",
+		},
+		"subject:user-1",
+	)
+	if err != nil {
+		t.Fatalf("triage finding: %v", err)
+	}
+	if updated.Triage.Status != domain.FindingLifecycleSuppressed {
+		t.Fatalf("expected suppressed status, got %q", updated.Triage.Status)
+	}
+	if updated.Triage.Assignee != "secops" {
+		t.Fatalf("expected assignee secops, got %q", updated.Triage.Assignee)
+	}
+	if updated.Triage.SuppressionExpiresAt == nil {
+		t.Fatal("expected suppression expiry to be set")
+	}
+	if updated.Triage.UpdatedBy != "subject:user-1" {
+		t.Fatalf("expected triage actor to be persisted, got %q", updated.Triage.UpdatedBy)
+	}
+
+	history, err := svc.ListFindingTriageHistory(context.Background(), "finding-1", scan.ID, 10)
+	if err != nil {
+		t.Fatalf("list triage history: %v", err)
+	}
+	if len(history) != 1 {
+		t.Fatalf("expected one triage event, got %d", len(history))
+	}
+	if history[0].Action != db.FindingTriageActionSuppressed {
+		t.Fatalf("expected suppressed action, got %q", history[0].Action)
+	}
+	if history[0].FromStatus != domain.FindingLifecycleOpen || history[0].ToStatus != domain.FindingLifecycleSuppressed {
+		t.Fatalf("unexpected status transition: %+v", history[0])
+	}
+
+	suppressedItems, err := svc.ListFindingsFiltered(context.Background(), 10, FindingsFilter{
+		LifecycleStatus: "suppressed",
+		Assignee:        "SECOPS",
+	})
+	if err != nil {
+		t.Fatalf("list suppressed findings: %v", err)
+	}
+	if len(suppressedItems) != 1 || suppressedItems[0].ID != "finding-1" {
+		t.Fatalf("unexpected suppressed filter result: %+v", suppressedItems)
+	}
+
+	clock = clock.Add(3 * time.Hour)
+	reopened, err := svc.GetFinding(context.Background(), "finding-1", scan.ID)
+	if err != nil {
+		t.Fatalf("get finding after suppression expiry: %v", err)
+	}
+	if reopened.Triage.Status != domain.FindingLifecycleOpen {
+		t.Fatalf("expected suppression expiry to reopen finding, got %q", reopened.Triage.Status)
+	}
+	if reopened.Triage.SuppressionExpiresAt != nil {
+		t.Fatalf("expected suppression expiry cleared after expiration, got %v", reopened.Triage.SuppressionExpiresAt)
+	}
+}
+
+func TestServiceTriageFindingRejectsInvalidRequest(t *testing.T) {
+	store := db.NewMemoryStore()
+	now := time.Date(2026, 3, 22, 9, 0, 0, 0, time.UTC)
+	scan, err := store.CreateScan(context.Background(), "aws", now)
+	if err != nil {
+		t.Fatalf("create scan: %v", err)
+	}
+	if err := store.UpsertFindings(context.Background(), scan.ID, []domain.Finding{
+		{ID: "finding-1", Type: domain.FindingOwnerless, Severity: domain.SeverityHigh, CreatedAt: now},
+	}); err != nil {
+		t.Fatalf("upsert findings: %v", err)
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	if _, err := svc.TriageFinding(context.Background(), "finding-1", scan.ID, FindingTriageRequest{}, "subject:user-1"); !errors.Is(err, ErrInvalidFindingTriageRequest) {
+		t.Fatalf("expected invalid triage request error for empty payload, got %v", err)
+	}
+
+	suppressed := string(domain.FindingLifecycleSuppressed)
+	pastExpiry := now.Add(-1 * time.Hour).Format(time.RFC3339)
+	if _, err := svc.TriageFinding(
+		context.Background(),
+		"finding-1",
+		scan.ID,
+		FindingTriageRequest{
+			Status:               &suppressed,
+			SuppressionExpiresAt: &pastExpiry,
+		},
+		"subject:user-1",
+	); !errors.Is(err, ErrInvalidFindingTriageRequest) {
+		t.Fatalf("expected invalid triage request error for past suppression expiry, got %v", err)
+	}
+}
+
 func TestServiceGetFindingExports(t *testing.T) {
 	store := db.NewMemoryStore()
 	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)

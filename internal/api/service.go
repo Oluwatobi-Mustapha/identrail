@@ -94,9 +94,19 @@ type RepoScanRequest struct {
 
 // FindingsFilter narrows findings list queries without changing API response schema.
 type FindingsFilter struct {
-	ScanID   string
-	Severity string
-	Type     string
+	ScanID          string
+	Severity        string
+	Type            string
+	LifecycleStatus string
+	Assignee        string
+}
+
+// FindingTriageRequest captures one triage mutation request for a finding.
+type FindingTriageRequest struct {
+	Status               *string `json:"status,omitempty"`
+	Assignee             *string `json:"assignee,omitempty"`
+	SuppressionExpiresAt *string `json:"suppression_expires_at,omitempty"`
+	Comment              string  `json:"comment,omitempty"`
 }
 
 // FindingsSummary returns quick aggregation counters for dashboards/alerts.
@@ -157,6 +167,9 @@ var ErrInvalidRepoScanRequest = errors.New("invalid repo scan request")
 
 // ErrRepoScanInProgress is returned when the same repository scan target is already running.
 var ErrRepoScanInProgress = errors.New("repo scan already in progress")
+
+// ErrInvalidFindingTriageRequest indicates invalid triage payload or state transition.
+var ErrInvalidFindingTriageRequest = errors.New("invalid finding triage request")
 
 // ErrRepoScanQueueFull is returned when queued repo scan requests exceed configured capacity.
 var ErrRepoScanQueueFull = errors.New("repo scan queue is full")
@@ -339,7 +352,12 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord) (
 // ListFindings returns persisted findings.
 func (s *Service) ListFindings(ctx context.Context, limit int) ([]domain.Finding, error) {
 	ctx = s.scopeContext(ctx)
-	return s.Store.ListFindings(ctx, limit)
+	items, err := s.Store.ListFindings(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	enriched := enrichFindings(items)
+	return s.applyFindingTriageStates(ctx, enriched)
 }
 
 // RunRepoScan performs one repository exposure scan with configured guardrails.
@@ -546,14 +564,6 @@ func (s *Service) ListRepoFindings(ctx context.Context, limit int, filter db.Rep
 // ListFindingsFiltered returns findings with optional scan/type/severity filters.
 func (s *Service) ListFindingsFiltered(ctx context.Context, limit int, filter FindingsFilter) ([]domain.Finding, error) {
 	ctx = s.scopeContext(ctx)
-	if strings.TrimSpace(filter.ScanID) == "" && strings.TrimSpace(filter.Severity) == "" && strings.TrimSpace(filter.Type) == "" {
-		items, err := s.Store.ListFindings(ctx, limit)
-		if err != nil {
-			return nil, err
-		}
-		return enrichFindings(items), nil
-	}
-
 	loadLimit := limit
 	if loadLimit <= 0 {
 		loadLimit = 100
@@ -575,6 +585,8 @@ func (s *Service) ListFindingsFiltered(ctx context.Context, limit int, filter Fi
 
 	severity := strings.ToLower(strings.TrimSpace(filter.Severity))
 	findingType := strings.ToLower(strings.TrimSpace(filter.Type))
+	lifecycleStatus := strings.ToLower(strings.TrimSpace(filter.LifecycleStatus))
+	assignee := strings.ToLower(strings.TrimSpace(filter.Assignee))
 	result := make([]domain.Finding, 0, len(source))
 	for _, item := range source {
 		if severity != "" && strings.ToLower(string(item.Severity)) != severity {
@@ -584,11 +596,27 @@ func (s *Service) ListFindingsFiltered(ctx context.Context, limit int, filter Fi
 			continue
 		}
 		result = append(result, item)
-		if limit > 0 && len(result) >= limit {
+	}
+	enriched := enrichFindings(result)
+	withTriage, err := s.applyFindingTriageStates(ctx, enriched)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := make([]domain.Finding, 0, len(withTriage))
+	for _, item := range withTriage {
+		if lifecycleStatus != "" && strings.ToLower(string(item.Triage.Status)) != lifecycleStatus {
+			continue
+		}
+		if assignee != "" && strings.ToLower(strings.TrimSpace(item.Triage.Assignee)) != assignee {
+			continue
+		}
+		filtered = append(filtered, item)
+		if limit > 0 && len(filtered) >= limit {
 			break
 		}
 	}
-	return enrichFindings(result), nil
+	return filtered, nil
 }
 
 // GetFinding returns one finding by id, optionally scoped to one scan.
@@ -607,6 +635,113 @@ func (s *Service) GetFinding(ctx context.Context, findingID string, scanID strin
 		}
 	}
 	return domain.Finding{}, db.ErrNotFound
+}
+
+// TriageFinding applies one workflow mutation and records audit history.
+func (s *Service) TriageFinding(ctx context.Context, findingID string, scanID string, request FindingTriageRequest, actor string) (domain.Finding, error) {
+	id := strings.TrimSpace(findingID)
+	if id == "" {
+		return domain.Finding{}, db.ErrNotFound
+	}
+	if _, err := s.GetFinding(ctx, id, scanID); err != nil {
+		return domain.Finding{}, err
+	}
+	if request.Status == nil && request.Assignee == nil && request.SuppressionExpiresAt == nil && strings.TrimSpace(request.Comment) == "" {
+		return domain.Finding{}, ErrInvalidFindingTriageRequest
+	}
+
+	now := s.Now().UTC()
+	currentState, err := s.Store.GetFindingTriageState(ctx, id)
+	if err != nil && !errors.Is(err, db.ErrNotFound) {
+		return domain.Finding{}, err
+	}
+	if errors.Is(err, db.ErrNotFound) {
+		currentState = db.FindingTriageState{
+			FindingID: id,
+			Status:    domain.FindingLifecycleOpen,
+		}
+	}
+	currentState = normalizeFindingTriageState(currentState, now)
+	nextState := currentState
+	changed := false
+
+	if request.Status != nil {
+		parsedStatus, parseErr := parseFindingLifecycleStatus(*request.Status)
+		if parseErr != nil {
+			return domain.Finding{}, parseErr
+		}
+		if nextState.Status != parsedStatus {
+			changed = true
+		}
+		nextState.Status = parsedStatus
+	}
+	if request.Assignee != nil {
+		nextAssignee := strings.TrimSpace(*request.Assignee)
+		if nextState.Assignee != nextAssignee {
+			changed = true
+		}
+		nextState.Assignee = nextAssignee
+	}
+	if request.SuppressionExpiresAt != nil {
+		parsedExpiry, parseErr := parseSuppressionExpiry(*request.SuppressionExpiresAt, now)
+		if parseErr != nil {
+			return domain.Finding{}, parseErr
+		}
+		if !timePointersEqual(nextState.SuppressionExpiresAt, parsedExpiry) {
+			changed = true
+		}
+		nextState.SuppressionExpiresAt = parsedExpiry
+	}
+	if nextState.Status != domain.FindingLifecycleSuppressed && nextState.SuppressionExpiresAt != nil {
+		nextState.SuppressionExpiresAt = nil
+		changed = true
+	}
+	if nextState.Status == domain.FindingLifecycleSuppressed && nextState.SuppressionExpiresAt != nil && !nextState.SuppressionExpiresAt.After(now) {
+		return domain.Finding{}, ErrInvalidFindingTriageRequest
+	}
+	comment := strings.TrimSpace(request.Comment)
+	if !changed && comment == "" {
+		return domain.Finding{}, ErrInvalidFindingTriageRequest
+	}
+
+	nextState.FindingID = id
+	nextState.UpdatedAt = now
+	nextState.UpdatedBy = normalizeActor(actor)
+	if nextState.Status == "" {
+		nextState.Status = domain.FindingLifecycleOpen
+	}
+
+	if err := s.Store.UpsertFindingTriageState(ctx, nextState); err != nil {
+		return domain.Finding{}, err
+	}
+	action := deriveFindingTriageAction(currentState, nextState, comment)
+	if err := s.Store.AppendFindingTriageEvent(ctx, db.FindingTriageEvent{
+		FindingID:            id,
+		Action:               action,
+		FromStatus:           currentState.Status,
+		ToStatus:             nextState.Status,
+		Assignee:             nextState.Assignee,
+		SuppressionExpiresAt: nextState.SuppressionExpiresAt,
+		Comment:              comment,
+		Actor:                nextState.UpdatedBy,
+		CreatedAt:            now,
+	}); err != nil {
+		return domain.Finding{}, err
+	}
+
+	return s.GetFinding(ctx, id, scanID)
+}
+
+// ListFindingTriageHistory returns triage actions newest-first for one finding.
+func (s *Service) ListFindingTriageHistory(ctx context.Context, findingID string, scanID string, limit int) ([]db.FindingTriageEvent, error) {
+	id := strings.TrimSpace(findingID)
+	if id == "" {
+		return nil, db.ErrNotFound
+	}
+	if _, err := s.GetFinding(ctx, id, scanID); err != nil {
+		return nil, err
+	}
+	return s.Store.ListFindingTriageEvents(ctx, id, limit)
 }
 
 // GetFindingExports returns OCSF-aligned and ASFF payloads for one finding.
@@ -961,6 +1096,145 @@ func enrichFindings(findings []domain.Finding) []domain.Finding {
 		enriched = append(enriched, standards.EnrichFinding(finding))
 	}
 	return enriched
+}
+
+func (s *Service) applyFindingTriageStates(ctx context.Context, findings []domain.Finding) ([]domain.Finding, error) {
+	if len(findings) == 0 {
+		return findings, nil
+	}
+	ids := make([]string, 0, len(findings))
+	seen := map[string]struct{}{}
+	for _, finding := range findings {
+		id := strings.TrimSpace(finding.ID)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	states, err := s.Store.ListFindingTriageStates(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	byID := map[string]db.FindingTriageState{}
+	now := s.Now().UTC()
+	for _, state := range states {
+		normalized := normalizeFindingTriageState(state, now)
+		byID[normalized.FindingID] = normalized
+	}
+	result := make([]domain.Finding, 0, len(findings))
+	for _, finding := range findings {
+		triage := domain.DefaultFindingTriage()
+		if state, exists := byID[strings.TrimSpace(finding.ID)]; exists {
+			updatedAt := state.UpdatedAt.UTC()
+			triage = domain.FindingTriage{
+				Status:               state.Status,
+				Assignee:             state.Assignee,
+				SuppressionExpiresAt: state.SuppressionExpiresAt,
+				UpdatedAt:            &updatedAt,
+				UpdatedBy:            state.UpdatedBy,
+			}
+		}
+		finding.Triage = triage
+		result = append(result, finding)
+	}
+	return result, nil
+}
+
+func normalizeFindingTriageState(state db.FindingTriageState, now time.Time) db.FindingTriageState {
+	if state.Status == "" {
+		state.Status = domain.FindingLifecycleOpen
+	}
+	if !isValidFindingLifecycleStatus(state.Status) {
+		state.Status = domain.FindingLifecycleOpen
+	}
+	if state.Status == domain.FindingLifecycleSuppressed && state.SuppressionExpiresAt != nil && !state.SuppressionExpiresAt.After(now) {
+		state.Status = domain.FindingLifecycleOpen
+		state.SuppressionExpiresAt = nil
+	}
+	if state.Status != domain.FindingLifecycleSuppressed {
+		state.SuppressionExpiresAt = nil
+	}
+	return state
+}
+
+func parseFindingLifecycleStatus(raw string) (domain.FindingLifecycleStatus, error) {
+	status := domain.FindingLifecycleStatus(strings.ToLower(strings.TrimSpace(raw)))
+	if !isValidFindingLifecycleStatus(status) {
+		return "", ErrInvalidFindingTriageRequest
+	}
+	return status, nil
+}
+
+func isValidFindingLifecycleStatus(status domain.FindingLifecycleStatus) bool {
+	switch status {
+	case domain.FindingLifecycleOpen, domain.FindingLifecycleAck, domain.FindingLifecycleSuppressed, domain.FindingLifecycleResolved:
+		return true
+	default:
+		return false
+	}
+}
+
+func parseSuppressionExpiry(raw string, now time.Time) (*time.Time, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, ErrInvalidFindingTriageRequest
+	}
+	normalized := parsed.UTC()
+	if !normalized.After(now) {
+		return nil, ErrInvalidFindingTriageRequest
+	}
+	return &normalized, nil
+}
+
+func timePointersEqual(a *time.Time, b *time.Time) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.UTC().Equal(b.UTC())
+}
+
+func normalizeActor(actor string) string {
+	normalized := strings.TrimSpace(actor)
+	if normalized == "" {
+		return "unknown"
+	}
+	return normalized
+}
+
+func deriveFindingTriageAction(current db.FindingTriageState, next db.FindingTriageState, comment string) string {
+	if current.Status != next.Status {
+		switch next.Status {
+		case domain.FindingLifecycleAck:
+			return db.FindingTriageActionAcknowledged
+		case domain.FindingLifecycleSuppressed:
+			return db.FindingTriageActionSuppressed
+		case domain.FindingLifecycleResolved:
+			return db.FindingTriageActionResolved
+		case domain.FindingLifecycleOpen:
+			return db.FindingTriageActionReopened
+		}
+	}
+	if current.Assignee != next.Assignee {
+		return db.FindingTriageActionAssigned
+	}
+	if !timePointersEqual(current.SuppressionExpiresAt, next.SuppressionExpiresAt) {
+		return db.FindingTriageActionSuppression
+	}
+	if strings.TrimSpace(comment) != "" {
+		return db.FindingTriageActionCommented
+	}
+	return db.FindingTriageActionCommented
 }
 
 func truncateSourceErrors(errors []providers.SourceError, max int) []providers.SourceError {

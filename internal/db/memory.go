@@ -18,6 +18,8 @@ type MemoryStore struct {
 	scans        map[string]ScanRecord
 	scanIDs      []string
 	findings     map[string]domain.Finding
+	triageStates map[string]FindingTriageState
+	triageEvents map[string][]FindingTriageEvent
 	events       map[string][]ScanEvent
 	repoScans    map[string]RepoScanRecord
 	repoScanIDs  []string
@@ -36,6 +38,8 @@ func NewMemoryStore() *MemoryStore {
 		scans:        map[string]ScanRecord{},
 		scanIDs:      []string{},
 		findings:     map[string]domain.Finding{},
+		triageStates: map[string]FindingTriageState{},
+		triageEvents: map[string][]FindingTriageEvent{},
 		events:       map[string][]ScanEvent{},
 		repoScans:    map[string]RepoScanRecord{},
 		repoScanIDs:  []string{},
@@ -188,6 +192,101 @@ func (m *MemoryStore) UpsertFindings(ctx context.Context, scanID string, finding
 		m.findings[key] = finding
 	}
 	return nil
+}
+
+// GetFindingTriageState returns triage workflow state for one finding id.
+func (m *MemoryStore) GetFindingTriageState(_ context.Context, findingID string) (FindingTriageState, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	state, exists := m.triageStates[strings.TrimSpace(findingID)]
+	if !exists {
+		return FindingTriageState{}, ErrNotFound
+	}
+	return state, nil
+}
+
+// ListFindingTriageStates returns triage states for provided finding ids.
+func (m *MemoryStore) ListFindingTriageStates(_ context.Context, findingIDs []string) ([]FindingTriageState, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	seen := map[string]struct{}{}
+	result := make([]FindingTriageState, 0, len(findingIDs))
+	for _, findingID := range findingIDs {
+		normalized := strings.TrimSpace(findingID)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		state, exists := m.triageStates[normalized]
+		if !exists {
+			continue
+		}
+		result = append(result, state)
+	}
+	return result, nil
+}
+
+// UpsertFindingTriageState creates or updates mutable triage metadata.
+func (m *MemoryStore) UpsertFindingTriageState(_ context.Context, state FindingTriageState) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	normalizedID := strings.TrimSpace(state.FindingID)
+	if normalizedID == "" {
+		return fmt.Errorf("finding id is required")
+	}
+	state.FindingID = normalizedID
+	state.Assignee = strings.TrimSpace(state.Assignee)
+	state.UpdatedBy = strings.TrimSpace(state.UpdatedBy)
+	state.UpdatedAt = state.UpdatedAt.UTC()
+	m.triageStates[normalizedID] = state
+	return nil
+}
+
+// AppendFindingTriageEvent records one immutable triage action.
+func (m *MemoryStore) AppendFindingTriageEvent(_ context.Context, event FindingTriageEvent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	normalizedID := strings.TrimSpace(event.FindingID)
+	if normalizedID == "" {
+		return fmt.Errorf("finding id is required")
+	}
+	if strings.TrimSpace(event.ID) == "" {
+		event.ID = uuid.NewString()
+	}
+	event.FindingID = normalizedID
+	event.Action = strings.TrimSpace(event.Action)
+	event.Assignee = strings.TrimSpace(event.Assignee)
+	event.Comment = strings.TrimSpace(event.Comment)
+	event.Actor = strings.TrimSpace(event.Actor)
+	event.CreatedAt = event.CreatedAt.UTC()
+	m.triageEvents[normalizedID] = append(m.triageEvents[normalizedID], event)
+	return nil
+}
+
+// ListFindingTriageEvents returns triage actions newest-first for one finding id.
+func (m *MemoryStore) ListFindingTriageEvents(_ context.Context, findingID string, limit int) ([]FindingTriageEvent, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	normalizedID := strings.TrimSpace(findingID)
+	if normalizedID == "" {
+		return nil, ErrNotFound
+	}
+	events := append([]FindingTriageEvent(nil), m.triageEvents[normalizedID]...)
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].CreatedAt.After(events[j].CreatedAt)
+	})
+	if limit > 0 && len(events) > limit {
+		events = events[:limit]
+	}
+	return events, nil
 }
 
 // UpsertArtifacts persists raw and normalized scan artifacts idempotently.
