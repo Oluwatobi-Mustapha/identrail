@@ -14,7 +14,7 @@ permissions:
   contents: write
   id-token: write
   attestations: write
-  packages: read
+  packages: write
 
 jobs:
   prepare:
