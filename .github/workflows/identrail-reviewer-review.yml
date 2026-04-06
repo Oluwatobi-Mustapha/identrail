@@ -104,7 +104,7 @@ jobs:
 
       - name: Upload review artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: identrail-reviewer-pr-${{ github.event.pull_request.number }}
           path: |
@@ -200,7 +200,7 @@ jobs:
 
       - name: Upload issue review artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: identrail-reviewer-issue-${{ github.event.issue.number }}
           path: |
