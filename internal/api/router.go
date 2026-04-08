@@ -109,8 +109,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	v1 := r.Group("/v1")
 	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes))
 	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID))
-	v1.Use(requireReadableScopeMiddleware(opts.APIKeyScopes, opts.OIDCTokenVerifier))
-	v1.Use(requireCentralPolicyMiddleware(newCentralPolicyEngine(), newRoutePolicyRegistry()))
+	v1.Use(requireCentralPolicyMiddleware(newCentralPolicyEngine(), newRoutePolicyRegistry(), opts.WriteAPIKeys, opts.APIKeyScopes))
 	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink))
 
@@ -288,7 +287,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		c.JSON(http.StatusOK, gin.H{"items": items})
 	})
 
-	v1.PATCH("/findings/:finding_id/triage", requireWriteKeyMiddleware(opts.WriteAPIKeys, opts.APIKeyScopes), func(c *gin.Context) {
+	v1.PATCH("/findings/:finding_id/triage", func(c *gin.Context) {
 		var request FindingTriageRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
@@ -549,7 +548,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		c.JSON(http.StatusOK, response)
 	})
 
-	v1.POST("/scans", requireWriteKeyMiddleware(opts.WriteAPIKeys, opts.APIKeyScopes), func(c *gin.Context) {
+	v1.POST("/scans", func(c *gin.Context) {
 		start := time.Now()
 		metrics.ScanRunsTotal.Inc()
 		metrics.ScanInFlight.Inc()
@@ -575,7 +574,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		})
 	})
 
-	v1.POST("/repo-scans", requireWriteKeyMiddleware(opts.WriteAPIKeys, opts.APIKeyScopes), func(c *gin.Context) {
+	v1.POST("/repo-scans", func(c *gin.Context) {
 		start := time.Now()
 		metrics.RepoScanRunsTotal.Inc()
 		defer func() {
