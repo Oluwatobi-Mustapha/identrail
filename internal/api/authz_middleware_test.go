@@ -3,10 +3,13 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 func TestRoutePolicyRegistryLookup(t *testing.T) {
@@ -24,9 +27,19 @@ func TestPolicyRolesFromScope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Set("auth.scope_set", newScopeSet([]string{scopeWrite}))
-	roles := policyRolesFromScope(c)
+	roles := policyRolesFromAuth(c, nil, nil)
 	if len(roles) != 2 {
 		t.Fatalf("expected read+write roles, got %+v", roles)
+	}
+}
+
+func TestPolicyRolesFromAuthLegacyKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Set("auth.api_key", "writer-key")
+	roles := policyRolesFromAuth(c, []string{"writer-key"}, nil)
+	if len(roles) != 2 {
+		t.Fatalf("expected legacy writer to map to read+write roles, got %+v", roles)
 	}
 }
 
@@ -60,6 +73,19 @@ func TestRequireCentralPolicyMiddlewareBypassWhenAuthDisabled(t *testing.T) {
 	}
 }
 
+func TestRoutePolicyRegistryCoversAllV1Routes(t *testing.T) {
+	registry := newRoutePolicyRegistry()
+	router := NewRouter(zap.NewNop(), telemetry.NewMetrics(), nil, RouterOptions{})
+	for _, route := range router.Routes() {
+		if !strings.HasPrefix(route.Path, "/v1/") {
+			continue
+		}
+		if _, exists := registry.lookup(route.Method, route.Path); !exists {
+			t.Fatalf("missing route policy for %s %s", route.Method, route.Path)
+		}
+	}
+}
+
 func newPolicyTestRouter(scopes scopeSet, setPrincipal bool) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -73,7 +99,7 @@ func newPolicyTestRouter(scopes scopeSet, setPrincipal bool) *gin.Engine {
 		}
 		c.Next()
 	})
-	r.Use(requireCentralPolicyMiddleware(newCentralPolicyEngine(), newRoutePolicyRegistry()))
+	r.Use(requireCentralPolicyMiddleware(newCentralPolicyEngine(), newRoutePolicyRegistry(), nil, nil))
 	r.POST("/v1/scans", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
