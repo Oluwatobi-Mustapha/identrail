@@ -27,6 +27,27 @@ func TestTenantIsolationEvaluatorDenyMismatch(t *testing.T) {
 	}
 }
 
+func TestTenantIsolationEvaluatorDenyCaseVariantIDs(t *testing.T) {
+	evaluator := newTenantIsolationEvaluator()
+	outcome, reason, err := evaluator.Evaluate(context.Background(), PolicyInput{
+		Subject: PolicySubject{TenantID: "Tenant-A", WorkspaceID: "Workspace-A"},
+		Action:  "findings.read",
+		Resource: PolicyResource{
+			TenantID:    "tenant-a",
+			WorkspaceID: "workspace-a",
+		},
+	})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if outcome != PolicyOutcomeDeny {
+		t.Fatalf("expected deny for case-variant IDs, got %q", outcome)
+	}
+	if !strings.Contains(reason, "tenant scope mismatch") {
+		t.Fatalf("expected tenant mismatch reason, got %q", reason)
+	}
+}
+
 func TestTenantIsolationEvaluatorNoOpinionWhenSubjectScopeMissing(t *testing.T) {
 	evaluator := newTenantIsolationEvaluator()
 	outcome, reason, err := evaluator.Evaluate(context.Background(), PolicyInput{

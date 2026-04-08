@@ -31,10 +31,10 @@ func (tenantIsolationEvaluator) Evaluate(_ context.Context, input PolicyInput) (
 		targetWorkspace = strings.TrimSpace(input.Context.Attributes[policyContextWorkspaceIDKey])
 	}
 
-	if subjectTenant != "" && targetTenant != "" && !strings.EqualFold(subjectTenant, targetTenant) {
+	if subjectTenant != "" && targetTenant != "" && subjectTenant != targetTenant {
 		return PolicyOutcomeDeny, fmt.Sprintf("tenant scope mismatch: subject=%q target=%q", subjectTenant, targetTenant), nil
 	}
-	if subjectWorkspace != "" && targetWorkspace != "" && !strings.EqualFold(subjectWorkspace, targetWorkspace) {
+	if subjectWorkspace != "" && targetWorkspace != "" && subjectWorkspace != targetWorkspace {
 		return PolicyOutcomeDeny, fmt.Sprintf("workspace scope mismatch: subject=%q target=%q", subjectWorkspace, targetWorkspace), nil
 	}
 	return PolicyOutcomeNoOpinion, "", nil
