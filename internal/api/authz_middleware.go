@@ -417,7 +417,7 @@ func trustedAttributesFromStore(ctx context.Context, store db.Store, entityKind 
 		}
 		return nil, err
 	}
-	_, err = db.NormalizeAuthzEntityAttributesForWrite(db.AuthzEntityAttributes{
+	normalizedRecord, err := db.NormalizeAuthzEntityAttributesForWrite(db.AuthzEntityAttributes{
 		EntityKind:     entityKind,
 		EntityType:     normalizedType,
 		EntityID:       normalizedID,
@@ -432,16 +432,16 @@ func trustedAttributesFromStore(ctx context.Context, store db.Store, entityKind 
 	}
 
 	attributes := map[string]string{}
-	if value := strings.TrimSpace(record.OwnerTeam); value != "" {
+	if value := strings.TrimSpace(normalizedRecord.OwnerTeam); value != "" {
 		attributes[policyAttributeOwnerTeam] = value
 	}
-	if value := strings.TrimSpace(record.Environment); value != "" {
+	if value := strings.TrimSpace(normalizedRecord.Environment); value != "" {
 		attributes[policyAttributeEnvironment] = value
 	}
-	if value := strings.TrimSpace(record.RiskTier); value != "" {
+	if value := strings.TrimSpace(normalizedRecord.RiskTier); value != "" {
 		attributes[policyAttributeRiskTier] = value
 	}
-	if value := strings.TrimSpace(record.Classification); value != "" {
+	if value := strings.TrimSpace(normalizedRecord.Classification); value != "" {
 		attributes[policyAttributeClassification] = value
 	}
 	return attributes, nil

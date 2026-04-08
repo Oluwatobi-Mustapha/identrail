@@ -171,6 +171,40 @@ func TestRequireCentralPolicyMiddlewareABACTriageAllowsWhenTrustedAttributesMiss
 	}
 }
 
+func TestTrustedAttributesFromStoreNormalizesEnumCasing(t *testing.T) {
+	store := authzOverrideStore{
+		Store: db.NewMemoryStore(),
+		records: map[string]db.AuthzEntityAttributes{
+			"resource|finding|finding-1": {
+				EntityKind:     db.AuthzEntityKindResource,
+				EntityType:     "finding",
+				EntityID:       "finding-1",
+				OwnerTeam:      "Platform_Sec",
+				Environment:    "Prod",
+				RiskTier:       "High",
+				Classification: "Confidential",
+			},
+		},
+	}
+
+	attributes, err := trustedAttributesFromStore(policyTestScopeContext(), store, db.AuthzEntityKindResource, "finding", "finding-1")
+	if err != nil {
+		t.Fatalf("trusted attributes from store: %v", err)
+	}
+	if got := attributes[policyAttributeOwnerTeam]; got != "platform_sec" {
+		t.Fatalf("expected normalized owner_team, got %q", got)
+	}
+	if got := attributes[policyAttributeEnvironment]; got != "prod" {
+		t.Fatalf("expected normalized env, got %q", got)
+	}
+	if got := attributes[policyAttributeRiskTier]; got != "high" {
+		t.Fatalf("expected normalized risk_tier, got %q", got)
+	}
+	if got := attributes[policyAttributeClassification]; got != "confidential" {
+		t.Fatalf("expected normalized classification, got %q", got)
+	}
+}
+
 func newPolicyTestRouter(scopes scopeSet, setPrincipal bool, store db.Store) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -215,4 +249,17 @@ func newPolicyTriageRouter(scopes scopeSet, setPrincipal bool, store db.Store) *
 
 func policyTestScopeContext() context.Context {
 	return db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+}
+
+type authzOverrideStore struct {
+	db.Store
+	records map[string]db.AuthzEntityAttributes
+}
+
+func (s authzOverrideStore) GetAuthzEntityAttributes(_ context.Context, entityKind string, entityType string, entityID string) (db.AuthzEntityAttributes, error) {
+	key := strings.ToLower(strings.TrimSpace(entityKind)) + "|" + strings.ToLower(strings.TrimSpace(entityType)) + "|" + strings.TrimSpace(entityID)
+	if record, exists := s.records[key]; exists {
+		return record, nil
+	}
+	return db.AuthzEntityAttributes{}, db.ErrNotFound
 }
