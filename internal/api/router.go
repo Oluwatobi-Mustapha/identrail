@@ -109,7 +109,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	v1 := r.Group("/v1")
 	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes))
 	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID))
-	v1.Use(requireReadableScopeMiddleware(opts.APIKeyScopes, opts.OIDCTokenVerifier))
+	v1.Use(requireCentralPolicyMiddleware(newCentralPolicyEngine(), newRoutePolicyRegistry(), opts.WriteAPIKeys, opts.APIKeyScopes))
 	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink))
 
@@ -287,7 +287,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		c.JSON(http.StatusOK, gin.H{"items": items})
 	})
 
-	v1.PATCH("/findings/:finding_id/triage", requireWriteKeyMiddleware(opts.WriteAPIKeys, opts.APIKeyScopes), func(c *gin.Context) {
+	v1.PATCH("/findings/:finding_id/triage", func(c *gin.Context) {
 		var request FindingTriageRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
@@ -548,7 +548,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		c.JSON(http.StatusOK, response)
 	})
 
-	v1.POST("/scans", requireWriteKeyMiddleware(opts.WriteAPIKeys, opts.APIKeyScopes), func(c *gin.Context) {
+	v1.POST("/scans", func(c *gin.Context) {
 		start := time.Now()
 		metrics.ScanRunsTotal.Inc()
 		metrics.ScanInFlight.Inc()
@@ -574,7 +574,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		})
 	})
 
-	v1.POST("/repo-scans", requireWriteKeyMiddleware(opts.WriteAPIKeys, opts.APIKeyScopes), func(c *gin.Context) {
+	v1.POST("/repo-scans", func(c *gin.Context) {
 		start := time.Now()
 		metrics.RepoScanRunsTotal.Inc()
 		defer func() {
@@ -1166,60 +1166,6 @@ func apiKeyAuthMiddleware(keys []string, scopedKeys map[string][]string, tokenVe
 	}
 }
 
-func requireWriteKeyMiddleware(writeKeys []string, scopedKeys map[string][]string) gin.HandlerFunc {
-	allowed := []string{}
-	for _, key := range writeKeys {
-		trimmed := strings.TrimSpace(key)
-		if trimmed == "" {
-			continue
-		}
-		allowed = append(allowed, trimmed)
-	}
-
-	// When scoped auth exists (scoped API keys or OIDC token scopes), prefer scope-based write checks.
-	// This keeps API keys backward compatible while allowing OAuth/OIDC write scopes.
-	return func(c *gin.Context) {
-		if scopeSetValue, exists := c.Get("auth.scope_set"); exists {
-			scopes, ok := scopeSetValue.(scopeSet)
-			if !ok || !scopes.has(scopeWrite) {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-				return
-			}
-			c.Next()
-			return
-		}
-
-		if len(scopedKeys) > 0 {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-			return
-		}
-
-		if len(allowed) == 0 {
-			// When auth middleware is disabled (test/local stubs), keep route behavior unchanged.
-			// In authenticated API-key mode, empty write-key config must not grant write access.
-			if _, exists := c.Get("auth.api_key"); exists {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-				return
-			}
-			c.Next()
-			return
-		}
-
-		apiKeyValue, exists := c.Get("auth.api_key")
-		if !exists {
-			// If API key auth is disabled, write authorization cannot be enforced.
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-			return
-		}
-		apiKey, _ := apiKeyValue.(string)
-		if !keyInList(allowed, apiKey) {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-			return
-		}
-		c.Next()
-	}
-}
-
 func keyInList(keys []string, candidate string) bool {
 	for _, key := range keys {
 		if secureKeyEquals(key, candidate) {
@@ -1243,36 +1189,6 @@ func secureKeyEquals(expected string, candidate string) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(expected), []byte(candidate)) == 1
-}
-
-func requireReadableScopeMiddleware(scopedKeys map[string][]string, tokenVerifier TokenVerifier) gin.HandlerFunc {
-	if len(scopedKeys) == 0 && tokenVerifier == nil {
-		return func(c *gin.Context) { c.Next() }
-	}
-	return func(c *gin.Context) {
-		// Backward compatibility: in legacy API-key mode (no scoped keys), an API key
-		// authenticated request remains read-authorized even when OIDC is also enabled.
-		if len(scopedKeys) == 0 {
-			if _, hasAPIKey := c.Get("auth.api_key"); hasAPIKey {
-				if _, hasScopes := c.Get("auth.scope_set"); !hasScopes {
-					c.Next()
-					return
-				}
-			}
-		}
-
-		scopeSetValue, exists := c.Get("auth.scope_set")
-		if !exists {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-			return
-		}
-		scopes, ok := scopeSetValue.(scopeSet)
-		if !ok || !scopes.has(scopeRead) {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-			return
-		}
-		c.Next()
-	}
 }
 
 type ipRateLimiter struct {
