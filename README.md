@@ -1,4 +1,12 @@
-# Identrail
+<p align="center">
+    <a href="https://github.com/Oluwatobi-Mustapha/identrail"><img src="https://capsule-render.vercel.app/api?type=transparent&height=120&text=IDENTRAIL&fontSize=72&fontColor=3b82f6&animation=fadeIn&fontAlignY=65" height="100" /></a>
+</p>
+
+---
+
+[![Coverage](https://img.shields.io/badge/coverage-80.0%25-brightgreen?style=for-the-badge)](https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/ci.yml)
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/Oluwatobi-Mustapha/identrail/ci.yml?branch=main&label=tests&style=for-the-badge)](https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/ci.yml)
+![Latest version](https://img.shields.io/github/v/tag/Oluwatobi-Mustapha/identrail?sort=semver&style=for-the-badge&label=Latest%20version)
 
 Identrail is a machine identity security platform for cloud and Kubernetes environments.
 
