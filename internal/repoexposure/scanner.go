@@ -373,14 +373,14 @@ func localRepository(target string) (repositoryLocation, bool) {
 	if path == "" {
 		return repositoryLocation{}, false
 	}
-	if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+	if isGitWorktree(path) {
 		absolute, absErr := filepath.Abs(path)
 		if absErr != nil {
 			absolute = path
 		}
 		return repositoryLocation{Path: absolute, Bare: false, Display: absolute}, true
 	}
-	if _, err := os.Stat(filepath.Join(path, "HEAD")); err != nil {
+	if !isGitBareRepository(path) {
 		return repositoryLocation{}, false
 	}
 	if _, err := os.Stat(filepath.Join(path, "objects")); err != nil {
@@ -391,6 +391,22 @@ func localRepository(target string) (repositoryLocation, bool) {
 		absolute = path
 	}
 	return repositoryLocation{Path: absolute, Bare: true, Display: absolute}, true
+}
+
+func isGitWorktree(path string) bool {
+	output, err := exec.Command("git", "-C", path, "rev-parse", "--is-inside-work-tree").Output()
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(string(output)), "true")
+}
+
+func isGitBareRepository(path string) bool {
+	output, err := exec.Command("git", "--git-dir", path, "rev-parse", "--is-bare-repository").Output()
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(string(output)), "true")
 }
 
 // IsLocalRepositoryTarget returns true when target resolves to a local worktree
