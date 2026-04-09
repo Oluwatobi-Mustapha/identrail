@@ -1,4 +1,6 @@
-# I D E N T R A I L
+<p align="center">
+    <a href="https://github.com/Oluwatobi-Mustapha/identrail"><img src="./docs/static/images/identrail-wordmark.svg" height="100" /></a>
+</p>
 
 - Website: https://github.com/Oluwatobi-Mustapha/identrail
 - Discussions: https://github.com/Oluwatobi-Mustapha/identrail/discussions
@@ -10,36 +12,15 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/Oluwatobi-Mustapha/identrail/ci.yml?branch=main&label=ci)](https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/Oluwatobi-Mustapha/identrail/codeql.yml?branch=main&label=codeql)](https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/codeql.yml)
 [![Release](https://img.shields.io/github/v/tag/Oluwatobi-Mustapha/identrail?sort=semver&label=release)](https://github.com/Oluwatobi-Mustapha/identrail/releases)
-[![Coverage Gate](https://img.shields.io/badge/coverage%20gate-%E2%89%A580%25-brightgreen)](https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-80.2%25-brightgreen?style=for-the-badge)](https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/ci.yml)
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/Oluwatobi-Mustapha/identrail/ci.yml?branch=main&label=tests&style=for-the-badge)](https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/ci.yml)
+![Latest version](https://img.shields.io/github/v/tag/Oluwatobi-Mustapha/identrail?sort=semver&style=for-the-badge&label=Latest%20version)
 
-Identrail is a machine identity security platform for cloud and Kubernetes workloads. It discovers identities and trust paths, detects risky access patterns, and supports operator-safe remediation workflows.
+Machine identity security platform for cloud and Kubernetes workloads.
 
-The key features of Identrail are:
+Identrail discovers machine identities and trust paths across AWS and Kubernetes, detects high-signal identity risk findings, scans repositories for exposure risks, and supports centralized authorization with rollout-safe policy controls.
 
-- **Identity Discovery and Risk Detection**: Collects identity data from AWS and Kubernetes, builds relationships, and produces typed findings with remediation guidance.
-
-- **Repository Exposure Scanning**: Scans repository history and configuration for secret exposure and misconfiguration risks, with bounded scan controls and allowlists.
-
-- **Centralized Authorization**: Enforces tenant/workspace isolation and a strict policy decision order (`tenant_isolation -> rbac -> abac -> rebac -> default_deny`) with simulation, staged rollout, and rollback controls.
-
-- **Operational Safety and Auditability**: Provides decision audit logging, rollout metrics, and runbooks for secure operations and compliance evidence workflows.
-
-- **Portable Deployment and Release Pipeline**: Includes Docker, Kubernetes, Helm, and Terraform deployment assets with CI, CodeQL, release automation, and supply-chain trust artifacts.
-
-For more information, refer to the [documentation index](docs/README.md).
-
-## Getting Started & Documentation
-
-Documentation is available in this repository:
-
-- [Documentation Index](docs/README.md)
-- [Enterprise 5-Minute Quickstart](docs/enterprise-quickstart.md)
-- [Operator Readiness](docs/operator-readiness.md)
-- [Deploy Runbook](docs/deploy-runbook.md)
-- [AuthZ Operator Runbook](docs/authz-operator-runbook.md)
-- [AuthZ Policy Rollout Runbook](docs/authz-policy-rollout-runbook.md)
-
-If you want a fast local start:
+## Getting Started
 
 ```bash
 cp deploy/docker/.env.example deploy/docker/.env
@@ -47,26 +28,25 @@ docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env
 curl -sS http://localhost:8080/healthz
 ```
 
-## Developing Identrail
-
-This repository contains Identrail core runtime and developer tooling, including:
-
-- API server (`cmd/server`)
-- background worker (`cmd/worker`)
-- operator/developer CLI (`cmd/cli`)
-- repository-native reviewer engine (`cmd/identrail-reviewer`)
-- web dashboard (`web/`)
-
-To learn more about compiling Identrail and contributing suggested changes, refer to:
-
-- [Contributing Guide](CONTRIBUTING.md)
-- [Development Workflow](docs/development-workflow.md)
-- [Testing Strategy](docs/testing.md)
-
-Core local checks:
+## Development and Quality
 
 ```bash
 make bootstrap
 make ci
 ```
 
+Coverage gate: `>= 80%` (currently `80.2%`).
+
+## Docs and Project Links
+
+- Documentation index: [docs/README.md](docs/README.md)
+- API contract: [docs/openapi-v1.yaml](docs/openapi-v1.yaml)
+- Enterprise quickstart: [docs/enterprise-quickstart.md](docs/enterprise-quickstart.md)
+- Operator readiness: [docs/operator-readiness.md](docs/operator-readiness.md)
+- Security policy: [SECURITY.md](SECURITY.md)
+- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Discussions: https://github.com/Oluwatobi-Mustapha/identrail/discussions
+
+## License
+
+[Apache License 2.0](LICENSE)
