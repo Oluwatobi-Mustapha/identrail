@@ -20,6 +20,7 @@ const (
 	policyActionScansRun       = "scans.run"
 	policyActionRepoScansRead  = "repo_scans.read"
 	policyActionRepoScansRun   = "repo_scans.run"
+	policyActionAuthzSimulate  = "authz.policies.simulate"
 
 	policyContextABACSubjectAttrsLoadedKey  = "abac.subject_attributes_loaded"
 	policyContextABACResourceAttrsLoadedKey = "abac.resource_attributes_loaded"
@@ -61,6 +62,7 @@ func defaultRouteActionRoleGrants() map[string][]string {
 		policyActionScansRun:       writeRoles,
 		policyActionRepoScansRead:  readRoles,
 		policyActionRepoScansRun:   writeRoles,
+		policyActionAuthzSimulate:  {scopeAdmin},
 	}
 }
 
@@ -83,6 +85,7 @@ func defaultRouteActionABACPolicies() map[string]abacActionPolicy {
 		policyActionScansRun:      passThroughPolicy,
 		policyActionRepoScansRead: passThroughPolicy,
 		policyActionRepoScansRun:  passThroughPolicy,
+		policyActionAuthzSimulate: passThroughPolicy,
 		policyActionFindingsTriage: {
 			OnNoMatch: PolicyOutcomeNoOpinion,
 			AnyOf: []abacClause{

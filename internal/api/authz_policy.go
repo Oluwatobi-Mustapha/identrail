@@ -25,6 +25,7 @@ const (
 	PolicyOutcomeNoOpinion PolicyOutcome = "no_op"
 	PolicyOutcomeAllow     PolicyOutcome = "allow"
 	PolicyOutcomeDeny      PolicyOutcome = "deny"
+	PolicyOutcomeSkipped   PolicyOutcome = "skipped"
 )
 
 // PolicySubject is the actor for one authorization decision.
@@ -70,6 +71,13 @@ type PolicyDecision struct {
 	Reason  string
 }
 
+// PolicyTraceStep captures one stage-level evaluator outcome for explainability.
+type PolicyTraceStep struct {
+	Stage   PolicyStage   `json:"stage"`
+	Outcome PolicyOutcome `json:"outcome"`
+	Reason  string        `json:"reason"`
+}
+
 // PolicyEvaluator evaluates one authorization layer.
 type PolicyEvaluator interface {
 	Evaluate(ctx context.Context, input PolicyInput) (PolicyOutcome, string, error)
@@ -96,38 +104,120 @@ func NewPolicyEngine(tenantIsolation PolicyEvaluator, rbac PolicyEvaluator, abac
 
 // Decide evaluates authorization policies and returns one normalized decision.
 func (p *PolicyEngine) Decide(ctx context.Context, input PolicyInput) (PolicyDecision, error) {
-	if p == nil {
-		return denyDecision(PolicyStageDefaultDeny, "authorization policy engine is not configured"), nil
-	}
-	for _, stage := range []struct {
+	decision, _, err := p.DecideWithTrace(ctx, input)
+	return decision, err
+}
+
+// DecideWithTrace evaluates authorization and returns a full stage-by-stage trace.
+func (p *PolicyEngine) DecideWithTrace(ctx context.Context, input PolicyInput) (PolicyDecision, []PolicyTraceStep, error) {
+	stages := []struct {
 		name      PolicyStage
 		evaluator PolicyEvaluator
 	}{
-		{name: PolicyStageTenantIsolation, evaluator: p.TenantIsolationEvaluator},
-		{name: PolicyStageRBAC, evaluator: p.RBACEvaluator},
-		{name: PolicyStageABAC, evaluator: p.ABACEvaluator},
-		{name: PolicyStageReBAC, evaluator: p.ReBACEvaluator},
-	} {
+		{name: PolicyStageTenantIsolation, evaluator: nil},
+		{name: PolicyStageRBAC, evaluator: nil},
+		{name: PolicyStageABAC, evaluator: nil},
+		{name: PolicyStageReBAC, evaluator: nil},
+	}
+
+	if p == nil {
+		trace := make([]PolicyTraceStep, 0, len(stages)+1)
+		for _, stage := range stages {
+			trace = append(trace, PolicyTraceStep{
+				Stage:   stage.name,
+				Outcome: PolicyOutcomeSkipped,
+				Reason:  "policy engine is not configured",
+			})
+		}
+		decision := denyDecision(PolicyStageDefaultDeny, "authorization policy engine is not configured")
+		trace = append(trace, PolicyTraceStep{
+			Stage:   PolicyStageDefaultDeny,
+			Outcome: PolicyOutcomeDeny,
+			Reason:  decision.Reason,
+		})
+		return decision, trace, nil
+	}
+
+	stages[0].evaluator = p.TenantIsolationEvaluator
+	stages[1].evaluator = p.RBACEvaluator
+	stages[2].evaluator = p.ABACEvaluator
+	stages[3].evaluator = p.ReBACEvaluator
+
+	trace := make([]PolicyTraceStep, 0, len(stages)+1)
+	for index, stage := range stages {
 		if stage.evaluator == nil {
+			trace = append(trace, PolicyTraceStep{
+				Stage:   stage.name,
+				Outcome: PolicyOutcomeNoOpinion,
+				Reason:  "stage evaluator is not configured",
+			})
 			continue
 		}
 		outcome, reason, err := stage.evaluator.Evaluate(ctx, input)
 		if err != nil {
-			return PolicyDecision{}, fmt.Errorf("evaluate %s policy: %w", stage.name, err)
+			return PolicyDecision{}, trace, fmt.Errorf("evaluate %s policy: %w", stage.name, err)
 		}
 		reason = strings.TrimSpace(reason)
+		if reason == "" {
+			switch outcome {
+			case PolicyOutcomeNoOpinion:
+				reason = "no policy opinion"
+			case PolicyOutcomeAllow:
+				reason = "policy grants action"
+			case PolicyOutcomeDeny:
+				reason = "policy denies action"
+			}
+		}
+		trace = append(trace, PolicyTraceStep{
+			Stage:   stage.name,
+			Outcome: outcome,
+			Reason:  reason,
+		})
 		switch outcome {
 		case PolicyOutcomeAllow:
-			return PolicyDecision{Allowed: true, Stage: stage.name, Reason: reason}, nil
+			decision := PolicyDecision{Allowed: true, Stage: stage.name, Reason: reason}
+			for _, remaining := range stages[index+1:] {
+				trace = append(trace, PolicyTraceStep{
+					Stage:   remaining.name,
+					Outcome: PolicyOutcomeSkipped,
+					Reason:  "skipped after terminal decision at " + string(stage.name),
+				})
+			}
+			trace = append(trace, PolicyTraceStep{
+				Stage:   PolicyStageDefaultDeny,
+				Outcome: PolicyOutcomeSkipped,
+				Reason:  "skipped after terminal decision at " + string(stage.name),
+			})
+			return decision, trace, nil
 		case PolicyOutcomeDeny:
-			return denyDecision(stage.name, reason), nil
+			decision := denyDecision(stage.name, reason)
+			for _, remaining := range stages[index+1:] {
+				trace = append(trace, PolicyTraceStep{
+					Stage:   remaining.name,
+					Outcome: PolicyOutcomeSkipped,
+					Reason:  "skipped after terminal decision at " + string(stage.name),
+				})
+			}
+			trace = append(trace, PolicyTraceStep{
+				Stage:   PolicyStageDefaultDeny,
+				Outcome: PolicyOutcomeSkipped,
+				Reason:  "skipped after terminal decision at " + string(stage.name),
+			})
+			return decision, trace, nil
 		case PolicyOutcomeNoOpinion:
 			continue
 		default:
-			return PolicyDecision{}, fmt.Errorf("evaluate %s policy: invalid outcome %q", stage.name, outcome)
+			return PolicyDecision{}, trace, fmt.Errorf("evaluate %s policy: invalid outcome %q", stage.name, outcome)
 		}
 	}
-	return denyDecision(PolicyStageDefaultDeny, "no policy granted access"), nil
+
+	decision := denyDecision(PolicyStageDefaultDeny, "no policy granted access")
+	trace = append(trace, PolicyTraceStep{
+		Stage:   PolicyStageDefaultDeny,
+		Outcome: PolicyOutcomeDeny,
+		Reason:  decision.Reason,
+	})
+	return decision, trace, nil
 }
 
 func denyDecision(stage PolicyStage, reason string) PolicyDecision {
