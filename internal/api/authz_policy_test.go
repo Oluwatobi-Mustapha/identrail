@@ -148,3 +148,62 @@ func TestPolicyEngineDecideNilEngineDefaultsToDeny(t *testing.T) {
 		t.Fatalf("expected default deny stage, got %q", decision.Stage)
 	}
 }
+
+func TestPolicyEngineDecideWithTraceIncludesAllStages(t *testing.T) {
+	calls := []string{}
+	engine := NewPolicyEngine(
+		testPolicyEvaluator{name: "tenant", outcome: PolicyOutcomeNoOpinion, calls: &calls},
+		testPolicyEvaluator{name: "rbac", outcome: PolicyOutcomeNoOpinion, calls: &calls},
+		testPolicyEvaluator{name: "abac", outcome: PolicyOutcomeNoOpinion, calls: &calls},
+		testPolicyEvaluator{name: "rebac", outcome: PolicyOutcomeNoOpinion, calls: &calls},
+	)
+
+	decision, trace, err := engine.DecideWithTrace(context.Background(), PolicyInput{Action: "findings.read"})
+	if err != nil {
+		t.Fatalf("decide with trace: %v", err)
+	}
+	if decision.Allowed {
+		t.Fatalf("expected deny decision, got %+v", decision)
+	}
+	expectedStages := []PolicyStage{
+		PolicyStageTenantIsolation,
+		PolicyStageRBAC,
+		PolicyStageABAC,
+		PolicyStageReBAC,
+		PolicyStageDefaultDeny,
+	}
+	if len(trace) != len(expectedStages) {
+		t.Fatalf("expected %d trace steps, got %d", len(expectedStages), len(trace))
+	}
+	for i, stage := range expectedStages {
+		if trace[i].Stage != stage {
+			t.Fatalf("expected stage %q at index %d, got %q", stage, i, trace[i].Stage)
+		}
+	}
+	if trace[len(trace)-1].Outcome != PolicyOutcomeDeny {
+		t.Fatalf("expected default deny outcome in trace, got %q", trace[len(trace)-1].Outcome)
+	}
+}
+
+func TestPolicyEngineDecideWithTraceMarksSkippedStagesAfterAllow(t *testing.T) {
+	engine := NewPolicyEngine(
+		testPolicyEvaluator{name: "tenant", outcome: PolicyOutcomeNoOpinion},
+		testPolicyEvaluator{name: "rbac", outcome: PolicyOutcomeAllow, reason: "rbac permit"},
+		testPolicyEvaluator{name: "abac", outcome: PolicyOutcomeAllow},
+		testPolicyEvaluator{name: "rebac", outcome: PolicyOutcomeAllow},
+	)
+
+	decision, trace, err := engine.DecideWithTrace(context.Background(), PolicyInput{Action: "findings.read"})
+	if err != nil {
+		t.Fatalf("decide with trace: %v", err)
+	}
+	if !decision.Allowed || decision.Stage != PolicyStageRBAC {
+		t.Fatalf("expected allow decision at RBAC stage, got %+v", decision)
+	}
+	if len(trace) != 5 {
+		t.Fatalf("expected full five-stage trace, got %d", len(trace))
+	}
+	if trace[2].Outcome != PolicyOutcomeSkipped || trace[3].Outcome != PolicyOutcomeSkipped || trace[4].Outcome != PolicyOutcomeSkipped {
+		t.Fatalf("expected downstream stages to be marked skipped, got %+v", trace)
+	}
+}
