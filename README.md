@@ -1,5 +1,5 @@
 <p align="center">
-    <a href="https://github.com/Oluwatobi-Mustapha/identrail"><img src="./docs/static/images/identrail-logo.svg" height="104" /></a>
+    <a href="https://github.com/Oluwatobi-Mustapha/identrail"><img src="./docs/static/images/identrail-wordmark.svg" height="100" /></a>
 </p>
 
 [![Coverage](https://img.shields.io/badge/coverage-80.2%25-brightgreen?style=for-the-badge)](https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/ci.yml)
