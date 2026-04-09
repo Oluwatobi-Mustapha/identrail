@@ -373,10 +373,6 @@ func localRepository(target string) (repositoryLocation, bool) {
 	if path == "" {
 		return repositoryLocation{}, false
 	}
-	info, err := os.Stat(path)
-	if err != nil || !info.IsDir() {
-		return repositoryLocation{}, false
-	}
 	if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
 		absolute, absErr := filepath.Abs(path)
 		if absErr != nil {
