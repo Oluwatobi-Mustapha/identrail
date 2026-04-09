@@ -1,4 +1,4 @@
-# Identrail
+# I D E N T R A I L
 
 - Website: https://github.com/Oluwatobi-Mustapha/identrail
 - Discussions: https://github.com/Oluwatobi-Mustapha/identrail/discussions
@@ -10,6 +10,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/Oluwatobi-Mustapha/identrail/ci.yml?branch=main&label=ci)](https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/Oluwatobi-Mustapha/identrail/codeql.yml?branch=main&label=codeql)](https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/codeql.yml)
 [![Release](https://img.shields.io/github/v/tag/Oluwatobi-Mustapha/identrail?sort=semver&label=release)](https://github.com/Oluwatobi-Mustapha/identrail/releases)
+[![Coverage Gate](https://img.shields.io/badge/coverage%20gate-%E2%89%A580%25-brightgreen)](https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/ci.yml)
 
 Identrail is a machine identity security platform for cloud and Kubernetes workloads. It discovers identities and trust paths, detects risky access patterns, and supports operator-safe remediation workflows.
 
@@ -68,6 +69,9 @@ Core local checks:
 make bootstrap
 make ci
 ```
+
+Coverage policy:
+- Go test coverage gate is enforced in CI at `>= 80%`.
 
 ## License
 
