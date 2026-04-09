@@ -2,7 +2,12 @@
     <a href="https://github.com/Oluwatobi-Mustapha/identrail"><img src="./docs/static/images/identrail-wordmark.svg" height="100" /></a>
 </p>
 
----
+- Website: https://github.com/Oluwatobi-Mustapha/identrail
+- Discussions: https://github.com/Oluwatobi-Mustapha/identrail/discussions
+- Documentation Index: [docs/README.md](docs/README.md)
+- API Contract: [docs/openapi-v1.yaml](docs/openapi-v1.yaml)
+- Enterprise Quickstart: [docs/enterprise-quickstart.md](docs/enterprise-quickstart.md)
+- Security Policy: [SECURITY.md](SECURITY.md)
 
 [![CI](https://img.shields.io/github/actions/workflow/status/Oluwatobi-Mustapha/identrail/ci.yml?branch=main&label=ci)](https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/Oluwatobi-Mustapha/identrail/codeql.yml?branch=main&label=codeql)](https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/codeql.yml)
