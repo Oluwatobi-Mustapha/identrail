@@ -3,8 +3,7 @@ package api
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -1285,8 +1284,8 @@ func TestServiceRunRepoScanRejectsLocalRepositoryTarget(t *testing.T) {
 	svc.RepoScanAllowedTargets = []string{"*"}
 
 	repo := t.TempDir()
-	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatalf("prepare local repo fixture: %v", err)
+	if output, err := exec.Command("git", "init", "--quiet", repo).CombinedOutput(); err != nil {
+		t.Fatalf("prepare local repo fixture: %v (%s)", err, string(output))
 	}
 
 	if _, err := svc.RunRepoScan(defaultScopeContext(), RepoScanRequest{Repository: repo}); !errors.Is(err, ErrRepoTargetNotAllowed) {
