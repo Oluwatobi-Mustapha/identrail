@@ -1214,6 +1214,100 @@ func TestPostgresStoreAuthzPolicyVersionLifecycle(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreCreateAuthzPolicyVersionAutoIncrementWithRetry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+
+	setRows := sqlmock.NewRows([]string{
+		"tenant_id",
+		"workspace_id",
+		"policy_set_id",
+		"display_name",
+		"description",
+		"created_by",
+		"created_at",
+		"updated_at",
+	}).AddRow("default", "default", "core_policy", "Core Policy", "workspace baseline", "owner", now, now)
+	mock.ExpectQuery("SELECT tenant_id, workspace_id, policy_set_id, display_name").
+		WithArgs("default", "default", "core_policy").
+		WillReturnRows(setRows)
+
+	// First attempt returns no rows (simulates an ON CONFLICT DO NOTHING race).
+	mock.ExpectQuery("INSERT INTO authz_policy_versions").
+		WithArgs(
+			"default",
+			"default",
+			"core_policy",
+			`{"rules":[{"id":"allow-write","effect":"allow"}]}`,
+			"a07bdecc388142a8c92166c6c3dc619deadedefb01305d6d528db73245eee201",
+			"owner",
+			sqlmock.AnyArg(),
+		).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"tenant_id",
+			"workspace_id",
+			"policy_set_id",
+			"version",
+			"bundle",
+			"checksum",
+			"created_by",
+			"created_at",
+		}))
+
+	createdRows := sqlmock.NewRows([]string{
+		"tenant_id",
+		"workspace_id",
+		"policy_set_id",
+		"version",
+		"bundle",
+		"checksum",
+		"created_by",
+		"created_at",
+	}).AddRow(
+		"default",
+		"default",
+		"core_policy",
+		3,
+		`{"rules":[{"id":"allow-write","effect":"allow"}]}`,
+		"a07bdecc388142a8c92166c6c3dc619deadedefb01305d6d528db73245eee201",
+		"owner",
+		now,
+	)
+	mock.ExpectQuery("INSERT INTO authz_policy_versions").
+		WithArgs(
+			"default",
+			"default",
+			"core_policy",
+			`{"rules":[{"id":"allow-write","effect":"allow"}]}`,
+			"a07bdecc388142a8c92166c6c3dc619deadedefb01305d6d528db73245eee201",
+			"owner",
+			sqlmock.AnyArg(),
+		).
+		WillReturnRows(createdRows)
+
+	created, err := store.CreateAuthzPolicyVersion(defaultScopeContext(), AuthzPolicyVersion{
+		PolicySetID: "core_policy",
+		Bundle:      `{"rules":[{"id":"allow-write","effect":"allow"}]}`,
+		CreatedBy:   "owner",
+	})
+	if err != nil {
+		t.Fatalf("create authz policy version with auto-increment: %v", err)
+	}
+	if created.Version != 3 {
+		t.Fatalf("expected auto-incremented version 3, got %d", created.Version)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreAuthzPolicyRolloutLifecycle(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

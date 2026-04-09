@@ -88,18 +88,22 @@ ALTER TABLE authz_policy_rollouts FORCE ROW LEVEL SECURITY;
 ALTER TABLE authz_policy_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE authz_policy_events FORCE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS authz_policy_sets_scope_isolation ON authz_policy_sets;
 CREATE POLICY authz_policy_sets_scope_isolation ON authz_policy_sets
     USING (identrail_rls_scope_matches(tenant_id, workspace_id))
     WITH CHECK (identrail_rls_scope_matches(tenant_id, workspace_id));
 
+DROP POLICY IF EXISTS authz_policy_versions_scope_isolation ON authz_policy_versions;
 CREATE POLICY authz_policy_versions_scope_isolation ON authz_policy_versions
     USING (identrail_rls_scope_matches(tenant_id, workspace_id))
     WITH CHECK (identrail_rls_scope_matches(tenant_id, workspace_id));
 
+DROP POLICY IF EXISTS authz_policy_rollouts_scope_isolation ON authz_policy_rollouts;
 CREATE POLICY authz_policy_rollouts_scope_isolation ON authz_policy_rollouts
     USING (identrail_rls_scope_matches(tenant_id, workspace_id))
     WITH CHECK (identrail_rls_scope_matches(tenant_id, workspace_id));
 
+DROP POLICY IF EXISTS authz_policy_events_scope_isolation ON authz_policy_events;
 CREATE POLICY authz_policy_events_scope_isolation ON authz_policy_events
     USING (identrail_rls_scope_matches(tenant_id, workspace_id))
     WITH CHECK (identrail_rls_scope_matches(tenant_id, workspace_id));

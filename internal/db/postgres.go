@@ -1162,21 +1162,10 @@ func (p *PostgresStore) CreateAuthzPolicyVersion(ctx context.Context, version Au
 	if _, err := p.GetAuthzPolicySet(ctx, normalizedPolicySetID); err != nil {
 		return AuthzPolicyVersion{}, err
 	}
-	if version.Version <= 0 {
-		row := p.queryRowContext(
-			ctx,
-			`SELECT COALESCE(MAX(version), 0) + 1
-			 FROM authz_policy_versions
-			 WHERE tenant_id = $1
-			   AND workspace_id = $2
-			   AND policy_set_id = $3`,
-			scope.TenantID,
-			scope.WorkspaceID,
-			normalizedPolicySetID,
-		)
-		if err := row.Scan(&version.Version); err != nil {
-			return AuthzPolicyVersion{}, fmt.Errorf("next authz policy version: %w", err)
-		}
+	autoIncrement := version.Version <= 0
+	if autoIncrement {
+		// Placeholder only for shared normalization; SQL computes final version.
+		version.Version = 1
 	}
 	version.PolicySetID = normalizedPolicySetID
 
@@ -1186,6 +1175,49 @@ func (p *PostgresStore) CreateAuthzPolicyVersion(ctx context.Context, version Au
 	}
 	normalized.TenantID = scope.TenantID
 	normalized.WorkspaceID = scope.WorkspaceID
+
+	if autoIncrement {
+		const maxAutoVersionInsertRetries = 5
+		for attempt := 0; attempt < maxAutoVersionInsertRetries; attempt++ {
+			row := p.queryRowContext(
+				ctx,
+				`INSERT INTO authz_policy_versions (
+					tenant_id, workspace_id, policy_set_id, version, bundle, checksum, created_by, created_at
+				)
+				SELECT
+					$1,
+					$2,
+					$3,
+					COALESCE(MAX(version), 0) + 1,
+					$4::jsonb,
+					$5,
+					NULLIF($6, ''),
+					$7
+				FROM authz_policy_versions
+				WHERE tenant_id = $1
+				  AND workspace_id = $2
+				  AND policy_set_id = $3
+				ON CONFLICT (tenant_id, workspace_id, policy_set_id, version) DO NOTHING
+				RETURNING tenant_id, workspace_id, policy_set_id, version, bundle::text, checksum, COALESCE(created_by, ''), created_at`,
+				normalized.TenantID,
+				normalized.WorkspaceID,
+				normalized.PolicySetID,
+				normalized.Bundle,
+				normalized.Checksum,
+				normalized.CreatedBy,
+				normalized.CreatedAt,
+			)
+			record, scanErr := scanAuthzPolicyVersion(row)
+			if scanErr == nil {
+				return record, nil
+			}
+			if errorsIsNoRows(scanErr) {
+				continue
+			}
+			return AuthzPolicyVersion{}, fmt.Errorf("insert authz policy version: %w", scanErr)
+		}
+		return AuthzPolicyVersion{}, fmt.Errorf("failed to allocate authz policy version after retries")
+	}
 
 	row := p.queryRowContext(
 		ctx,
