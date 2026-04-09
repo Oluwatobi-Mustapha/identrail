@@ -170,6 +170,12 @@ func TestNormalizeAuthzPolicySetForWrite(t *testing.T) {
 	}); err == nil {
 		t.Fatal("expected invalid policy set id error")
 	}
+	if _, err := NormalizeAuthzPolicySetForWrite(AuthzPolicySet{
+		PolicySetID: "   ",
+		DisplayName: "Core",
+	}); err == nil {
+		t.Fatal("expected missing policy set id error")
+	}
 }
 
 func TestNormalizeAuthzPolicyVersionForWrite(t *testing.T) {
@@ -187,6 +193,18 @@ func TestNormalizeAuthzPolicyVersionForWrite(t *testing.T) {
 	if normalized.CreatedAt.IsZero() {
 		t.Fatal("expected generated created_at")
 	}
+	withChecksum, err := NormalizeAuthzPolicyVersionForWrite(AuthzPolicyVersion{
+		PolicySetID: "core_policy",
+		Version:     2,
+		Bundle:      `{"rules":[{"id":"r2","effect":"allow"}]}`,
+		Checksum:    " ABCDEF ",
+	})
+	if err != nil {
+		t.Fatalf("normalize policy version with provided checksum: %v", err)
+	}
+	if withChecksum.Checksum != "abcdef" {
+		t.Fatalf("expected normalized provided checksum, got %q", withChecksum.Checksum)
+	}
 
 	if _, err := NormalizeAuthzPolicyVersionForWrite(AuthzPolicyVersion{
 		PolicySetID: "core_policy",
@@ -194,6 +212,13 @@ func TestNormalizeAuthzPolicyVersionForWrite(t *testing.T) {
 		Bundle:      "not-json",
 	}); err == nil {
 		t.Fatal("expected invalid json bundle error")
+	}
+	if _, err := NormalizeAuthzPolicyVersionForWrite(AuthzPolicyVersion{
+		PolicySetID: "core_policy",
+		Version:     0,
+		Bundle:      `{"rules":[]}`,
+	}); err == nil {
+		t.Fatal("expected invalid version error")
 	}
 }
 
@@ -220,6 +245,25 @@ func TestNormalizeAuthzPolicyRolloutForWrite(t *testing.T) {
 		Mode:        "unknown",
 	}); err == nil {
 		t.Fatal("expected invalid rollout mode error")
+	}
+
+	candidateZero := 0
+	if _, err := NormalizeAuthzPolicyRolloutForWrite(AuthzPolicyRollout{
+		PolicySetID:      "core_policy",
+		CandidateVersion: &candidateZero,
+		Mode:             AuthzPolicyRolloutModeShadow,
+	}); err == nil {
+		t.Fatal("expected invalid candidate version error")
+	}
+
+	defaulted, err := NormalizeAuthzPolicyRolloutForWrite(AuthzPolicyRollout{
+		PolicySetID: "core_policy",
+	})
+	if err != nil {
+		t.Fatalf("normalize policy rollout with default mode: %v", err)
+	}
+	if defaulted.Mode != AuthzPolicyRolloutModeDisabled {
+		t.Fatalf("expected disabled default rollout mode, got %q", defaulted.Mode)
 	}
 }
 
@@ -254,5 +298,11 @@ func TestNormalizeAuthzPolicyEventForWrite(t *testing.T) {
 		ToVersion:   &invalid,
 	}); err == nil {
 		t.Fatal("expected invalid to_version error")
+	}
+	if _, err := NormalizeAuthzPolicyEventForWrite(AuthzPolicyEvent{
+		PolicySetID: "core_policy",
+		EventType:   "",
+	}); err == nil {
+		t.Fatal("expected missing event type error")
 	}
 }
