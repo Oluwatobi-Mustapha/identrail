@@ -2,9 +2,8 @@ package api
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"errors"
+	"hash/fnv"
 	"net/http"
 	"sort"
 	"strconv"
@@ -360,8 +359,9 @@ func shouldTargetRolloutRequest(rollout db.AuthzPolicyRollout, input PolicyInput
 }
 
 func deterministicCanaryBucket(seed string) int {
-	digest := sha256.Sum256([]byte(strings.TrimSpace(seed)))
-	return int(binary.BigEndian.Uint32(digest[:4]) % 100)
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(strings.TrimSpace(seed)))
+	return int(hasher.Sum64() % 100)
 }
 
 func containsStringExact(values []string, target string) bool {
@@ -415,7 +415,6 @@ func recordPolicyDecisionMetric(metrics *telemetry.Metrics, policySetID string, 
 	}
 	metrics.AuthzPolicyDecisionsByVersionTotal.WithLabelValues(set, versionLabel, sourceLabel, modeLabel, allowedLabel).Inc()
 }
-
 func buildPolicyInputFromGinContext(c *gin.Context, policy routePolicy, writeKeys []string, scopedKeys map[string][]string, store db.Store) (PolicyInput, error) {
 	scope := db.ScopeFromContext(c.Request.Context())
 	resourceID := ""

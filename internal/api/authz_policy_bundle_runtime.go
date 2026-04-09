@@ -19,6 +19,8 @@ const (
 	defaultCentralPolicySetID              = "central_authorization"
 )
 
+var errInvalidAuthzPolicyVersionBundle = errors.New("invalid authz policy version bundle")
+
 type routePolicyDefinition struct {
 	Method          string `json:"method"`
 	Path            string `json:"path"`
@@ -591,7 +593,7 @@ func validateAuthzPolicyVersionBundle(ctx context.Context, store db.Store, polic
 		return err
 	}
 	if _, err := compileRouteAuthorizationPolicyBundleJSON(record.Bundle); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", errInvalidAuthzPolicyVersionBundle, err)
 	}
 	return nil
 }

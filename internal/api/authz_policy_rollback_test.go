@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -193,6 +194,78 @@ func TestAuthzPolicyLifecycleActivateShadowEnforceRollbackIntegration(t *testing
 	}
 }
 
+func TestAuthzPolicyRollbackEndpointReturnsInternalErrorOnTargetVersionStoreFailure(t *testing.T) {
+	store := rollbackValidateErrorStore{
+		Store: db.NewMemoryStore(),
+		err:   errors.New("db timeout"),
+	}
+	metrics := telemetry.NewMetrics()
+	svc := NewService(store, routerScanner{}, "aws")
+	router := NewRouter(zap.NewNop(), metrics, svc, RouterOptions{
+		RateLimitRPM:       10000,
+		RateLimitBurst:     1000,
+		DefaultTenantID:    "tenant-a",
+		DefaultWorkspaceID: "workspace-a",
+		APIKeyScopes: map[string][]string{
+			"admin-key": {scopeRead, scopeWrite, scopeAdmin},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/authz/policies/rollback", bytes.NewBufferString(`{"policy_set_id":"central_authorization","target_version":1}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "admin-key")
+	req.Header.Set(scopeHeaderTenantID, "tenant-a")
+	req.Header.Set(scopeHeaderWorkspaceID, "workspace-a")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for store failure, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestAuthzPolicyRollbackEndpointReturnsBadRequestWhenTargetBundleInvalid(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := testAuthzPolicyScopeContext()
+	if err := store.UpsertAuthzPolicySet(ctx, db.AuthzPolicySet{
+		PolicySetID: defaultCentralPolicySetID,
+		DisplayName: "Central Authorization",
+		CreatedBy:   "test",
+	}); err != nil {
+		t.Fatalf("upsert policy set: %v", err)
+	}
+	if _, err := store.CreateAuthzPolicyVersion(ctx, db.AuthzPolicyVersion{
+		PolicySetID: defaultCentralPolicySetID,
+		Version:     1,
+		Bundle:      `{}`,
+		CreatedBy:   "test",
+	}); err != nil {
+		t.Fatalf("create invalid bundle policy version: %v", err)
+	}
+
+	metrics := telemetry.NewMetrics()
+	svc := NewService(store, routerScanner{}, "aws")
+	router := NewRouter(zap.NewNop(), metrics, svc, RouterOptions{
+		RateLimitRPM:       10000,
+		RateLimitBurst:     1000,
+		DefaultTenantID:    "tenant-a",
+		DefaultWorkspaceID: "workspace-a",
+		APIKeyScopes: map[string][]string{
+			"admin-key": {scopeRead, scopeWrite, scopeAdmin},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/authz/policies/rollback", bytes.NewBufferString(`{"policy_set_id":"central_authorization","target_version":1}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "admin-key")
+	req.Header.Set(scopeHeaderTenantID, "tenant-a")
+	req.Header.Set(scopeHeaderWorkspaceID, "workspace-a")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid target bundle, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func assertLifecycleScanStatus(t *testing.T, router http.Handler, apiKey string, expected int) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
@@ -224,4 +297,13 @@ func createCentralPolicyVersionForRollbackTest(t *testing.T, store db.Store, ctx
 		t.Fatalf("create policy version: %v", err)
 	}
 	return createdVersion.Version
+}
+
+type rollbackValidateErrorStore struct {
+	db.Store
+	err error
+}
+
+func (s rollbackValidateErrorStore) GetAuthzPolicyVersion(_ context.Context, _ string, _ int) (db.AuthzPolicyVersion, error) {
+	return db.AuthzPolicyVersion{}, s.err
 }

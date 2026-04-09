@@ -59,6 +59,11 @@ func authzPolicyRollbackHandler(logger *zap.Logger, store db.Store, metrics *tel
 				c.JSON(http.StatusNotFound, gin.H{"error": "target policy version not found"})
 				return
 			}
+			if !errors.Is(err, errInvalidAuthzPolicyVersionBundle) {
+				logger.Error("validate rollback target policy version", telemetry.ZapError(err))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rollback policy"})
+				return
+			}
 			c.JSON(http.StatusBadRequest, gin.H{"error": "target policy version is not valid"})
 			return
 		}
