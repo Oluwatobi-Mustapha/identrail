@@ -25,7 +25,7 @@ Workflow permissions:
 - `contents: write`
 - `id-token: write`
 - `attestations: write`
-- `packages: read`
+- `packages: write`
 
 Repository requirements:
 - GitHub Actions enabled with write token permissions
