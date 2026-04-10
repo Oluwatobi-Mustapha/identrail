@@ -230,6 +230,7 @@ jobs:
           read_key="$(openssl rand -hex 24)"
           write_key="$(openssl rand -hex 24)"
           pg_password="$(openssl rand -hex 24)"
+          pg_password_urlencoded="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=\"\"))' "${pg_password}")"
           cat > deploy/docker/.env <<EOF
           IDENTRAIL_SERVICE_NAME=identrail
           IDENTRAIL_LOG_LEVEL=info
@@ -242,6 +243,7 @@ jobs:
           IDENTRAIL_API_KEYS=${read_key},${write_key}
           IDENTRAIL_WRITE_API_KEYS=${write_key}
           IDENTRAIL_POSTGRES_PASSWORD=${pg_password}
+          IDENTRAIL_POSTGRES_PASSWORD_URLENCODED=${pg_password_urlencoded}
           IDENTRAIL_RATE_LIMIT_RPM=10000
           IDENTRAIL_RATE_LIMIT_BURST=1000
           IDENTRAIL_LOCK_BACKEND=auto
@@ -273,12 +275,12 @@ jobs:
           curl -fsS http://localhost:8080/healthz
 
           curl -fsS -X POST http://localhost:8080/v1/scans \
-            -H 'X-API-Key: ci-write' \
+            -H "X-API-Key: ${write_key}" \
             -H 'Content-Type: application/json' \
             > /tmp/identrail-scan-run.json
 
           curl -fsS http://localhost:8080/v1/findings?limit=5 \
-            -H 'X-API-Key: ci-read' \
+            -H "X-API-Key: ${read_key}" \
             > /tmp/identrail-findings-smoke.json
           grep -q '"items"' /tmp/identrail-findings-smoke.json
 
