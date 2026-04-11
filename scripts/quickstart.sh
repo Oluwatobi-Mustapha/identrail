@@ -57,13 +57,82 @@ upsert_env() {
   mv "${tmp_file}" "${ENV_FILE}"
 }
 
-READ_KEY="$(openssl rand -hex 24)"
-WRITE_KEY="$(openssl rand -hex 24)"
-DB_PASSWORD="$(openssl rand -hex 24)"
+read_env() {
+  local key="$1"
+  awk -v key="${key}" '
+    $0 ~ ("^" key "=") {
+      print substr($0, index($0, "=") + 1)
+      exit
+    }
+  ' "${ENV_FILE}"
+}
 
-upsert_env "IDENTRAIL_API_KEYS" "${READ_KEY},${WRITE_KEY}"
-upsert_env "IDENTRAIL_WRITE_API_KEYS" "${WRITE_KEY}"
-upsert_env "IDENTRAIL_POSTGRES_PASSWORD" "${DB_PASSWORD}"
+first_csv_value() {
+  local value="$1"
+  printf '%s' "${value%%,*}"
+}
+
+second_csv_value() {
+  local value="$1"
+  if [[ "${value}" == *,* ]]; then
+    local remainder="${value#*,}"
+    printf '%s' "${remainder%%,*}"
+  fi
+}
+
+is_missing_or_template_value() {
+  local key="$1"
+  local value="$2"
+  if [[ -z "${value}" ]]; then
+    return 0
+  fi
+  case "${key}:${value}" in
+    "IDENTRAIL_API_KEYS:replace-with-strong-read-key,replace-with-strong-write-key") return 0 ;;
+    "IDENTRAIL_WRITE_API_KEYS:replace-with-strong-write-key") return 0 ;;
+    "IDENTRAIL_POSTGRES_PASSWORD:replace-with-strong-postgres-password") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+API_KEYS_VALUE="$(read_env IDENTRAIL_API_KEYS)"
+WRITE_KEYS_VALUE="$(read_env IDENTRAIL_WRITE_API_KEYS)"
+DB_PASSWORD_VALUE="$(read_env IDENTRAIL_POSTGRES_PASSWORD)"
+
+READ_KEY="$(first_csv_value "${API_KEYS_VALUE}")"
+WRITE_KEY="$(first_csv_value "${WRITE_KEYS_VALUE}")"
+DB_PASSWORD="${DB_PASSWORD_VALUE}"
+
+if is_missing_or_template_value "IDENTRAIL_API_KEYS" "${API_KEYS_VALUE}"; then
+  READ_KEY="$(openssl rand -hex 24)"
+  if is_missing_or_template_value "IDENTRAIL_WRITE_API_KEYS" "${WRITE_KEYS_VALUE}"; then
+    WRITE_KEY="$(openssl rand -hex 24)"
+  elif [[ -z "${WRITE_KEY}" ]]; then
+    WRITE_KEY="$(openssl rand -hex 24)"
+  fi
+  API_KEYS_VALUE="${READ_KEY},${WRITE_KEY}"
+  upsert_env "IDENTRAIL_API_KEYS" "${API_KEYS_VALUE}"
+fi
+
+if is_missing_or_template_value "IDENTRAIL_WRITE_API_KEYS" "${WRITE_KEYS_VALUE}"; then
+  WRITE_KEY="$(second_csv_value "${API_KEYS_VALUE}")"
+  if [[ -z "${WRITE_KEY}" ]]; then
+    WRITE_KEY="$(first_csv_value "${API_KEYS_VALUE}")"
+  fi
+  if [[ -z "${WRITE_KEY}" ]]; then
+    WRITE_KEY="$(openssl rand -hex 24)"
+    READ_KEY="${READ_KEY:-$(openssl rand -hex 24)}"
+    API_KEYS_VALUE="${READ_KEY},${WRITE_KEY}"
+    upsert_env "IDENTRAIL_API_KEYS" "${API_KEYS_VALUE}"
+  fi
+  WRITE_KEYS_VALUE="${WRITE_KEY}"
+  upsert_env "IDENTRAIL_WRITE_API_KEYS" "${WRITE_KEYS_VALUE}"
+fi
+
+if is_missing_or_template_value "IDENTRAIL_POSTGRES_PASSWORD" "${DB_PASSWORD_VALUE}"; then
+  DB_PASSWORD="$(openssl rand -hex 24)"
+  upsert_env "IDENTRAIL_POSTGRES_PASSWORD" "${DB_PASSWORD}"
+fi
+
 upsert_env "IDENTRAIL_WORKER_RUN_NOW" "false"
 
 docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" up -d --build
