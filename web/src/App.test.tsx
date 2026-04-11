@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 
@@ -149,6 +149,57 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(screen.getByText('unauthorized')).toBeInTheDocument();
+    });
+  });
+
+  it('applies tenant and workspace headers from dashboard controls', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/v1/findings/summary')) return ok({ total: 0, by_severity: {}, by_type: {} });
+      if (url.includes('/v1/findings/trends')) return ok({ items: [] });
+      if (url.includes('/v1/scans?')) {
+        return ok({
+          items: [{ id: 'scan-1', provider: 'aws', status: 'completed', started_at: '2026-03-16T00:00:00Z', asset_count: 0, finding_count: 0 }]
+        });
+      }
+      if (url.includes('/v1/findings?')) return ok({ items: [] });
+      if (url.includes('/v1/scans/scan-1/diff')) {
+        return ok({
+          scan_id: 'scan-1',
+          added_count: 0,
+          resolved_count: 0,
+          persisting_count: 0,
+          added: [],
+          resolved: [],
+          persisting: []
+        });
+      }
+      if (url.includes('/v1/identities')) return ok({ items: [] });
+      if (url.includes('/v1/relationships')) return ok({ items: [] });
+      if (url.includes('/v1/scans/scan-1/events')) return ok({ items: [] });
+      return ok({ items: [] });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'reader-key' } });
+    fireEvent.change(screen.getByLabelText('Tenant ID'), { target: { value: 'tenant-a' } });
+    fireEvent.change(screen.getByLabelText('Workspace ID'), { target: { value: 'workspace-a' } });
+
+    await waitFor(() => {
+      const matchedCall = fetchMock.mock.calls.find((call) => {
+        const requestCall = call as unknown as [RequestInfo | URL, RequestInit?];
+        const options = requestCall[1];
+        const headers = options?.headers as Record<string, string> | undefined;
+        if (!headers) return false;
+        return (
+          headers['X-API-Key'] === 'reader-key' &&
+          headers['X-Identrail-Tenant-ID'] === 'tenant-a' &&
+          headers['X-Identrail-Workspace-ID'] === 'workspace-a'
+        );
+      });
+      expect(matchedCall).toBeDefined();
     });
   });
 });

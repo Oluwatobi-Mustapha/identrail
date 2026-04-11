@@ -20,7 +20,10 @@ describe('apiClient', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    await apiClient.listFindings({ scan_id: 'scan-1', severity: 'high', type: 'risky_trust_policy' }, 'reader');
+    await apiClient.listFindings(
+      { scan_id: 'scan-1', severity: 'high', type: 'risky_trust_policy' },
+      { apiKey: 'reader' }
+    );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -38,7 +41,7 @@ describe('apiClient', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    await apiClient.listScans('reader');
+    await apiClient.listScans({ apiKey: 'reader' });
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toContain('/v1/scans?sort_by=started_at&sort_order=desc');
   });
@@ -50,7 +53,7 @@ describe('apiClient', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    await apiClient.getScanDiff('scan/id with space', 20, 'reader');
+    await apiClient.getScanDiff('scan/id with space', 20, { apiKey: 'reader' });
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toContain('/v1/scans/scan%2Fid%20with%20space/diff?limit=20');
   });
@@ -62,9 +65,30 @@ describe('apiClient', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    await apiClient.getScanDiff('scan-2', 20, 'reader', 'scan-1');
+    await apiClient.getScanDiff('scan-2', 20, { apiKey: 'reader' }, 'scan-1');
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toContain('/v1/scans/scan-2/diff?limit=20&previous_scan_id=scan-1');
+  });
+
+  it('sends enterprise tenant/workspace scope headers when configured', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [] })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.listScans({
+      apiKey: ' reader ',
+      tenantID: ' tenant-a ',
+      workspaceID: ' workspace-a '
+    });
+
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(options.headers).toMatchObject({
+      'X-API-Key': 'reader',
+      'X-Identrail-Tenant-ID': 'tenant-a',
+      'X-Identrail-Workspace-ID': 'workspace-a'
+    });
   });
 
   it('surfaces backend error envelope message', async () => {
@@ -75,6 +99,6 @@ describe('apiClient', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(apiClient.getFindingsSummary('reader')).rejects.toThrow('unauthorized');
+    await expect(apiClient.getFindingsSummary({ apiKey: 'reader' })).rejects.toThrow('unauthorized');
   });
 });
