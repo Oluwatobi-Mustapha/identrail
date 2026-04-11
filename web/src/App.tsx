@@ -4,6 +4,7 @@ import {
   type Finding,
   type FindingsSummary,
   type Identity,
+  type RequestAuthContext,
   type Relationship,
   type ScanDiff,
   type ScanEvent,
@@ -13,6 +14,8 @@ import {
 
 export function App() {
   const [apiKey, setApiKey] = useState('');
+  const [tenantID, setTenantID] = useState('');
+  const [workspaceID, setWorkspaceID] = useState('');
   const [summary, setSummary] = useState<FindingsSummary | null>(null);
   const [trends, setTrends] = useState<TrendPoint[]>([]);
   const [scans, setScans] = useState<ScanRecord[]>([]);
@@ -56,13 +59,22 @@ export function App() {
     [scans, availableScanID]
   );
 
+  const requestAuth = useMemo<RequestAuthContext>(
+    () => ({
+      apiKey,
+      tenantID,
+      workspaceID
+    }),
+    [apiKey, tenantID, workspaceID]
+  );
+
   useEffect(() => {
     let active = true;
     setLoadingOverview(true);
     Promise.all([
-      apiClient.getFindingsSummary(apiKey || undefined),
-      apiClient.getFindingsTrends({ points: 10 }, apiKey || undefined),
-      apiClient.listScans(apiKey || undefined)
+      apiClient.getFindingsSummary(requestAuth),
+      apiClient.getFindingsTrends({ points: 10 }, requestAuth),
+      apiClient.listScans(requestAuth)
     ])
       .then(([summaryData, trendData, scanData]) => {
         if (!active) return;
@@ -87,7 +99,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [apiKey, refreshNonce, selectedScanID]);
+  }, [requestAuth, refreshNonce, selectedScanID]);
 
   useEffect(() => {
     if (!baselineScanID) return;
@@ -124,12 +136,12 @@ export function App() {
           sort_by: 'severity',
           sort_order: 'desc'
         },
-        apiKey || undefined
+        requestAuth
       ),
-      apiClient.getScanDiff(scanID, 20, apiKey || undefined, baselineScanID || undefined),
-      apiClient.listIdentities(scanID, 100, apiKey || undefined),
-      apiClient.listRelationships(scanID, 100, apiKey || undefined),
-      apiClient.listScanEvents(scanID, 'info', 30, apiKey || undefined)
+      apiClient.getScanDiff(scanID, 20, requestAuth, baselineScanID || undefined),
+      apiClient.listIdentities(scanID, 100, requestAuth),
+      apiClient.listRelationships(scanID, 100, requestAuth),
+      apiClient.listScanEvents(scanID, 'info', 30, requestAuth)
     ])
       .then(([findingsData, diffData, identitiesData, relationshipsData, eventsData]) => {
         if (!active) return;
@@ -163,7 +175,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [availableScanID, baselineScanID, severityFilter, typeFilter, apiKey, refreshNonce]);
+  }, [availableScanID, baselineScanID, severityFilter, typeFilter, requestAuth, refreshNonce]);
 
   useEffect(() => {
     const scanID = availableScanID;
@@ -175,7 +187,7 @@ export function App() {
     let active = true;
     setLoadingFinding(true);
     apiClient
-      .getFinding(selectedFindingID, scanID, apiKey || undefined)
+      .getFinding(selectedFindingID, scanID, requestAuth)
       .then((item) => {
         if (!active) return;
         setSelectedFinding(item);
@@ -192,7 +204,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [selectedFindingID, availableScanID, apiKey]);
+  }, [selectedFindingID, availableScanID, requestAuth]);
 
   const triggerRefresh = () => setRefreshNonce((value) => value + 1);
 
@@ -212,6 +224,24 @@ export function App() {
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
             placeholder="Optional for local dev"
+          />
+        </div>
+        <div>
+          <label htmlFor="tenant-id">Tenant ID</label>
+          <input
+            id="tenant-id"
+            value={tenantID}
+            onChange={(event) => setTenantID(event.target.value)}
+            placeholder="Optional tenant scope"
+          />
+        </div>
+        <div>
+          <label htmlFor="workspace-id">Workspace ID</label>
+          <input
+            id="workspace-id"
+            value={workspaceID}
+            onChange={(event) => setWorkspaceID(event.target.value)}
+            placeholder="Optional workspace scope"
           />
         </div>
         <div>

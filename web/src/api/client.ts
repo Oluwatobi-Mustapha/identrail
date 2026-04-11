@@ -77,6 +77,13 @@ export type ScanEvent = {
   created_at: string;
 };
 
+export type RequestAuthContext = {
+  apiKey?: string;
+  tenantID?: string;
+  workspaceID?: string;
+  bearerToken?: string;
+};
+
 const configuredURL = import.meta.env.VITE_IDENTRAIL_API_URL as string | undefined;
 if (import.meta.env.PROD) {
   if (!configuredURL) {
@@ -89,11 +96,34 @@ if (import.meta.env.PROD) {
 }
 const baseURL = configuredURL ?? 'http://localhost:8080';
 
-async function request<T>(path: string, apiKey?: string): Promise<T> {
+function trimOrUndefined(value?: string): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function buildRequestHeaders(auth?: RequestAuthContext): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const apiKey = trimOrUndefined(auth?.apiKey);
   if (apiKey) {
     headers['X-API-Key'] = apiKey;
   }
+  const tenantID = trimOrUndefined(auth?.tenantID);
+  if (tenantID) {
+    headers['X-Identrail-Tenant-ID'] = tenantID;
+  }
+  const workspaceID = trimOrUndefined(auth?.workspaceID);
+  if (workspaceID) {
+    headers['X-Identrail-Workspace-ID'] = workspaceID;
+  }
+  const bearerToken = trimOrUndefined(auth?.bearerToken);
+  if (bearerToken) {
+    headers.Authorization = `Bearer ${bearerToken}`;
+  }
+  return headers;
+}
+
+async function request<T>(path: string, auth?: RequestAuthContext): Promise<T> {
+  const headers = buildRequestHeaders(auth);
   const res = await fetch(`${baseURL}${path}`, { headers });
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
@@ -121,17 +151,17 @@ function buildQuery(params: Record<string, string | number | undefined>): string
 }
 
 export const apiClient = {
-  getFindingsSummary(apiKey?: string) {
-    return request<FindingsSummary>('/v1/findings/summary', apiKey);
+  getFindingsSummary(auth?: RequestAuthContext) {
+    return request<FindingsSummary>('/v1/findings/summary', auth);
   },
   getFindingsTrends(
     filters: { points?: number; severity?: string; type?: string } = {},
-    apiKey?: string
+    auth?: RequestAuthContext
   ) {
-    return request<{ items: TrendPoint[] }>(`/v1/findings/trends${buildQuery(filters)}`, apiKey);
+    return request<{ items: TrendPoint[] }>(`/v1/findings/trends${buildQuery(filters)}`, auth);
   },
-  listScans(apiKey?: string) {
-    return request<{ items: ScanRecord[] }>('/v1/scans?sort_by=started_at&sort_order=desc', apiKey);
+  listScans(auth?: RequestAuthContext) {
+    return request<{ items: ScanRecord[] }>('/v1/scans?sort_by=started_at&sort_order=desc', auth);
   },
   listFindings(
     filters: {
@@ -142,36 +172,36 @@ export const apiClient = {
       sort_by?: string;
       sort_order?: 'asc' | 'desc';
     } = {},
-    apiKey?: string
+    auth?: RequestAuthContext
   ) {
-    return request<{ items: Finding[] }>(`/v1/findings${buildQuery(filters)}`, apiKey);
+    return request<{ items: Finding[] }>(`/v1/findings${buildQuery(filters)}`, auth);
   },
-  getFinding(findingID: string, scanID?: string, apiKey?: string) {
+  getFinding(findingID: string, scanID?: string, auth?: RequestAuthContext) {
     const suffix = buildQuery({ scan_id: scanID });
-    return request<Finding>(`/v1/findings/${encodeURIComponent(findingID)}${suffix}`, apiKey);
+    return request<Finding>(`/v1/findings/${encodeURIComponent(findingID)}${suffix}`, auth);
   },
-  getScanDiff(scanID: string, limit = 20, apiKey?: string, previousScanID?: string) {
+  getScanDiff(scanID: string, limit = 20, auth?: RequestAuthContext, previousScanID?: string) {
     return request<ScanDiff>(
       `/v1/scans/${encodeURIComponent(scanID)}/diff${buildQuery({
         limit,
         previous_scan_id: previousScanID
       })}`,
-      apiKey
+      auth
     );
   },
-  listIdentities(scanID: string, limit = 100, apiKey?: string) {
+  listIdentities(scanID: string, limit = 100, auth?: RequestAuthContext) {
     return request<{ items: Identity[] }>(
       `/v1/identities${buildQuery({ scan_id: scanID, limit, sort_by: 'name', sort_order: 'asc' })}`,
-      apiKey
+      auth
     );
   },
-  listRelationships(scanID: string, limit = 100, apiKey?: string) {
+  listRelationships(scanID: string, limit = 100, auth?: RequestAuthContext) {
     return request<{ items: Relationship[] }>(
       `/v1/relationships${buildQuery({ scan_id: scanID, limit, sort_by: 'discovered_at', sort_order: 'desc' })}`,
-      apiKey
+      auth
     );
   },
-  listScanEvents(scanID: string, level?: string, limit = 50, apiKey?: string) {
+  listScanEvents(scanID: string, level?: string, limit = 50, auth?: RequestAuthContext) {
     return request<{ items: ScanEvent[] }>(
       `/v1/scans/${encodeURIComponent(scanID)}/events${buildQuery({
         level,
@@ -179,7 +209,7 @@ export const apiClient = {
         sort_by: 'created_at',
         sort_order: 'desc'
       })}`,
-      apiKey
+      auth
     );
   }
 };

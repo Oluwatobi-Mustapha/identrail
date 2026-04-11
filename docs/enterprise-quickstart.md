@@ -46,6 +46,11 @@ export IDENTRAIL_WRITER_KEY="<writer-key-from-.env>"
 export IDENTRAIL_ADMIN_KEY="<admin-key-from-.env>"
 ```
 
+If you are using the web dashboard, enter these same values in the top control bar:
+- `API Key`
+- `Tenant ID`
+- `Workspace ID`
+
 ## 4. Health and Auth Smoke Checks
 
 ```bash
