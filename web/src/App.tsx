@@ -240,32 +240,43 @@ export function App() {
       setTriageHistory([]);
       setFindingError(null);
       setHistoryError(null);
+      setLoadingHistory(false);
       return;
     }
     let active = true;
     setLoadingFinding(true);
     setLoadingHistory(true);
-    Promise.all([
-      apiClient.getFinding(selectedFindingID, scanID, requestAuth),
-      apiClient.listFindingHistory(selectedFindingID, scanID, 20, requestAuth)
-    ])
-      .then(([item, history]) => {
+    apiClient
+      .getFinding(selectedFindingID, scanID, requestAuth)
+      .then((item) => {
         if (!active) return;
         setSelectedFinding(item);
-        setTriageHistory(history.items);
         setFindingError(null);
-        setHistoryError(null);
       })
       .catch((err: Error) => {
         if (!active) return;
         setSelectedFinding(null);
-        setTriageHistory([]);
         setFindingError(err.message);
-        setHistoryError(err.message);
       })
       .finally(() => {
         if (!active) return;
         setLoadingFinding(false);
+      });
+
+    apiClient
+      .listFindingHistory(selectedFindingID, scanID, 20, requestAuth)
+      .then((history) => {
+        if (!active) return;
+        setTriageHistory(history.items);
+        setHistoryError(null);
+      })
+      .catch((err: Error) => {
+        if (!active) return;
+        setTriageHistory([]);
+        setHistoryError(err.message);
+      })
+      .finally(() => {
+        if (!active) return;
         setLoadingHistory(false);
       });
     return () => {

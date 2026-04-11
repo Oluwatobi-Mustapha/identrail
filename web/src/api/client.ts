@@ -153,11 +153,20 @@ function buildRequestHeaders(auth?: RequestAuthContext): Record<string, string> 
   return headers;
 }
 
+export function mergeRequestHeaders(auth?: RequestAuthContext, initHeaders?: HeadersInit): Headers {
+  const headers = new Headers(buildRequestHeaders(auth));
+  if (!initHeaders) {
+    return headers;
+  }
+  const normalizedHeaders = new Headers(initHeaders);
+  normalizedHeaders.forEach((value, key) => {
+    headers.set(key, value);
+  });
+  return headers;
+}
+
 async function request<T>(path: string, auth?: RequestAuthContext, init: RequestInit = {}): Promise<T> {
-  const headers = {
-    ...buildRequestHeaders(auth),
-    ...(init.headers as Record<string, string> | undefined)
-  };
+  const headers = mergeRequestHeaders(auth, init.headers);
   const res = await fetch(`${baseURL}${path}`, { ...init, headers });
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
