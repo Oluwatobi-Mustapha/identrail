@@ -79,6 +79,9 @@ func ValidateSecurity(cfg Config) error {
 	if _, ok := allowedProviders[provider]; !ok {
 		return fmt.Errorf("invalid IDENTRAIL_PROVIDER %q: v1 supports aws or kubernetes", cfg.Provider)
 	}
+	if cfg.requireLiveSourcesInvalid {
+		return fmt.Errorf("invalid IDENTRAIL_REQUIRE_LIVE_SOURCES %q: must be true or false", cfg.requireLiveSourcesRaw)
+	}
 	defaultTenant := strings.TrimSpace(cfg.DefaultTenantID)
 	if defaultTenant == "" {
 		defaultTenant = defaultTenantID
@@ -212,7 +215,7 @@ func ValidateSecurity(cfg Config) error {
 			return fmt.Errorf("invalid IDENTRAIL_ALERT_MIN_SEVERITY %q", cfg.AlertMinSeverity)
 		}
 	}
-	if strings.ToLower(strings.TrimSpace(cfg.Provider)) == "kubernetes" {
+	if provider == "kubernetes" {
 		source := strings.ToLower(strings.TrimSpace(cfg.KubernetesSource))
 		if source == "" {
 			source = "fixture"
@@ -227,7 +230,7 @@ func ValidateSecurity(cfg Config) error {
 			return fmt.Errorf("IDENTRAIL_KUBECTL_PATH must be set when IDENTRAIL_K8S_SOURCE=kubectl")
 		}
 	}
-	if strings.ToLower(strings.TrimSpace(cfg.Provider)) == "aws" {
+	if provider == "aws" {
 		source := strings.ToLower(strings.TrimSpace(cfg.AWSSource))
 		if source == "" {
 			source = "fixture"

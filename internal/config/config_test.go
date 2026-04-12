@@ -589,6 +589,32 @@ func TestParseBool(t *testing.T) {
 	}
 }
 
+func TestParseBoolWithValidity(t *testing.T) {
+	got, invalid := parseBoolWithValidity("true", false)
+	if !got || invalid {
+		t.Fatalf("expected valid true parse, got value=%v invalid=%v", got, invalid)
+	}
+
+	got, invalid = parseBoolWithValidity("wat", false)
+	if got || !invalid {
+		t.Fatalf("expected invalid parse with fallback false, got value=%v invalid=%v", got, invalid)
+	}
+
+	got, invalid = parseBoolWithValidity("", true)
+	if !got || invalid {
+		t.Fatalf("expected empty string to use fallback without invalid flag, got value=%v invalid=%v", got, invalid)
+	}
+}
+
+func TestLoadRejectsInvalidRequireLiveSourcesValue(t *testing.T) {
+	t.Setenv("IDENTRAIL_REQUIRE_LIVE_SOURCES", "definitely")
+
+	cfg := Load()
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected invalid IDENTRAIL_REQUIRE_LIVE_SOURCES value to fail validation")
+	}
+}
+
 func TestParseInt(t *testing.T) {
 	if got := parseInt("25", 1); got != 25 {
 		t.Fatalf("expected 25, got %d", got)

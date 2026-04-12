@@ -63,6 +63,8 @@ type Config struct {
 	KubectlPath                string
 	KubeContext                string
 	RequireLiveSources         bool
+	requireLiveSourcesRaw      string
+	requireLiveSourcesInvalid  bool
 	ScanInterval               time.Duration
 	WorkerRunNow               bool
 	APIKeys                    []string
@@ -119,6 +121,9 @@ type Config struct {
 
 // Load reads environment variables and applies safe defaults for local and CI use.
 func Load() Config {
+	requireLiveSourcesRaw := getEnv("IDENTRAIL_REQUIRE_LIVE_SOURCES", "false")
+	requireLiveSources, requireLiveSourcesInvalid := parseBoolWithValidity(requireLiveSourcesRaw, false)
+
 	return Config{
 		HTTPAddr:                   getEnv("IDENTRAIL_HTTP_ADDR", defaultHTTPAddr),
 		LogLevel:                   strings.ToLower(getEnv("IDENTRAIL_LOG_LEVEL", defaultLogLevel)),
@@ -135,7 +140,9 @@ func Load() Config {
 		KubernetesSource:           strings.ToLower(getEnv("IDENTRAIL_K8S_SOURCE", defaultK8sSource)),
 		KubectlPath:                getEnv("IDENTRAIL_KUBECTL_PATH", defaultKubectlPath),
 		KubeContext:                getEnv("IDENTRAIL_KUBE_CONTEXT", ""),
-		RequireLiveSources:         parseBool(getEnv("IDENTRAIL_REQUIRE_LIVE_SOURCES", "false"), false),
+		RequireLiveSources:         requireLiveSources,
+		requireLiveSourcesRaw:      requireLiveSourcesRaw,
+		requireLiveSourcesInvalid:  requireLiveSourcesInvalid,
 		ScanInterval:               parseDuration(getEnv("IDENTRAIL_SCAN_INTERVAL", defaultScanInterval.String()), defaultScanInterval),
 		WorkerRunNow:               parseBool(getEnv("IDENTRAIL_WORKER_RUN_NOW", "true"), true),
 		APIKeys:                    parseCommaSeparated(getEnv("IDENTRAIL_API_KEYS", "")),
@@ -226,6 +233,15 @@ func parseBool(value string, fallback bool) bool {
 		return fallback
 	}
 	return parsed
+}
+
+func parseBoolWithValidity(value string, fallback bool) (bool, bool) {
+	trimmed := strings.TrimSpace(value)
+	parsed, err := strconv.ParseBool(trimmed)
+	if err != nil {
+		return fallback, trimmed != ""
+	}
+	return parsed, false
 }
 
 func parseInt(value string, fallback int) int {

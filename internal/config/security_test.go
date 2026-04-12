@@ -147,6 +147,17 @@ func TestValidateSecurityRejectsAWSFixtureWhenLiveSourcesRequired(t *testing.T) 
 	}
 }
 
+func TestValidateSecurityRejectsAWSFixtureWhenLiveSourcesRequiredWithDefaultProvider(t *testing.T) {
+	cfg := Config{
+		AWSSource:          "fixture",
+		RequireLiveSources: true,
+		APIKeys:            []string{"reader"},
+	}
+	if err := ValidateSecurity(cfg); err == nil {
+		t.Fatal("expected fixture aws source to be rejected when default provider is used")
+	}
+}
+
 func TestValidateSecurityRejectsInvalidKubernetesSource(t *testing.T) {
 	cfg := Config{
 		Provider:         "kubernetes",
