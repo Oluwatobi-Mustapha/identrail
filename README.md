@@ -12,9 +12,9 @@
     <a href="https://github.com/Oluwatobi-Mustapha/identrail/blob/main/docs/enterprise-quickstart.md"><strong>Get Started »</strong></a>
     <br />
     <br />
-    <a href="https://discord.gg/7jSUSnQC">Discord</a>
-    ·
     <a href="https://www.identrail.com">Website</a>
+    ·
+    <a href="https://discord.gg/7jSUSnQC">Discord</a>
     ·
     <a href="https://github.com/Oluwatobi-Mustapha/identrail/issues">Issues</a>
   </p>
