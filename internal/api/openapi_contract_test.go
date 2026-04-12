@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	v1RoutePattern  = regexp.MustCompile(`v1\.(GET|POST|PATCH)\("([^"]+)"`)
+	v1RoutePattern  = regexp.MustCompile(`v1\.(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\("([^"]+)"`)
 	pathVarPattern  = regexp.MustCompile(`:([A-Za-z0-9_]+)`)
 	scopeHeaderRefs = []string{
 		`#/components/parameters/scopeTenantID`,
