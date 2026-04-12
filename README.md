@@ -1,48 +1,51 @@
+<div align="center">
+  <picture>
+    <source srcset="./docs/static/images/identrail-logo.png" media="(prefers-color-scheme: dark)"/>
+    <source srcset="./docs/static/images/identrail-logo.png" media="(prefers-color-scheme: light)"/>
+    <img src="./docs/static/images/identrail-logo.png" alt="Identrail Logo" width="220"/>
+  </picture>
+  <h2>Identrail</h2>
+
+  <p>
+    Open-source machine identity security platform for AWS and Kubernetes workloads.
+    <br />
+    <a href="https://github.com/Oluwatobi-Mustapha/identrail/blob/main/docs/enterprise-quickstart.md"><strong>Get Started »</strong></a>
+    <br />
+    <br />
+    <a href="https://discord.gg/7jSUSnQC">Discord</a>
+    ·
+    <a href="https://www.identrail.com">Website</a>
+    ·
+    <a href="https://github.com/Oluwatobi-Mustapha/identrail/issues">Issues</a>
+  </p>
+</div>
+
 <p align="center">
-    <a href="https://github.com/Oluwatobi-Mustapha/identrail"><img src="./docs/static/images/identrail-wordmark.svg" height="100" /></a>
+  <a href="https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Oluwatobi-Mustapha/identrail/ci.yml?branch=main&style=flat&colorA=000000&colorB=000000" alt="CI" /></a>
+  <a href="https://github.com/Oluwatobi-Mustapha/identrail/tags"><img src="https://img.shields.io/github/v/tag/Oluwatobi-Mustapha/identrail?sort=semver&style=flat&label=version&colorA=000000&colorB=000000" alt="Latest version" /></a>
+  <a href="https://github.com/Oluwatobi-Mustapha/identrail/stargazers"><img src="https://img.shields.io/github/stars/Oluwatobi-Mustapha/identrail?style=flat&colorA=000000&colorB=000000" alt="GitHub stars" /></a>
 </p>
 
-[![Coverage](https://img.shields.io/badge/coverage-80.2%25-brightgreen?style=for-the-badge)](https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/ci.yml)
-[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/Oluwatobi-Mustapha/identrail/ci.yml?branch=main&label=tests&style=for-the-badge)](https://github.com/Oluwatobi-Mustapha/identrail/actions/workflows/ci.yml)
-![Latest version](https://img.shields.io/github/v/tag/Oluwatobi-Mustapha/identrail?sort=semver&style=for-the-badge&label=Latest%20version)
-
-- Website: www.identrail.com
-- Discussions: https://github.com/Oluwatobi-Mustapha/identrail/discussions
-- Documentation Index: [docs/README.md](docs/README.md)
-- API Contract: [docs/openapi-v1.yaml](docs/openapi-v1.yaml)
-- Enterprise Quickstart: [docs/enterprise-quickstart.md](docs/enterprise-quickstart.md)
-- Security Policy: [SECURITY.md](SECURITY.md)
-
-
-Machine identity security platform for cloud and Kubernetes workloads.
+## About the Project
 
 Identrail discovers machine identities and trust paths across AWS and Kubernetes, detects high-signal identity risk findings, scans repositories for exposure risks, and supports centralized authorization with rollout-safe policy controls.
 
-## Getting Started
+### Why Identrail
 
-Fastest path (boots Docker stack, generates local keys/password, runs first scan):
+Machine identity risk is fragmented across cloud IAM, Kubernetes, and repositories. Identrail unifies those surfaces into one explainable model so teams can reduce blast radius with actionable remediation.
 
-```bash
-make quickstart
-```
+## Contribution
 
-Manual path:
+Identrail is a free and open source project licensed under the [MIT License](./LICENSE).
 
-```bash
-cp deploy/docker/.env.example deploy/docker/.env
-docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env up -d --build
-curl -sS http://localhost:8080/healthz
-# trigger first scan and list findings (replace <write-key>/<read-key> with values from deploy/docker/.env)
-curl -sS -X POST http://localhost:8080/v1/scans -H "X-API-Key: <write-key>" -H "Content-Type: application/json"
-curl -sS "http://localhost:8080/v1/findings?limit=5" -H "X-API-Key: <read-key>"
-```
+You can help by:
 
-## Docs and Project Links
+- [Contribute to the source code](./CONTRIBUTING.md)
+- [Suggest new features and report issues](https://github.com/Oluwatobi-Mustapha/identrail/issues)
+- [Join the community on Discord](https://discord.gg/7jSUSnQC)
 
-- Documentation index: [docs/README.md](docs/README.md)
-- API contract: [docs/openapi-v1.yaml](docs/openapi-v1.yaml)
-- Enterprise quickstart: [docs/enterprise-quickstart.md](docs/enterprise-quickstart.md)
-- Operator readiness: [docs/operator-readiness.md](docs/operator-readiness.md)
-- Security policy: [SECURITY.md](SECURITY.md)
-- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
-- Discussions: https://github.com/Oluwatobi-Mustapha/identrail/discussions
+## Security
+
+If you discover a security vulnerability within Identrail, please send an email to [security@identrail.com](mailto:security@identrail.com).
+
+All reports will be handled privately and triaged promptly.
