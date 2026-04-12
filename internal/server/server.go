@@ -170,6 +170,10 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 	}()
 
 	srv := NewHTTPServer(cfg, bootstrap.Router)
+	if cfg.RunMigrationsOnly {
+		bootstrap.Logger.Info("migrations completed; exiting because IDENTRAIL_RUN_MIGRATIONS_ONLY=true")
+		return nil
+	}
 	errCh := make(chan error, 1)
 	go func() {
 		err := srv.ListenAndServe()

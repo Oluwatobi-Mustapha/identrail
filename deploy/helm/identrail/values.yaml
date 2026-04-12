@@ -38,6 +38,11 @@ worker:
         - ALL
   resources: {}
 
+migrations:
+  enabled: true
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+
 web:
   enabled: false
   replicaCount: 1
@@ -79,7 +84,8 @@ config:
   IDENTRAIL_HTTP_ADDR: ":8080"
   IDENTRAIL_LOCK_BACKEND: auto
   IDENTRAIL_LOCK_NAMESPACE: identrail
-  IDENTRAIL_RUN_MIGRATIONS: "true"
+  IDENTRAIL_RUN_MIGRATIONS: "false"
+  IDENTRAIL_RUN_MIGRATIONS_ONLY: "false"
   IDENTRAIL_MIGRATIONS_DIR: /app/migrations
   IDENTRAIL_SCAN_INTERVAL: 15m
   IDENTRAIL_WORKER_RUN_NOW: "true"

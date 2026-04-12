@@ -38,5 +38,8 @@ spec:
                 name: {{ include "identrail.fullname" . }}-config
             - secretRef:
                 name: {{ include "identrail.secretName" . }}
+          env:
+            - name: IDENTRAIL_RUN_MIGRATIONS
+              value: "false"
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}

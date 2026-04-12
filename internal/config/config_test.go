@@ -30,6 +30,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("IDENTRAIL_RATE_LIMIT_RPM", "")
 	t.Setenv("IDENTRAIL_RATE_LIMIT_BURST", "")
 	t.Setenv("IDENTRAIL_RUN_MIGRATIONS", "")
+	t.Setenv("IDENTRAIL_RUN_MIGRATIONS_ONLY", "")
 	t.Setenv("IDENTRAIL_MIGRATIONS_DIR", "")
 	t.Setenv("IDENTRAIL_POSTGRES_RLS_ENFORCED", "")
 	t.Setenv("IDENTRAIL_AUDIT_LOG_FILE", "")
@@ -137,6 +138,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if !cfg.RunMigrations {
 		t.Fatal("expected run migrations true")
+	}
+	if cfg.RunMigrationsOnly {
+		t.Fatal("expected run migrations only false")
 	}
 	if cfg.MigrationsDir != "migrations" {
 		t.Fatalf("unexpected migrations dir: %q", cfg.MigrationsDir)
@@ -293,6 +297,7 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("IDENTRAIL_RATE_LIMIT_RPM", "300")
 	t.Setenv("IDENTRAIL_RATE_LIMIT_BURST", "50")
 	t.Setenv("IDENTRAIL_RUN_MIGRATIONS", "false")
+	t.Setenv("IDENTRAIL_RUN_MIGRATIONS_ONLY", "true")
 	t.Setenv("IDENTRAIL_MIGRATIONS_DIR", "db/migrations")
 	t.Setenv("IDENTRAIL_POSTGRES_RLS_ENFORCED", "true")
 	t.Setenv("IDENTRAIL_AUDIT_LOG_FILE", "/tmp/audit.log")
@@ -403,6 +408,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.RunMigrations {
 		t.Fatal("expected run migrations false")
+	}
+	if !cfg.RunMigrationsOnly {
+		t.Fatal("expected run migrations only true")
 	}
 	if cfg.MigrationsDir != "db/migrations" {
 		t.Fatalf("unexpected migrations dir: %q", cfg.MigrationsDir)
