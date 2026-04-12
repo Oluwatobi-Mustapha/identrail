@@ -70,6 +70,7 @@ type Config struct {
 	RateLimitRPM               int
 	RateLimitBurst             int
 	RunMigrations              bool
+	RunMigrationsOnly          bool
 	MigrationsDir              string
 	PostgresRLSEnforced        bool
 	AuditLogFile               string
@@ -141,6 +142,7 @@ func Load() Config {
 		RateLimitRPM:               parseInt(getEnv("IDENTRAIL_RATE_LIMIT_RPM", "120"), 120),
 		RateLimitBurst:             parseInt(getEnv("IDENTRAIL_RATE_LIMIT_BURST", "20"), 20),
 		RunMigrations:              parseBool(getEnv("IDENTRAIL_RUN_MIGRATIONS", "true"), true),
+		RunMigrationsOnly:          parseBool(getEnv("IDENTRAIL_RUN_MIGRATIONS_ONLY", "false"), false),
 		MigrationsDir:              getEnv("IDENTRAIL_MIGRATIONS_DIR", "migrations"),
 		PostgresRLSEnforced:        parseBool(getEnv("IDENTRAIL_POSTGRES_RLS_ENFORCED", "false"), defaultPostgresRLSEnforced),
 		AuditLogFile:               getEnv("IDENTRAIL_AUDIT_LOG_FILE", ""),

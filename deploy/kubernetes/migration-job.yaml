@@ -1,30 +1,25 @@
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: batch/v1
+kind: Job
 metadata:
-  name: identrail-api
+  name: identrail-migrations
   namespace: identrail
   labels:
-    app: identrail-api
+    app: identrail-migrations
 spec:
-  replicas: 2
-  revisionHistoryLimit: 3
-  selector:
-    matchLabels:
-      app: identrail-api
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
   template:
     metadata:
       labels:
-        app: identrail-api
+        app: identrail-migrations
     spec:
+      restartPolicy: OnFailure
       securityContext:
         runAsNonRoot: true
       containers:
-        - name: api
+        - name: migrations
           image: ghcr.io/oluwatobi-mustapha/identrail-api:latest
           imagePullPolicy: IfNotPresent
-          ports:
-            - containerPort: 8080
-              name: http
           envFrom:
             - configMapRef:
                 name: identrail-config
@@ -32,21 +27,9 @@ spec:
                 name: identrail-secrets
           env:
             - name: IDENTRAIL_RUN_MIGRATIONS
-              value: "false"
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 2
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: http
-            initialDelaySeconds: 20
-            periodSeconds: 15
-            timeoutSeconds: 2
+              value: "true"
+            - name: IDENTRAIL_RUN_MIGRATIONS_ONLY
+              value: "true"
           resources:
             requests:
               cpu: 100m

@@ -185,6 +185,24 @@ func TestRunServerListenError(t *testing.T) {
 	}
 }
 
+func TestRunMigrationsOnlyExitsBeforeListen(t *testing.T) {
+	cfg := config.Config{
+		HTTPAddr:          "invalid-listen-address",
+		LogLevel:          "info",
+		Provider:          "aws",
+		ServiceName:       "identrail-test",
+		APIKeys:           []string{"test-read"},
+		WriteAPIKeys:      []string{"test-read"},
+		RunMigrations:     true,
+		RunMigrationsOnly: true,
+		MigrationsDir:     "migrations",
+	}
+	sigCh := make(chan os.Signal, 1)
+	if err := Run(context.Background(), cfg, sigCh); err != nil {
+		t.Fatalf("expected migrations-only mode to exit cleanly, got err: %v", err)
+	}
+}
+
 func TestNewBootstrapWithMultipleAuditSinks(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)

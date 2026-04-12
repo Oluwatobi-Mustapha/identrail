@@ -22,6 +22,9 @@ This chart is the Kubernetes deployment baseline for Identrail.
 ## Notes
 
 - Default mode uses `secret.existingSecret=identrail-secrets` with `secret.create=false`.
+- Migrations run as a pre-install/pre-upgrade Helm hook job (`templates/migration-job.yaml`).
+- API and worker deployments force `IDENTRAIL_RUN_MIGRATIONS=false` to avoid DDL races.
+- Disable hook jobs only if migrations are handled externally: set `migrations.enabled=false`.
 - Enable web deployment by setting `web.enabled=true`.
 - Enable ingress by setting `ingress.enabled=true`.
 - `IDENTRAIL_AUDIT_LOG_FILE` is empty by default. If you enable it, mount a writable path for the container user.
