@@ -26,7 +26,8 @@ else
 fi
 
 echo "[4/8] Docker compose config validation"
-docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env.example config >/tmp/identrail-compose.yml
+cp deploy/docker/.env.example deploy/docker/.env
+docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env config >/tmp/identrail-compose.yml
 
 echo "[5/8] Terraform validation"
 if command -v terraform >/dev/null 2>&1; then
