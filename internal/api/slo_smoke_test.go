@@ -12,6 +12,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const findingsListP95SLOThreshold = 300 * time.Millisecond
+
 func TestFindingsListLatencySLOSmoke(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	metrics := telemetry.NewMetrics()
@@ -46,7 +48,7 @@ func TestFindingsListLatencySLOSmoke(t *testing.T) {
 
 	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
 	p95 := durations[(sampleSize*95/100)-1]
-	if p95 > 500*time.Millisecond {
-		t.Fatalf("p95 findings list latency exceeded SLO smoke threshold: %v", p95)
+	if p95 > findingsListP95SLOThreshold {
+		t.Fatalf("p95 findings list latency exceeded SLO threshold (%v): %v", findingsListP95SLOThreshold, p95)
 	}
 }

@@ -48,7 +48,7 @@ Authorization policy lifecycle metrics:
 ## V1 SLOs
 
 - Scan success rate: >= 99% over rolling 24h (excluding known provider outages).
-- API p95 latency for list endpoints: <= 300ms under normal load.
+- API p95 latency for list endpoints: <= 300ms under normal load (enforced by `internal/api/slo_smoke_test.go`).
 - Worker scheduled run reliability: >= 99% successful schedule executions per day.
 - Backlog recovery: queue drains to steady state within 30 minutes after outage.
 
