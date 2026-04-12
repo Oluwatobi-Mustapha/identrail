@@ -170,3 +170,12 @@ A dedicated `CODE_OF_CONDUCT.md` may be added separately. Until then, maintain p
 ## License
 
 By contributing, you agree that your contributions are licensed under the repository license.
+
+## Contributor Recognition
+
+This project is configured for the All Contributors specification.
+
+- Config file: `.all-contributorsrc`
+- Bot/App: https://allcontributors.org/docs/en/bot/overview
+
+When the All Contributors app is installed, maintainers can trigger attribution comments in pull requests to recognize all contribution types (code, docs, design, security, mentoring, etc.).

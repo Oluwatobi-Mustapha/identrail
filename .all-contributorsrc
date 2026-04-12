@@ -1,0 +1,13 @@
+{
+  "projectName": "identrail",
+  "projectOwner": "Oluwatobi-Mustapha",
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "files": [
+    "README.md"
+  ],
+  "imageSize": 100,
+  "commit": false,
+  "contributors": [],
+  "contributorConvention": "all-contributors"
+}
