@@ -28,6 +28,7 @@
    - `kubectl apply -f deploy/kubernetes/ingress.example.yaml`
 
 Notes:
-- Default config uses fixture mode (`IDENTRAIL_K8S_SOURCE=fixture`).
-- For live cluster collection, set `IDENTRAIL_K8S_SOURCE=kubectl` in `configmap.yaml`.
+- Default manifest profile is production-oriented and fails fast on fixture collectors (`IDENTRAIL_REQUIRE_LIVE_SOURCES=true`).
+- Keep `IDENTRAIL_AWS_SOURCE=sdk` for production AWS runs.
+- For Kubernetes provider runs, set `IDENTRAIL_K8S_SOURCE=kubectl` and use an image that includes `kubectl`.
 - For upgrade-safe deployment at scale, prefer Helm (`deploy/helm/identrail`).
