@@ -14,15 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176
         with:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
         with:
           go-version-file: go.mod
 
