@@ -1,0 +1,4 @@
+optConfig:
+  optOutStrategy: true
+issueLabel: allstar
+issueFooter: Managed by OpenSSF Allstar policy enforcement.
