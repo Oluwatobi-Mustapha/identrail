@@ -1,0 +1,30 @@
+name: Harden Runner Audit
+
+on:
+  pull_request:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hardened-go-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run smoke tests
+        run: go test ./internal/api ./internal/config
