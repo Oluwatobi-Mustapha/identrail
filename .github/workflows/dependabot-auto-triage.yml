@@ -19,12 +19,12 @@ jobs:
     steps:
       - name: Fetch Dependabot Metadata
         id: metadata
-        uses: dependabot/fetch-metadata@v2
+        uses: dependabot/fetch-metadata@v3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Apply triage labels
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           PACKAGE_ECOSYSTEM: ${{ steps.metadata.outputs.package-ecosystem }}
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}

@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Collect PR context
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -101,7 +101,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Collect issue context
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
