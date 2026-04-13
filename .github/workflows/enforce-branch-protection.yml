@@ -36,7 +36,7 @@ jobs:
 
       - name: Apply protection via GitHub API
         if: inputs.mode == 'apply'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           REPO_ADMIN_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
         with:

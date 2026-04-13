@@ -22,7 +22,7 @@ jobs:
     steps:
       - name: Score PR author (advisory)
         id: egg
-        uses: 2ndSetAI/good-egg@026775d031d94339d1fc0f6428abe04677d3e2d9 # v0
+        uses: 2ndSetAI/good-egg@9d3e310471fa5ea76f5f47ec6d917ed41cdc4649 # v2.0.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           comment: 'true'
@@ -30,7 +30,7 @@ jobs:
           fail-on-low: 'false'
 
       - name: Sync trust labels
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           TRUST_LEVEL: ${{ steps.egg.outputs.trust-level }}
         with:

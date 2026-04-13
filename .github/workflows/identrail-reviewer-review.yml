@@ -33,7 +33,7 @@ jobs:
           cache: true
 
       - name: Collect changed files
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -115,7 +115,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upsert PR review comment
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const { upsertReviewComment } = require('./.github/scripts/identrail-reviewer/upsert-review-comment');
@@ -131,7 +131,7 @@ jobs:
             });
 
       - name: Upsert inline PR review comments
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const { upsertInlineReviewComments } = require('./.github/scripts/identrail-reviewer/upsert-review-comment');
@@ -210,7 +210,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upsert issue review comment
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const { upsertReviewComment } = require('./.github/scripts/identrail-reviewer/upsert-review-comment');
