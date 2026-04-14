@@ -18,7 +18,7 @@ Use GitHub private vulnerability reporting or the company's email(we respond in 
 - https://github.com/Oluwatobi-Mustapha/identrail/security/advisories/new
 - security@identrail.com
 
-If you cannot use that channel, contact the maintainer directly via linkeldn:
+If you cannot use that channel, contact the maintainer directly via LinkedIn:
 - www.linkedin.com/in/oluwatobimustapha
 
 Please include:
