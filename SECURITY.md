@@ -14,11 +14,12 @@ Identrail takes security reports seriously. If you believe you have found a vuln
 
 Do not open public GitHub issues for suspected vulnerabilities.
 
-Use GitHub private vulnerability reporting:
+Use GitHub private vulnerability reporting or the company's email(we respond in less than 24hrs:
 - https://github.com/Oluwatobi-Mustapha/identrail/security/advisories/new
+- security@identrail.com
 
-If you cannot use that channel, contact the maintainer directly via GitHub profile message:
-- https://github.com/Oluwatobi-Mustapha
+If you cannot use that channel, contact the maintainer directly via linkeldn:
+- www.linkedin.com/in/oluwatobimustapha
 
 Please include:
 - A clear description of the issue and affected component
