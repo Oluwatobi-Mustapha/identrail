@@ -1,3 +1,5 @@
+import { useId } from 'react';
+
 type TrustGraphIllustrationProps = {
   className?: string;
   label: string;
@@ -25,6 +27,7 @@ const edges = [
 
 export function TrustGraphIllustration({ className, label }: TrustGraphIllustrationProps) {
   const classes = className ? `trust-graph ${className}` : 'trust-graph';
+  const gradientID = useId().replace(/:/g, '-');
 
   return (
     <div className={classes} role="img" aria-label={label}>
@@ -41,14 +44,14 @@ export function TrustGraphIllustration({ className, label }: TrustGraphIllustrat
               y1={start.y}
               x2={end.x}
               y2={end.y}
-              stroke="url(#trust-graph-gradient)"
+              stroke={`url(#${gradientID})`}
               strokeWidth="0.7"
               strokeLinecap="round"
             />
           );
         })}
         <defs>
-          <linearGradient id="trust-graph-gradient" x1="0" y1="0" x2="1" y2="1">
+          <linearGradient id={gradientID} x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor="#3b82f6" />
             <stop offset="100%" stopColor="#933aeb" />
           </linearGradient>
