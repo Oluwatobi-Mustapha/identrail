@@ -1130,6 +1130,11 @@ function ProductProofFindingSection() {
           </div>
         </article>
       </div>
+      <div className="idt-card idt-proof-demo-card">
+        <h3>Interactive trust-path preview</h3>
+        <p>Inspect a sample trust path from source identity to sensitive resource before connecting your environment.</p>
+        <TrustGraphDemo />
+      </div>
     </section>
   );
 }
@@ -1359,15 +1364,6 @@ function HomePage() {
       <ProductProofFindingSection />
 
       <section className="idt-section idt-shell">
-        <SectionTitle
-          eyebrow="Interactive Trust Graph"
-          title="See trust-path evidence in a product-style preview"
-          body="Follow one machine identity path from source principal to sensitive resource and see severity, blast radius, and remediation options."
-        />
-        <TrustGraphDemo />
-      </section>
-
-      <section className="idt-section idt-shell">
         <SectionTitle eyebrow="How It Works" title="From data collection to safe control in four steps" />
         <ol className="idt-steps">
           <li>
@@ -1459,11 +1455,6 @@ function HomePage() {
             Book Demo
           </Link>
         </div>
-        <LeadCaptureForm
-          title="Get your machine identity reduction plan"
-          caption="Provide your context and receive a practical 30-day plan focused on high-risk trust-path reduction."
-          ctaLabel="Start Free Risk Scan"
-        />
       </section>
     </>
   );
