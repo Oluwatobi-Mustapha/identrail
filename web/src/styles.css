@@ -1481,6 +1481,22 @@ h2 {
   font-size: 0.9rem;
 }
 
+.idt-doc-highlight-card h2 {
+  margin-top: 0.15rem;
+}
+
+.idt-empty-state {
+  max-width: 720px;
+}
+
+.idt-blog-article {
+  max-width: 860px;
+}
+
+.idt-blog-article h2 {
+  margin-top: 1.6rem;
+}
+
 .idt-search {
   max-width: 420px;
   margin-bottom: 1rem;
