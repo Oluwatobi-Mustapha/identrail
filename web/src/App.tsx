@@ -1489,7 +1489,7 @@ function ProductPage() {
       </section>
 
       <section className="idt-section idt-shell">
-        <div className="idt-card-grid two-col">
+        <div className="idt-card-grid two-col idt-product-capabilities">
           <article className="idt-card">
             <h2>Trust Graph Explorer</h2>
             <p>Interactive mapping of principals, assumptions, actions, and reachable resources across cloud and Kubernetes.</p>
@@ -1542,7 +1542,7 @@ function ProductPage() {
         <LeadCaptureForm
           title="Want a technical walkthrough?"
           caption="Book a product session with platform architects and security engineers."
-          ctaLabel="Book Technical Demo"
+          ctaLabel="Book Demo"
         />
       </section>
     </>
@@ -1655,7 +1655,7 @@ function FeatureDetailPage({ page }: { page: (typeof FEATURE_DEEP_PAGES)[number]
             Open Interactive Demo
           </Link>
           <Link to="/pricing" className="idt-btn idt-btn-dark">
-            Try Free Hosted SaaS
+            Start Free Risk Scan
           </Link>
           <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
             Star on GitHub
@@ -1664,7 +1664,7 @@ function FeatureDetailPage({ page }: { page: (typeof FEATURE_DEEP_PAGES)[number]
       </section>
 
       <section className="idt-section idt-shell">
-        <div className="idt-card-grid two-col">
+        <div className="idt-card-grid two-col idt-feature-detail-grid">
           <article className="idt-card">
             <h2>What this feature gives you</h2>
             <ul>
@@ -1688,7 +1688,7 @@ function FeatureDetailPage({ page }: { page: (typeof FEATURE_DEEP_PAGES)[number]
         <LeadCaptureForm
           title={`Get a ${page.navLabel} workflow walkthrough`}
           caption="Share your environment goals and we will tailor a practical machine identity rollout plan."
-          ctaLabel="Get Free Risk Assessment"
+          ctaLabel="Start Free Risk Scan"
         />
       </section>
     </>
@@ -1743,7 +1743,7 @@ function SolutionsPage() {
         <h1>Deployment-ready outcomes for every team responsible for machine identity risk</h1>
       </section>
       <section className="idt-section idt-shell">
-        <div className="idt-card-grid two-col">
+        <div className="idt-card-grid two-col idt-solutions-grid">
           {solutions.map((solution) => (
             <article key={solution.title} className="idt-card">
               <h2>{solution.title}</h2>
@@ -1781,7 +1781,7 @@ function SolutionDetailPage({ page }: { page: (typeof SOLUTION_DEEP_PAGES)[numbe
       </section>
 
       <section className="idt-section idt-shell">
-        <div className="idt-card-grid two-col">
+        <div className="idt-card-grid two-col idt-solution-detail-grid">
           <article className="idt-card">
             <h2>How teams use this solution</h2>
             <ul>
@@ -1804,7 +1804,7 @@ function SolutionDetailPage({ page }: { page: (typeof SOLUTION_DEEP_PAGES)[numbe
       <section className="idt-section idt-shell">
         <div className="idt-inline-actions">
           <Link to="/enterprise" className="idt-btn idt-btn-primary">
-            Book 15-min Demo
+            Book Demo
           </Link>
           <Link to="/pricing" className="idt-btn idt-btn-dark">
             Compare Plans
@@ -1850,7 +1850,7 @@ function PricingPage() {
           </button>
         </div>
 
-        <div className="idt-pricing-grid">
+        <div className="idt-pricing-grid idt-pricing-section">
           <article className="idt-pricing-card">
             <h2>Open Source</h2>
             <p className="idt-price">$0</p>
@@ -1879,7 +1879,7 @@ function PricingPage() {
               <li>SAML SSO, alerts, and workflow integrations</li>
             </ul>
             <Link to="/enterprise" className="idt-btn idt-btn-primary">
-              Try Free Hosted SaaS
+              Start Free Risk Scan
             </Link>
           </article>
 
@@ -1929,7 +1929,12 @@ function PricingPage() {
         </div>
       </section>
 
-      <section className="idt-section idt-shell">
+      <section className="idt-section idt-shell idt-pricing-roi">
+        <SectionTitle
+          eyebrow="Plan Fit"
+          title="Project impact before selecting your deployment path"
+          body="Use transparent assumptions to estimate incident-exposure reduction and triage-efficiency gains."
+        />
         <RoiCalculator />
       </section>
 
@@ -1950,7 +1955,7 @@ function PricingPage() {
               compact
               title="Enterprise Sales"
               caption="Expected response time: under 1 business day."
-              ctaLabel="Request Enterprise Proposal"
+              ctaLabel="Book Demo"
             />
           </div>
         </div>
@@ -1987,7 +1992,7 @@ function DemoPage() {
         />
         <div className="idt-inline-actions">
           <Link to="/pricing" className="idt-btn idt-btn-primary">
-            Try Free Hosted SaaS
+            Start Free Risk Scan
           </Link>
           <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
             Run Self-Hosted
@@ -2041,7 +2046,7 @@ function DocsPage() {
           />
         </label>
 
-        <div className="idt-card-grid two-col">
+        <div className="idt-card-grid two-col idt-docs-grid">
           {filtered.map((entry) => (
             <article key={entry.href} className="idt-card">
               <h2>{entry.title}</h2>
@@ -2080,7 +2085,7 @@ function BlogPage() {
       </section>
 
       <section className="idt-section idt-shell">
-        <div className="idt-card-grid two-col">
+        <div className="idt-card-grid two-col idt-blog-grid">
           {BLOG_POSTS.map((post) => (
             <article key={post.slug} className="idt-card">
               <p className="idt-chip-row">
@@ -2091,7 +2096,7 @@ function BlogPage() {
               <p>{post.description}</p>
               <p className="idt-muted-strong">Meta description ready for SEO snippets.</p>
               <Link to="/enterprise" className="idt-btn idt-btn-ghost">
-                Request this guide
+                Book Demo
               </Link>
             </article>
           ))}
@@ -2118,7 +2123,7 @@ function SecurityPage() {
       </section>
 
       <section className="idt-section idt-shell">
-        <div className="idt-card-grid two-col">
+        <div className="idt-card-grid two-col idt-security-grid">
           <article className="idt-card">
             <h2>Compliance roadmap</h2>
             <ul>
@@ -2157,7 +2162,7 @@ function SecurityPage() {
         <LeadCaptureForm
           title="Need vendor security documentation?"
           caption="Request security package access for procurement and compliance review."
-          ctaLabel="Request Security Package"
+          ctaLabel="Book Demo"
         />
       </section>
     </>
@@ -2184,7 +2189,7 @@ function AboutPage() {
       </section>
 
       <section className="idt-section idt-shell">
-        <div className="idt-card-grid two-col">
+        <div className="idt-card-grid two-col idt-about-grid">
           <article className="idt-card">
             <h2>Mission</h2>
             <p>Help teams discover and control non-human identity risk before it becomes incident-level blast radius.</p>
@@ -2226,7 +2231,7 @@ function EnterprisePage() {
       </section>
 
       <section className="idt-section idt-shell">
-        <div className="idt-card-grid two-col">
+        <div className="idt-card-grid two-col idt-enterprise-grid">
           <article className="idt-card">
             <h2>What enterprise buyers get</h2>
             <ul>
@@ -2239,7 +2244,7 @@ function EnterprisePage() {
           <LeadCaptureForm
             title="Talk to Enterprise Sales"
             caption="Share environment scope and business goals to get a deployment blueprint and pricing proposal."
-            ctaLabel="Request Enterprise Demo"
+            ctaLabel="Book Demo"
           />
         </div>
       </section>
