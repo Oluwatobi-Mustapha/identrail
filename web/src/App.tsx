@@ -1094,7 +1094,7 @@ function ProductProofFindingSection() {
       <SectionTitle
         eyebrow="Product Proof"
         title="See a realistic high-risk trust path before you connect anything"
-        body="Identrail surfaces risky machine identity paths with evidence, impact, and remediation guidance security teams can act on immediately."
+        body="Identrail surfaces risky machine identity paths with evidence, impact, and remediation guidance teams can act on immediately."
       />
       <div className="idt-finding-proof-grid">
         <article className="idt-card idt-finding-card">
@@ -1129,6 +1129,11 @@ function ProductProofFindingSection() {
             </Link>
           </div>
         </article>
+      </div>
+      <div className="idt-card idt-proof-demo-card">
+        <h3>Interactive trust-path preview</h3>
+        <p>Inspect a sample trust path from source identity to sensitive resource before connecting your environment.</p>
+        <TrustGraphDemo />
       </div>
     </section>
   );
@@ -1279,13 +1284,13 @@ function HomePage() {
       <section className="idt-hero">
         <div className="idt-shell idt-hero-grid">
           <div className="idt-hero-copy">
-            <p className="idt-eyebrow">Machine Identity Security for AWS, Kubernetes, OIDC, and GitHub</p>
+            <p className="idt-eyebrow">Machine identity security for AWS, Kubernetes, OIDC, and GitHub</p>
             <h1>Identify risky AWS IAM, Kubernetes, and GitHub trust paths before attackers use them.</h1>
             <p className="idt-lead">
-              Identrail discovers machine identities, maps trust paths, and shows cloud identity blast radius reduction actions your team can roll out safely.
+              Find risky machine identity trust paths, understand blast radius, and roll out safer access without breaking production.
             </p>
             <ul className="idt-hero-points" aria-label="What Identrail does">
-              <li>Discover machine identities and trust relationships across cloud and clusters.</li>
+              <li>Map machine identities and trust relationships across cloud and clusters.</li>
               <li>Prioritize high-risk paths with clear blast-radius evidence.</li>
               <li>Simulate remediations before rollout to avoid production breakage.</li>
             </ul>
@@ -1298,7 +1303,7 @@ function HomePage() {
               </Link>
             </div>
             <p className="idt-inline-link-note">
-              Prefer self-hosted evaluation?{' '}
+              Need self-hosted first?{' '}
               <SafeLink href={GITHUB_REPO} className="idt-inline-link">
                 View Open Source on GitHub
               </SafeLink>
@@ -1327,21 +1332,21 @@ function HomePage() {
       <section className="idt-section idt-shell">
         <SectionTitle
           eyebrow="Why This Matters"
-          title="Machine identities are hard to secure because trust data is fragmented"
-          body="Cloud teams need one view across AWS IAM, Kubernetes RBAC, OIDC relationships, and GitHub/GitOps workflows to understand real exposure. Identrail delivers machine identity security with AWS IAM trust path analysis, Kubernetes service account risk detection, OIDC security visibility, and cloud identity blast radius reduction."
+          title="Machine identity risk is hard to control when trust data is fragmented"
+          body="Security and platform teams need one view across AWS IAM, Kubernetes RBAC, OIDC relationships, and GitHub/GitOps workflows to understand real exposure."
         />
         <div className="idt-card-grid three-col">
           <article className="idt-card">
-            <h3>What is this?</h3>
-            <p>A machine identity security platform focused on risky trust-path discovery and control.</p>
+            <h3>What Identrail does</h3>
+            <p>Discovers machine identity trust paths and shows where risky access actually exists.</p>
           </article>
           <article className="idt-card">
-            <h3>Why does it matter?</h3>
-            <p>Hidden trust chains can turn one compromised workload into broad access to production resources.</p>
+            <h3>Why it matters</h3>
+            <p>Hidden trust chains can turn one compromised workload into broad production access.</p>
           </article>
           <article className="idt-card">
-            <h3>What should we do next?</h3>
-            <p>Prioritize high-impact paths and safely reduce overprivileged access with policy simulation.</p>
+            <h3>What teams do next</h3>
+            <p>Prioritize high-impact paths and reduce overprivileged access with policy simulation.</p>
           </article>
         </div>
       </section>
@@ -1351,21 +1356,12 @@ function HomePage() {
           id="risk-scan-form"
           variant="short"
           title="Start your free risk scan in under one minute"
-          caption="Share your work email and environment. Receive a practical 30-day machine identity risk reduction plan."
+          caption="Share your work email and primary environment. Receive a practical 30-day risk reduction plan."
           ctaLabel="Start Free Risk Scan"
         />
       </section>
 
       <ProductProofFindingSection />
-
-      <section className="idt-section idt-shell">
-        <SectionTitle
-          eyebrow="Interactive Trust Graph"
-          title="See trust-path evidence in a product-style preview"
-          body="Follow one machine identity path from source principal to sensitive resource and understand risk severity, blast radius, and remediation options."
-        />
-        <TrustGraphDemo />
-      </section>
 
       <section className="idt-section idt-shell">
         <SectionTitle eyebrow="How It Works" title="From data collection to safe control in four steps" />
@@ -1395,7 +1391,7 @@ function HomePage() {
         <SectionTitle
           eyebrow="Open-Core Advantage"
           title="Purpose-built alternative to closed machine identity platforms"
-          body="Identrail combines transparency, speed, and enterprise control without vendor lock-in."
+          body="Open-core transparency, fast time-to-value, and enterprise controls without vendor lock-in."
         />
         <div className="idt-table-wrap">
           <table className="idt-compare-table">
@@ -1423,7 +1419,7 @@ function HomePage() {
         <SectionTitle
           eyebrow="Early User Signals"
           title="Initial feedback from design-partner cloud teams"
-          body="Placeholder testimonials are shown here until public case studies and named customer logos are published."
+          body="Placeholders shown until public case studies and named customer logos are published."
         />
         <div className="idt-quote-row" role="list">
           {SOCIAL_QUOTES.map((quote) => (
@@ -1449,7 +1445,7 @@ function HomePage() {
         <SectionTitle
           eyebrow="Get Started"
           title="Move from trust-path uncertainty to controlled machine identity risk"
-          body="Start with a free risk scan, then book a technical demo for your AWS IAM, Kubernetes, OIDC, and GitHub environment."
+          body="Start with a free risk scan, then book a technical demo for your environment."
         />
         <div className="idt-inline-actions">
           <Link to="/pricing" className="idt-btn idt-btn-primary">
@@ -1459,11 +1455,6 @@ function HomePage() {
             Book Demo
           </Link>
         </div>
-        <LeadCaptureForm
-          title="Get your machine identity reduction plan"
-          caption="Provide your core context and receive a practical 30-day plan focused on high-risk trust-path reduction."
-          ctaLabel="Start Free Risk Scan"
-        />
       </section>
     </>
   );
