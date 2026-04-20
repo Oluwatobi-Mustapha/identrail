@@ -30,10 +30,13 @@
       ]
     }
   ],
-  "rewrites": [
+  "routes": [
     {
-      "source": "/((?!assets/|favicon-64.png|apple-touch-icon.png|identrail-logo.png|robots.txt|sitemap.xml).*)",
-      "destination": "/"
+      "handle": "filesystem"
+    },
+    {
+      "src": "/((?!assets/|favicon-64.png|apple-touch-icon.png|identrail-logo.png|robots.txt|sitemap.xml).*)",
+      "dest": "/index.html"
     }
   ]
 }

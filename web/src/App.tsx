@@ -2284,7 +2284,7 @@ function NotFoundPage() {
   );
 }
 
-function RoutedSite() {
+export function RoutedSite() {
   useAnalytics();
 
   return (
