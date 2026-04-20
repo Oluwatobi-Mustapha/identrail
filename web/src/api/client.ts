@@ -87,6 +87,15 @@ export type RequestAuthContext = {
 
 export type FindingLifecycleStatus = 'open' | 'ack' | 'suppressed' | 'resolved';
 
+export type LeadCapturePayload = {
+  email: string;
+  environment: string;
+  company?: string;
+  challenge?: string;
+  source: string;
+  page_path: string;
+};
+
 export type FindingTriage = {
   status: FindingLifecycleStatus;
   assignee?: string;
@@ -115,8 +124,9 @@ export type FindingTriageRequest = {
   comment?: string;
 };
 
-const configuredURL = import.meta.env.VITE_IDENTRAIL_API_URL as string | undefined;
-if (import.meta.env.PROD) {
+const viteEnv = ((import.meta as ImportMeta & { env?: Record<string, string> }).env ?? {}) as Record<string, string>;
+const configuredURL = viteEnv.VITE_IDENTRAIL_API_URL;
+if (viteEnv.PROD === 'true') {
   if (!configuredURL) {
     throw new Error('VITE_IDENTRAIL_API_URL must be set in production builds');
   }
@@ -267,6 +277,26 @@ export const apiClient = {
       })}`,
       auth
     );
+  },
+  async submitLeadCapture(payload: LeadCapturePayload) {
+    const res = await fetch('/api/leads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      let message = 'Unable to submit lead request right now.';
+      try {
+        const data = (await res.json()) as { error?: string };
+        if (data?.error) {
+          message = data.error;
+        }
+      } catch {
+        // Keep generic message when API body is unavailable.
+      }
+      throw new Error(message);
+    }
+    return (await res.json()) as { status: string };
   }
 };
 
