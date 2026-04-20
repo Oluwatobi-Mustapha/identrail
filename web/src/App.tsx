@@ -2062,10 +2062,9 @@ function RoutedSite() {
           <Route path="/" element={<HomePage />} />
           <Route path="/product" element={<ProductPage />} />
           <Route path="/features" element={<FeaturesPage />} />
-          <Route path="/features/aws" element={<FeatureDetailPage page={FEATURE_DEEP_PAGES[0]} />} />
-          <Route path="/features/kubernetes" element={<FeatureDetailPage page={FEATURE_DEEP_PAGES[1]} />} />
-          <Route path="/features/git-scanner" element={<FeatureDetailPage page={FEATURE_DEEP_PAGES[2]} />} />
-          <Route path="/features/trust-graph" element={<FeatureDetailPage page={FEATURE_DEEP_PAGES[3]} />} />
+          {FEATURE_DEEP_PAGES.map((page) => (
+            <Route key={page.slug} path={`/features/${page.slug}`} element={<FeatureDetailPage page={page} />} />
+          ))}
           <Route path="/solutions" element={<SolutionsPage />} />
           <Route path="/solutions/aws" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[0]} />} />
           <Route path="/solutions/kubernetes" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[1]} />} />
