@@ -199,27 +199,6 @@ const DOC_ENTRIES: DocEntry[] = [
   }
 ];
 
-const SOCIAL_QUOTES = [
-  {
-    quote:
-      'Identrail mapped over 12,000 machine trust paths in week one and gave us a clear remediation queue.',
-    name: 'Principal Cloud Security Engineer',
-    company: 'Global Payments Company'
-  },
-  {
-    quote:
-      'We reduced privileged service account risk by 87% without breaking production rollouts.',
-    name: 'Director of Platform Security',
-    company: 'Enterprise SaaS Provider'
-  },
-  {
-    quote:
-      'The open-core model let us self-host quickly while preparing enterprise controls for procurement.',
-    name: 'VP Security Engineering',
-    company: 'Large Healthcare Network'
-  }
-] as const;
-
 const DIFFERENTIATION_ROWS = [
   {
     area: 'Core Platform Access',
@@ -1194,38 +1173,20 @@ function XIcon() {
 
 function Footer() {
   const footerLinks = [
+    { to: '/product', label: 'Product' },
     { to: '/solutions', label: 'Solutions' },
     { to: '/pricing', label: 'Pricing' },
     { to: '/demo', label: 'Demo' },
     { to: '/docs', label: 'Docs' },
     { to: '/blog', label: 'Blog' },
+    { to: '/security', label: 'Security' },
+    { to: '/about', label: 'About' },
     { to: '/privacy', label: 'Privacy' },
     { to: '/terms', label: 'Terms' }
   ] as const;
 
   return (
     <footer className="idt-footer">
-      <section className="idt-footer-showcase">
-        <div className="idt-shell">
-          <h2>Benefits</h2>
-          <div className="idt-benefits-row">
-            <span>Fast OSS Start</span>
-            <span>Enterprise-Ready Controls</span>
-            <span>Trust Graph Clarity</span>
-            <span>Safer Rollouts</span>
-          </div>
-          <p>
-            Start with the open-core platform, prove value quickly, and move to hosted or enterprise deployment without re-platforming.
-          </p>
-          <div className="idt-footer-cta-row">
-            <Link to="/pricing" className="idt-footer-super-cta">
-              <span>Start Free Risk Scan</span>
-              <small>Try hosted SaaS or choose enterprise rollout</small>
-            </Link>
-          </div>
-        </div>
-      </section>
-
       <div className="idt-footer-bar">
         <div className="idt-shell idt-footer-bar-row">
           <nav className="idt-footer-links" aria-label="Footer">
@@ -1316,7 +1277,7 @@ function HomePage() {
           title="Machine identity risk is hard to control when trust data is fragmented"
           body="Security and platform teams need one view across AWS IAM, Kubernetes RBAC, OIDC relationships, and GitHub/GitOps workflows to understand real exposure."
         />
-        <div className="idt-card-grid three-col">
+        <div className="idt-card-grid two-col">
           <article className="idt-card">
             <h3>What Identrail does</h3>
             <p>Discovers machine identity trust paths and shows where risky access actually exists.</p>
@@ -1324,10 +1285,6 @@ function HomePage() {
           <article className="idt-card">
             <h3>Why it matters</h3>
             <p>Hidden trust chains can turn one compromised workload into broad production access.</p>
-          </article>
-          <article className="idt-card">
-            <h3>What teams do next</h3>
-            <p>Prioritize high-impact paths and reduce overprivileged access with policy simulation.</p>
           </article>
         </div>
       </section>
@@ -1393,23 +1350,6 @@ function HomePage() {
               ))}
             </tbody>
           </table>
-        </div>
-      </section>
-
-      <section className="idt-section idt-shell">
-        <SectionTitle
-          eyebrow="Early User Signals"
-          title="Initial feedback from design-partner cloud teams"
-          body="Placeholders shown until public case studies and named customer logos are published."
-        />
-        <div className="idt-quote-row" role="list">
-          {SOCIAL_QUOTES.map((quote) => (
-            <article key={quote.quote} className="idt-quote-card" role="listitem">
-              <p>{quote.quote}</p>
-              <strong>{quote.name}</strong>
-              <span>{quote.company}</span>
-            </article>
-          ))}
         </div>
       </section>
 
