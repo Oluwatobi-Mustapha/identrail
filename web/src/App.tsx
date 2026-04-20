@@ -786,10 +786,6 @@ function TrustGraphHeroVisual() {
         </p>
         <dl>
           <div>
-            <dt>Severity</dt>
-            <dd className="idt-severity-high">High</dd>
-          </div>
-          <div>
             <dt>Path</dt>
             <dd>GitHub Actions → OIDC Provider → AWS Role → RDS Billing Resource</dd>
           </div>
