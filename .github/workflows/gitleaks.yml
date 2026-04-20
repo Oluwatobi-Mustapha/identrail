@@ -19,7 +19,39 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install gitleaks OSS CLI
+        run: |
+          set -euo pipefail
+          VERSION="8.24.2"
+          TARBALL="gitleaks_${VERSION}_linux_x64.tar.gz"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/${TARBALL}" -o "${RUNNER_TEMP}/${TARBALL}"
+          mkdir -p "${RUNNER_TEMP}/bin"
+          tar -xzf "${RUNNER_TEMP}/${TARBALL}" -C "${RUNNER_TEMP}/bin" gitleaks
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+          "${RUNNER_TEMP}/bin/gitleaks" version
+
+      - name: Run gitleaks (pull request commit range)
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          gitleaks git . --redact --verbose --log-opts "${BASE_SHA}..${HEAD_SHA}"
+
+      - name: Run gitleaks (push commit range)
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          BEFORE_SHA="${{ github.event.before }}"
+          CURRENT_SHA="${{ github.sha }}"
+          if [[ "${BEFORE_SHA}" == "0000000000000000000000000000000000000000" ]]; then
+            gitleaks dir . --redact --verbose
+          else
+            gitleaks git . --redact --verbose --log-opts "${BEFORE_SHA}..${CURRENT_SHA}"
+          fi
+
+      - name: Run gitleaks (manual full tree)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          gitleaks dir . --redact --verbose
