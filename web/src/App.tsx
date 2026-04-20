@@ -1276,12 +1276,8 @@ function HomePage() {
             <p className="idt-eyebrow">Machine identity security</p>
             <h1>See risky machine trust paths before attackers do.</h1>
             <p className="idt-lead">
-              Identrail maps AWS, Kubernetes, and GitHub identity paths so your team can reduce blast radius safely.
+              Map AWS IAM, Kubernetes, and GitHub identity paths. Prioritize blast radius, then roll out safer access without breaking production.
             </p>
-            <ul className="idt-hero-points" aria-label="What Identrail does">
-              <li>Map machine identities and trust relationships across cloud and clusters.</li>
-              <li>Simulate policy changes before rollout to avoid production breakage.</li>
-            </ul>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
               <a href="#risk-scan-form" className="idt-btn idt-btn-primary">
                 Start Free Risk Scan
@@ -1290,32 +1286,29 @@ function HomePage() {
                 Book Demo
               </Link>
             </div>
-            <p className="idt-inline-link-note">
-              Need self-hosted first?{' '}
-              <SafeLink href={GITHUB_REPO} className="idt-inline-link">
-                View Open Source on GitHub
-              </SafeLink>
-            </p>
-            <div className="idt-kpi-row">
-              <article>
-                <strong>87%</strong>
-                <span>Average high-risk trust path reduction</span>
-              </article>
-              <article>
-                <strong>&lt; 15 min</strong>
-                <span>Time to first trust graph in hosted SaaS</span>
-              </article>
-              <article>
-                <strong>3x faster</strong>
-                <span>Identity triage for cloud security and platform teams</span>
-              </article>
-            </div>
           </div>
           <TrustGraphHeroVisual />
         </div>
       </section>
 
       <HomeCredibilityStrip />
+
+      <section className="idt-section idt-shell idt-impact-strip" aria-label="Impact snapshot">
+        <div className="idt-kpi-row">
+          <article>
+            <strong>87%</strong>
+            <span>Average high-risk trust path reduction</span>
+          </article>
+          <article>
+            <strong>&lt; 15 min</strong>
+            <span>Time to first trust graph in hosted SaaS</span>
+          </article>
+          <article>
+            <strong>3x faster</strong>
+            <span>Identity triage for cloud security and platform teams</span>
+          </article>
+        </div>
+      </section>
 
       <section className="idt-section idt-shell">
         <SectionTitle
