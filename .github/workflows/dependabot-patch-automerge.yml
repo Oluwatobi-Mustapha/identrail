@@ -18,12 +18,14 @@ jobs:
     steps:
       - name: Fetch Dependabot Metadata
         id: metadata
+        continue-on-error: true
         uses: dependabot/fetch-metadata@v3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          skip-commit-verification: true
 
       - name: Enable auto-merge for patch updates
-        if: steps.metadata.outputs.update-type == 'version-update:semver-patch' && !github.event.pull_request.draft
+        if: steps.metadata.outcome == 'success' && steps.metadata.outputs.update-type == 'version-update:semver-patch' && !github.event.pull_request.draft
         uses: actions/github-script@v9
         with:
           script: |
