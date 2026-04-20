@@ -20,14 +20,11 @@ jobs:
     if: github.repository == 'identrail/identrail' && (github.event_name != 'workflow_dispatch' || github.ref_name == 'dev' || github.ref_name == 'main')
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
 
       - name: Validate required Vercel identifiers
         env:
@@ -69,35 +66,31 @@ jobs:
           echo "Token verified for Vercel user:"
           jq -r '.user.username // .username // "unknown"' /tmp/vercel-user.json
 
-      - name: Install Vercel CLI
-        run: npm install --global vercel@50.37.3
-
-      - name: Deploy to Vercel via CLI
-        id: deploy-cli
+      - name: Deploy to Vercel
+        id: deploy-action
         if: steps.normalize-token.outputs.has_token == 'true'
         continue-on-error: true
-        env:
-          VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: |
-          set -euo pipefail
-          cd web
-          vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
-          vercel deploy --prod --yes --token "$VERCEL_TOKEN"
+        uses: amondnet/vercel-action@4b810e26f7bb2a331c698af186f890cbf20d5f72 # v42.2.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-comment: false
+          vercel-token: ${{ steps.normalize-token.outputs.token }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          target: production
+          force: true
+          root-directory: web
 
       - name: Fallback deploy via hook
         id: deploy-hook
-        if: (steps.normalize-token.outputs.has_token != 'true' || steps.deploy-cli.outcome != 'success') && secrets.VERCEL_DEPLOY_HOOK_URL != ''
-        env:
-          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        if: (steps.normalize-token.outputs.has_token != 'true' || steps.verify-token.outcome != 'success' || steps.deploy-action.outcome != 'success') && env.VERCEL_DEPLOY_HOOK_URL != ''
         run: |
           set -euo pipefail
           curl -fsS -X POST "$VERCEL_DEPLOY_HOOK_URL" > /tmp/vercel-hook-response.json
           echo "Triggered Vercel deploy hook successfully."
 
       - name: Fail if no deployment path succeeded
-        if: steps.deploy-cli.outcome != 'success' && steps.deploy-hook.outcome != 'success'
+        if: steps.deploy-action.outcome != 'success' && steps.deploy-hook.outcome != 'success'
         run: |
           echo "Vercel deployment failed."
           echo "Root cause is usually an invalid/stale VERCEL_TOKEN."
