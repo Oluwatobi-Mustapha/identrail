@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserRouter, Link, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 
@@ -479,21 +479,26 @@ function LeadCaptureForm({
 
 function ExitIntentPopup() {
   const [open, setOpen] = useState(false);
+  const dismissedRef = useRef(false);
 
   useEffect(() => {
     const storageKey = 'identrail-exit-modal-dismissed';
-    if (localStorage.getItem(storageKey) === 'yes') {
+    dismissedRef.current = localStorage.getItem(storageKey) === 'yes';
+
+    if (dismissedRef.current) {
       return;
     }
 
     const onMouseOut = (event: MouseEvent) => {
-      if (event.clientY <= 8) {
+      if (event.clientY <= 8 && !dismissedRef.current) {
         setOpen(true);
       }
     };
 
     const timer = window.setTimeout(() => {
-      setOpen(true);
+      if (!dismissedRef.current) {
+        setOpen(true);
+      }
     }, 45000);
 
     document.addEventListener('mouseout', onMouseOut);
@@ -505,6 +510,7 @@ function ExitIntentPopup() {
   }, []);
 
   const close = () => {
+    dismissedRef.current = true;
     localStorage.setItem('identrail-exit-modal-dismissed', 'yes');
     setOpen(false);
   };

@@ -388,6 +388,13 @@ h3 {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .idt-pulse {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
 .idt-trust-strip {
   border-top: 1px solid var(--idt-line);
   border-bottom: 1px solid var(--idt-line);
