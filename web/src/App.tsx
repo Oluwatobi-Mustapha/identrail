@@ -41,17 +41,15 @@ const SITE_URL = 'https://identrail.com';
 const GITHUB_REPO = 'https://github.com/identrail/identrail';
 const DOCS_REPO = 'https://github.com/identrail/identrail/tree/main/docs';
 const DISCORD_URL = 'https://discord.gg/7jSUSnQC';
+const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
 const CALENDLY_URL = 'https://calendly.com/identrail/15min';
 
 const NAV_LINKS = [
-  { to: '/product', label: 'Product' },
-  { to: '/features', label: 'Features' },
   { to: '/solutions', label: 'Solutions' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/demo', label: 'Demo' },
   { to: '/docs', label: 'Docs' },
-  { to: '/blog', label: 'Blog' },
-  { to: '/security', label: 'Security' }
+  { to: '/blog', label: 'Blog' }
 ] as const;
 
 const TRUSTED_LOGOS = [
@@ -928,14 +926,11 @@ function Header() {
 
 function DeploymentPathBanner() {
   return (
-    <section className="idt-deployment-banner" aria-label="Choose deployment">
-      <div className="idt-shell idt-deployment-inner">
-        <p>
-          Choose deployment:
-          <span> Open Source Self-Hosted</span>
-          <span> Hosted SaaS Pro</span>
-          <span> Enterprise Private Deployment</span>
-        </p>
+    <section className="idt-section idt-shell idt-deployment-bridge" aria-label="Choose deployment">
+      <div className="idt-deployment-panel">
+        <p className="idt-eyebrow">Choose Deployment</p>
+        <h2>Deploy open-source first, then scale to hosted or enterprise when you are ready.</h2>
+        <p className="idt-deployment-copy">Open Source Self-Hosted • Hosted SaaS Pro • Enterprise Private Deployment</p>
         <div className="idt-inline-actions idt-inline-actions-tight">
           <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
             Deploy OSS
@@ -952,82 +947,95 @@ function DeploymentPathBanner() {
   );
 }
 
+function GitHubIcon() {
+  return (
+    <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M12 2C6.48 2 2 6.59 2 12.25c0 4.52 2.87 8.35 6.84 9.7.5.1.68-.22.68-.49 0-.24-.01-.89-.01-1.75-2.78.62-3.37-1.37-3.37-1.37-.46-1.2-1.12-1.51-1.12-1.51-.92-.64.07-.63.07-.63 1.02.08 1.55 1.07 1.55 1.07.9 1.59 2.37 1.13 2.95.87.09-.67.35-1.13.64-1.39-2.22-.26-4.56-1.14-4.56-5.08 0-1.12.39-2.03 1.03-2.74-.1-.26-.45-1.31.1-2.73 0 0 .84-.27 2.75 1.05A9.4 9.4 0 0 1 12 6.8c.85 0 1.7.12 2.5.36 1.9-1.32 2.74-1.05 2.74-1.05.56 1.42.21 2.47.11 2.73.64.71 1.02 1.62 1.02 2.74 0 3.95-2.35 4.82-4.58 5.08.36.32.67.95.67 1.91 0 1.38-.01 2.49-.01 2.83 0 .27.18.6.69.49A10.25 10.25 0 0 0 22 12.25C22 6.59 17.52 2 12 2Z"
+      />
+    </svg>
+  );
+}
+
+function LinkedInIcon() {
+  return (
+    <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M6.94 8.7A1.88 1.88 0 1 1 6.93 4.95 1.88 1.88 0 0 1 6.94 8.7Zm1.58 2.03v8.31H5.36v-8.3h3.16Zm4.95 0v1.13h.04c.44-.82 1.5-1.7 3.08-1.7 3.3 0 3.91 2.2 3.91 5.05v5.83h-3.16v-5.17c0-1.23-.02-2.8-1.68-2.8-1.68 0-1.94 1.33-1.94 2.71v5.26H10.56v-8.3h2.91Z"
+      />
+    </svg>
+  );
+}
+
+function DiscordIcon() {
+  return (
+    <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M19.79 5.59A15.66 15.66 0 0 0 15.9 4.4l-.19.4a14.54 14.54 0 0 1 3.71 1.19 11.77 11.77 0 0 0-3.62-1.13c-2.39-.26-4.79-.26-7.18 0A11.7 11.7 0 0 0 5 6a14.56 14.56 0 0 1 3.71-1.19l-.19-.4a15.7 15.7 0 0 0-3.88 1.18C2.2 9.24 1.52 12.79 1.86 16.29a15.95 15.95 0 0 0 4.77 2.42l.95-1.58c-.52-.2-1.01-.45-1.49-.73.13.1.27.19.41.28 2.06 1.15 4.35 1.52 6.5 1.52 2.15 0 4.44-.37 6.49-1.52.14-.09.28-.18.41-.28-.47.28-.97.53-1.49.73l.95 1.58a15.92 15.92 0 0 0 4.77-2.42c.4-4.06-.68-7.58-2.53-10.7ZM9.54 14.14c-.76 0-1.39-.72-1.39-1.61s.61-1.6 1.39-1.6c.78 0 1.4.72 1.39 1.6 0 .9-.61 1.61-1.39 1.61Zm4.93 0c-.76 0-1.39-.72-1.39-1.61s.61-1.6 1.39-1.6c.78 0 1.4.72 1.39 1.6 0 .9-.61 1.61-1.39 1.61Z"
+      />
+    </svg>
+  );
+}
+
 function Footer() {
+  const footerLinks = [
+    { to: '/solutions', label: 'Solutions' },
+    { to: '/pricing', label: 'Pricing' },
+    { to: '/demo', label: 'Demo' },
+    { to: '/docs', label: 'Docs' },
+    { to: '/blog', label: 'Blog' },
+    { to: '/privacy', label: 'Privacy' },
+    { to: '/terms', label: 'Terms' }
+  ] as const;
+
   return (
     <footer className="idt-footer">
-      <div className="idt-shell idt-footer-grid">
-        <div>
-          <Link to="/" className="idt-brand idt-footer-brand">
-            <img src="/identrail-logo.png" width="30" height="30" alt="Identrail" />
-            <span>
-              Identrail
-              <small>Open-core machine identity platform</small>
-            </span>
-          </Link>
-          <p className="idt-footer-copy">
-            Discover machine identities, map trust paths, detect high-signal risk, and roll out authorization safely.
+      <section className="idt-footer-showcase">
+        <div className="idt-shell">
+          <h2>Benefits</h2>
+          <div className="idt-benefits-row">
+            <span>Fast OSS Start</span>
+            <span>Enterprise-Ready Controls</span>
+            <span>Trust Graph Clarity</span>
+            <span>Safer Rollouts</span>
+          </div>
+          <p>
+            Start with the open-core platform, prove value quickly, and move to hosted or enterprise deployment without re-platforming.
           </p>
+          <div className="idt-footer-cta-row">
+            <Link to="/pricing" className="idt-footer-super-cta">
+              <span>Start Free Risk Scan</span>
+              <small>Try hosted SaaS or choose enterprise rollout</small>
+            </Link>
+          </div>
         </div>
+      </section>
 
-        <div>
-          <h3>Product</h3>
-          <ul>
-            <li>
-              <Link to="/product">Platform Overview</Link>
-            </li>
-            <li>
-              <Link to="/features">Features</Link>
-            </li>
-            <li>
-              <Link to="/demo">Interactive Trust Graph</Link>
-            </li>
-            <li>
-              <Link to="/pricing">Pricing</Link>
-            </li>
-          </ul>
+      <div className="idt-footer-bar">
+        <div className="idt-shell idt-footer-bar-row">
+          <nav className="idt-footer-links" aria-label="Footer">
+            {footerLinks.map((item) => (
+              <Link key={item.to} to={item.to}>
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+          <small>© {new Date().getFullYear()} Identrail. All rights reserved.</small>
+          <div className="idt-footer-socials">
+            <SafeLink href={GITHUB_REPO} aria-label="GitHub" className="idt-social-link">
+              <GitHubIcon />
+            </SafeLink>
+            <SafeLink href={DISCORD_URL} aria-label="Discord" className="idt-social-link">
+              <DiscordIcon />
+            </SafeLink>
+            <SafeLink href={LINKEDIN_URL} aria-label="LinkedIn" className="idt-social-link">
+              <LinkedInIcon />
+            </SafeLink>
+          </div>
         </div>
-
-        <div>
-          <h3>Resources</h3>
-          <ul>
-            <li>
-              <Link to="/docs">Docs</Link>
-            </li>
-            <li>
-              <Link to="/blog">Blog</Link>
-            </li>
-            <li>
-              <SafeLink href={DISCORD_URL}>Discord</SafeLink>
-            </li>
-            <li>
-              <SafeLink href={GITHUB_REPO}>GitHub</SafeLink>
-            </li>
-          </ul>
-        </div>
-
-        <div>
-          <h3>Company</h3>
-          <ul>
-            <li>
-              <Link to="/about">About</Link>
-            </li>
-            <li>
-              <Link to="/security">Security</Link>
-            </li>
-            <li>
-              <Link to="/terms">Terms</Link>
-            </li>
-            <li>
-              <Link to="/privacy">Privacy</Link>
-            </li>
-            <li>
-              <Link to="/privacy-choices">Privacy Choices</Link>
-            </li>
-          </ul>
-        </div>
-      </div>
-      <div className="idt-footer-bottom idt-shell">
-        <small>Copyright {new Date().getFullYear()} Identrail. Built for platform and security teams.</small>
       </div>
     </footer>
   );
@@ -1148,6 +1156,8 @@ function HomePage() {
           </li>
         </ol>
       </section>
+
+      <DeploymentPathBanner />
 
       <section className="idt-section idt-shell">
         <SectionTitle
@@ -2055,7 +2065,6 @@ function RoutedSite() {
       </a>
 
       <Header />
-      <DeploymentPathBanner />
 
       <main id="main-content">
         <Routes>
