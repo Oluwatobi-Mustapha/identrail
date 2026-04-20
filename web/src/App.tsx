@@ -799,7 +799,35 @@ function TrustGraphHeroVisual() {
   );
 }
 
-function TrustGraphDemo() {
+function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' }) {
+  const scenarios = [
+    {
+      id: 'cicd',
+      label: 'CI/CD OIDC chain',
+      severity: 'High',
+      path: 'GitHub Actions → OIDC Provider → AWS Role → RDS Billing Resource',
+      impact: 'Compromise of CI workflow token could reach production billing data.',
+      remediation: 'Constrain trust policy subject claims and narrow role permissions to required actions only.'
+    },
+    {
+      id: 'k8s',
+      label: 'K8s service account drift',
+      severity: 'High',
+      path: 'K8s ServiceAccount → ClusterRoleBinding → AWS Role → S3 Artifact Bucket',
+      impact: 'Overprivileged service account can pivot into cloud resources outside intended namespace scope.',
+      remediation: 'Split service accounts by workload boundary and apply namespace-scoped RBAC + IAM condition keys.'
+    },
+    {
+      id: 'repo',
+      label: 'Leaked deploy token path',
+      severity: 'Medium',
+      path: 'Git Repository Secret Leak → Bot Identity → IAM AssumeRole → ECR Registry Push',
+      impact: 'Leaked token can be replayed to ship unauthorized container images.',
+      remediation: 'Rotate credentials, enforce short-lived identity tokens, and tighten registry write access.'
+    }
+  ] as const;
+
+  const [scenarioId, setScenarioId] = useState<(typeof scenarios)[number]['id']>('cicd');
   const nodes = [
     {
       id: 'oidc',
@@ -830,9 +858,27 @@ function TrustGraphDemo() {
 
   const [selectedId, setSelectedId] = useState<string>('role');
   const selected = nodes.find((item) => item.id === selectedId) ?? nodes[1];
+  const scenario = scenarios.find((item) => item.id === scenarioId) ?? scenarios[0];
 
   return (
-    <section className="idt-demo-surface">
+    <section className={`idt-demo-surface ${variant === 'full' ? 'is-full' : ''}`}>
+      {variant === 'full' ? (
+        <div className="idt-demo-toolbar" role="group" aria-label="Demo scenarios">
+          <p>Scenario</p>
+          <div className="idt-demo-scenario-row">
+            {scenarios.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={item.id === scenarioId ? 'is-active' : ''}
+                onClick={() => setScenarioId(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="idt-demo-graph" role="img" aria-label="Interactive trust graph simulation">
         {nodes.map((node) => (
           <button
@@ -853,10 +899,24 @@ function TrustGraphDemo() {
         <h3>{selected.title}</h3>
         <p>{selected.detail}</p>
         <ul>
-          <li>Risk score impact: High</li>
+          <li>Risk score impact: {scenario.severity}</li>
           <li>Reachable resources: 18</li>
           <li>Recommended control: Staged trust policy tightening</li>
         </ul>
+        {variant === 'full' ? (
+          <article className="idt-demo-evidence">
+            <p className="idt-finding-label">Active finding</p>
+            <p>
+              <strong>Path:</strong> {scenario.path}
+            </p>
+            <p>
+              <strong>Why it matters:</strong> {scenario.impact}
+            </p>
+            <p>
+              <strong>Recommended fix:</strong> {scenario.remediation}
+            </p>
+          </article>
+        ) : null}
         <div className="idt-inline-actions">
           <Link to="/pricing" className="idt-btn idt-btn-primary">
             Start Free Risk Scan
@@ -1946,7 +2006,32 @@ function DemoPage() {
       </section>
 
       <section className="idt-section idt-shell">
-        <TrustGraphDemo />
+        <TrustGraphDemo variant="full" />
+      </section>
+
+      <section className="idt-section idt-shell">
+        <div className="idt-card-grid two-col">
+          <article className="idt-card">
+            <h2>What this demo includes</h2>
+            <ul>
+              <li>Machine identity sources across AWS IAM, Kubernetes, and Git workflows</li>
+              <li>Risk severity and blast-radius context for each trust path</li>
+              <li>Explainable remediation guidance before policy changes are enforced</li>
+            </ul>
+          </article>
+          <article className="idt-card">
+            <h2>What to do next</h2>
+            <p>Run a free risk scan to map your own trust paths, or book a guided walkthrough with security engineering.</p>
+            <div className="idt-inline-actions">
+              <Link to="/pricing" className="idt-btn idt-btn-primary">
+                Start Free Risk Scan
+              </Link>
+              <Link to="/enterprise" className="idt-btn idt-btn-dark">
+                Book Demo
+              </Link>
+            </div>
+          </article>
+        </div>
       </section>
 
       <section className="idt-section idt-shell idt-connect-cloud">
