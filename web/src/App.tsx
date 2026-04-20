@@ -348,7 +348,7 @@ function useSeo(config: SeoConfig) {
     upsertMetaByProperty('twitter:description', config.description);
     upsertCanonical(config.path);
     upsertSchema(config);
-  }, [config]);
+  }, [config.title, config.description, config.path, config.keywords, config.schemaType]);
 }
 
 function useAnalytics() {
