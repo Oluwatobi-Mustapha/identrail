@@ -1,19 +1,19 @@
 :root {
-  --idt-bg: #0a1428;
-  --idt-bg-elevated: #101d38;
-  --idt-bg-soft: #122241;
-  --idt-text: #f8fafc;
-  --idt-text-muted: #a9b8d3;
-  --idt-line: rgba(169, 184, 211, 0.25);
-  --idt-accent: #00e5c9;
-  --idt-accent-soft: rgba(0, 229, 201, 0.16);
-  --idt-glow: rgba(0, 229, 201, 0.35);
-  --idt-cta: linear-gradient(110deg, #00e5c9 0%, #20b4ff 48%, #42f5d7 100%);
-  --idt-display: 'Space Grotesk', 'Inter', 'Segoe UI', sans-serif;
+  --idt-bg: #030303;
+  --idt-bg-elevated: #0b0b0d;
+  --idt-bg-soft: #141416;
+  --idt-text: #f5f7fb;
+  --idt-text-muted: #9ca3b2;
+  --idt-line: rgba(245, 247, 251, 0.16);
+  --idt-accent: #d7e3ff;
+  --idt-accent-soft: rgba(215, 227, 255, 0.12);
+  --idt-glow: rgba(137, 169, 255, 0.32);
+  --idt-cta: linear-gradient(120deg, #ffffff 0%, #e8edf7 100%);
+  --idt-display: 'Barlow Semi Condensed', 'Space Grotesk', 'Inter', 'Segoe UI', sans-serif;
   --idt-body: 'Inter', 'Segoe UI', sans-serif;
-  --idt-radius: 20px;
-  --idt-shell: 1160px;
-  --idt-shadow: 0 20px 60px rgba(2, 8, 24, 0.5);
+  --idt-radius: 14px;
+  --idt-shell: 1200px;
+  --idt-shadow: 0 14px 42px rgba(0, 0, 0, 0.45);
 }
 
 * {
@@ -30,11 +30,15 @@ body {
   margin: 0;
   font-family: var(--idt-body);
   background:
-    radial-gradient(circle at 80% 0%, rgba(0, 229, 201, 0.08), transparent 42%),
-    radial-gradient(circle at 10% 20%, rgba(41, 121, 255, 0.22), transparent 35%),
+    radial-gradient(2px 2px at 20% 24%, rgba(255, 255, 255, 0.45), transparent 55%),
+    radial-gradient(1px 1px at 72% 62%, rgba(255, 255, 255, 0.35), transparent 50%),
+    radial-gradient(1px 1px at 42% 80%, rgba(255, 255, 255, 0.25), transparent 50%),
+    radial-gradient(circle at 75% -25%, rgba(139, 165, 255, 0.13), transparent 48%),
+    radial-gradient(circle at 8% 22%, rgba(255, 255, 255, 0.05), transparent 36%),
     var(--idt-bg);
   color: var(--idt-text);
-  line-height: 1.6;
+  line-height: 1.7;
+  letter-spacing: 0.002em;
 }
 
 a {
@@ -72,16 +76,16 @@ a {
   top: 0;
   z-index: 160;
   border-bottom: 1px solid var(--idt-line);
-  backdrop-filter: blur(16px);
-  background: rgba(10, 20, 40, 0.83);
+  backdrop-filter: blur(14px);
+  background: rgba(3, 3, 3, 0.88);
 }
 
 .idt-header-row {
-  min-height: 78px;
+  min-height: 84px;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 1.2rem;
+  gap: 1.1rem;
 }
 
 .idt-brand {
@@ -92,47 +96,55 @@ a {
 }
 
 .idt-brand img {
-  border-radius: 8px;
-  box-shadow: 0 0 0 2px rgba(0, 229, 201, 0.2), 0 10px 25px rgba(0, 229, 201, 0.18);
+  border-radius: 9px;
+  box-shadow: 0 0 0 1px rgba(245, 247, 251, 0.16);
 }
 
 .idt-brand span {
   font-family: var(--idt-display);
-  font-weight: 700;
+  font-weight: 600;
   display: block;
-  line-height: 1.05;
+  line-height: 1;
+  letter-spacing: 0.015em;
+  text-transform: uppercase;
 }
 
 .idt-brand small {
   display: block;
-  margin-top: 0.12rem;
-  font-size: 0.68rem;
+  margin-top: 0.2rem;
+  font-size: 0.64rem;
   color: var(--idt-text-muted);
   font-family: var(--idt-body);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .idt-nav {
   display: flex;
   justify-content: center;
-  flex-wrap: wrap;
-  gap: 1rem;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
 }
 
 .idt-nav a {
   text-decoration: none;
   font-weight: 600;
-  font-size: 0.92rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--idt-text-muted);
   border-radius: 999px;
-  padding: 0.35rem 0.66rem;
-  transition: color 0.2s ease, background 0.2s ease;
+  padding: 0.44rem 0.72rem;
+  transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  border: 1px solid transparent;
 }
 
 .idt-nav a:hover,
 .idt-nav a:focus-visible,
 .idt-nav a.is-active {
   color: var(--idt-text);
-  background: rgba(0, 229, 201, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .idt-header-actions {
@@ -145,15 +157,17 @@ a {
   border: 1px solid transparent;
   text-decoration: none;
   border-radius: 999px;
-  min-height: 42px;
-  padding: 0.65rem 1rem;
+  min-height: 44px;
+  padding: 0.65rem 1.14rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 0.88rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   cursor: pointer;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
 }
 
 .idt-btn:hover,
@@ -163,20 +177,21 @@ a {
 
 .idt-btn-primary {
   background: var(--idt-cta);
-  color: #011018;
-  box-shadow: 0 10px 24px rgba(0, 229, 201, 0.3);
+  color: #030303;
+  border-color: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.42);
 }
 
 .idt-btn-dark {
-  background: #1e2f58;
+  background: #0f1014;
   color: #f8fafc;
-  border-color: rgba(169, 184, 211, 0.3);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 .idt-btn-ghost {
-  border-color: rgba(169, 184, 211, 0.45);
+  border-color: rgba(255, 255, 255, 0.2);
   background: transparent;
-  color: #e8f0ff;
+  color: #eff3ff;
 }
 
 .idt-menu-toggle {
@@ -186,39 +201,41 @@ a {
   border: 1px solid var(--idt-line);
   min-height: 38px;
   padding: 0 1rem;
-  background: rgba(16, 29, 56, 0.95);
+  background: rgba(12, 12, 14, 0.95);
   color: #fff;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
-.idt-deployment-banner {
-  border-bottom: 1px solid var(--idt-line);
-  background: linear-gradient(90deg, rgba(0, 229, 201, 0.08), rgba(36, 178, 255, 0.08));
+.idt-deployment-bridge {
+  padding-top: clamp(2rem, 5vw, 3rem);
+  padding-bottom: clamp(2rem, 5vw, 3rem);
 }
 
-.idt-deployment-inner {
-  min-height: 64px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.65rem 0;
+.idt-deployment-panel {
+  border: 1px solid rgba(255, 255, 255, 0.19);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(137, 169, 255, 0.15), transparent 55%),
+    linear-gradient(160deg, rgba(14, 14, 17, 0.96), rgba(6, 6, 8, 0.97));
+  border-radius: 18px;
+  padding: clamp(1.2rem, 3vw, 2rem);
+  box-shadow: var(--idt-shadow);
 }
 
-.idt-deployment-inner p {
+.idt-deployment-panel h2 {
+  max-width: 28ch;
+  margin-bottom: 0.65rem;
+}
+
+.idt-deployment-copy {
   margin: 0;
-  color: #d8e8ff;
+  color: #cfd6e6;
   font-weight: 600;
-  font-size: 0.93rem;
-}
-
-.idt-deployment-inner p span {
-  color: var(--idt-accent);
-  margin-left: 0.45rem;
 }
 
 .idt-inline-actions-tight {
-  margin-top: 0;
+  margin-top: 1.05rem;
 }
 
 .idt-hero {
@@ -229,7 +246,14 @@ a {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 0.95fr);
   align-items: center;
-  gap: 2.3rem;
+  gap: 2.5rem;
+}
+
+.idt-hero-grid > div:first-child {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 18px;
+  padding: clamp(1.15rem, 3vw, 1.85rem);
+  background: linear-gradient(150deg, rgba(14, 14, 17, 0.83), rgba(7, 7, 8, 0.8));
 }
 
 h1,
@@ -237,36 +261,38 @@ h2,
 h3 {
   margin-top: 0;
   font-family: var(--idt-display);
-  line-height: 1.14;
+  line-height: 1.08;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 h1 {
-  font-size: clamp(2.1rem, 5vw, 3.7rem);
+  font-size: clamp(2.3rem, 5vw, 4rem);
   margin-bottom: 1rem;
 }
 
 h2 {
-  font-size: clamp(1.45rem, 3vw, 2.35rem);
+  font-size: clamp(1.6rem, 3vw, 2.65rem);
   margin-bottom: 0.75rem;
 }
 
 h3 {
-  font-size: 1.15rem;
+  font-size: 1.02rem;
 }
 
 .idt-eyebrow {
   margin: 0 0 0.95rem;
-  color: var(--idt-accent);
+  color: #cfd8ef;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: 0.75rem;
-  font-weight: 700;
+  letter-spacing: 0.16em;
+  font-size: 0.69rem;
+  font-weight: 600;
 }
 
 .idt-lead {
   margin: 0;
-  font-size: 1.07rem;
-  color: #d6e5ff;
+  font-size: 1.04rem;
+  color: #d5dae6;
   max-width: 62ch;
 }
 
@@ -286,29 +312,33 @@ h3 {
 
 .idt-kpi-row article {
   border: 1px solid var(--idt-line);
-  background: rgba(16, 29, 56, 0.9);
-  border-radius: 14px;
-  padding: 0.95rem;
+  background: rgba(12, 12, 14, 0.9);
+  border-radius: 12px;
+  padding: 0.95rem 0.9rem;
 }
 
 .idt-kpi-row strong {
   display: block;
-  color: var(--idt-accent);
-  font-size: 1.28rem;
+  color: #f7f9ff;
+  font-size: 1.3rem;
+  font-family: var(--idt-display);
+  letter-spacing: 0.03em;
 }
 
 .idt-kpi-row span {
   display: block;
-  font-size: 0.88rem;
+  font-size: 0.82rem;
   color: var(--idt-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .idt-graph-visual {
   position: relative;
   min-height: 380px;
-  border-radius: 24px;
-  border: 1px solid rgba(0, 229, 201, 0.35);
-  background: linear-gradient(160deg, rgba(16, 29, 56, 0.95) 0%, rgba(10, 20, 40, 0.95) 100%);
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: linear-gradient(160deg, rgba(11, 11, 13, 0.96) 0%, rgba(5, 5, 6, 0.98) 100%);
   box-shadow: var(--idt-shadow);
   overflow: hidden;
 }
@@ -317,22 +347,24 @@ h3 {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(169, 184, 211, 0.1) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(169, 184, 211, 0.1) 1px, transparent 1px);
-  background-size: 30px 30px;
-  opacity: 0.45;
+    linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 36px 36px;
+  opacity: 0.28;
 }
 
 .idt-node {
   position: absolute;
   z-index: 2;
   border-radius: 999px;
-  border: 1px solid rgba(0, 229, 201, 0.5);
-  background: rgba(0, 229, 201, 0.12);
-  color: #d7fff8;
-  padding: 0.42rem 0.75rem;
-  font-size: 0.79rem;
+  border: 1px solid rgba(215, 227, 255, 0.36);
+  background: rgba(255, 255, 255, 0.06);
+  color: #eaf0ff;
+  padding: 0.42rem 0.74rem;
+  font-size: 0.7rem;
   font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .idt-node-root {
@@ -358,8 +390,8 @@ h3 {
 .idt-edge {
   position: absolute;
   height: 2px;
-  background: linear-gradient(90deg, transparent, #00e5c9, transparent);
-  opacity: 0.75;
+  background: linear-gradient(90deg, transparent, #7f97d8, transparent);
+  opacity: 0.62;
 }
 
 .idt-edge-a {
@@ -386,7 +418,7 @@ h3 {
 .idt-pulse {
   position: absolute;
   border-radius: 999px;
-  border: 1px solid rgba(0, 229, 201, 0.65);
+  border: 1px solid rgba(137, 169, 255, 0.65);
   width: 16px;
   height: 16px;
   animation: idtPulse 2.6s ease-in-out infinite;
@@ -428,7 +460,7 @@ h3 {
 .idt-trust-strip {
   border-top: 1px solid var(--idt-line);
   border-bottom: 1px solid var(--idt-line);
-  background: rgba(16, 29, 56, 0.56);
+  background: rgba(8, 8, 10, 0.76);
 }
 
 .idt-trust-strip .idt-shell {
@@ -437,8 +469,11 @@ h3 {
 
 .idt-trust-strip p {
   margin: 0 0 0.7rem;
-  color: #d6e5ff;
+  color: #eef2fb;
   font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.84rem;
 }
 
 .idt-logo-row {
@@ -448,12 +483,14 @@ h3 {
 }
 
 .idt-logo-row span {
-  border: 1px solid rgba(169, 184, 211, 0.36);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 999px;
-  background: rgba(16, 29, 56, 0.8);
+  background: rgba(255, 255, 255, 0.03);
   padding: 0.44rem 0.8rem;
-  font-size: 0.82rem;
-  color: #c8d9f3;
+  font-size: 0.74rem;
+  color: #c7cedd;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .idt-section {
@@ -492,7 +529,7 @@ h3 {
 .idt-roi {
   border: 1px solid var(--idt-line);
   border-radius: var(--idt-radius);
-  background: rgba(16, 29, 56, 0.8);
+  background: rgba(11, 11, 13, 0.84);
   box-shadow: var(--idt-shadow);
 }
 
@@ -502,7 +539,7 @@ h3 {
 
 .idt-card p,
 .idt-card li {
-  color: #d7e5ff;
+  color: #d7dce8;
 }
 
 .idt-card ul,
@@ -514,7 +551,7 @@ h3 {
 }
 
 .idt-feature-callout {
-  border-left: 4px solid var(--idt-accent);
+  border-left: 3px solid rgba(255, 255, 255, 0.58);
 }
 
 .idt-demo-surface {
@@ -535,17 +572,20 @@ h3 {
 .idt-demo-node {
   position: absolute;
   border-radius: 999px;
-  border: 1px solid rgba(0, 229, 201, 0.5);
-  background: rgba(0, 229, 201, 0.12);
-  color: #d8fff8;
+  border: 1px solid rgba(215, 227, 255, 0.36);
+  background: rgba(255, 255, 255, 0.06);
+  color: #dce6ff;
   font-weight: 600;
-  padding: 0.54rem 0.95rem;
+  padding: 0.5rem 0.9rem;
   cursor: pointer;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
 }
 
 .idt-demo-node.is-active {
-  background: rgba(0, 229, 201, 0.25);
-  box-shadow: 0 0 0 2px rgba(0, 229, 201, 0.4);
+  background: rgba(137, 169, 255, 0.28);
+  box-shadow: 0 0 0 2px rgba(137, 169, 255, 0.38);
 }
 
 .idt-demo-node:nth-of-type(1) {
@@ -576,7 +616,7 @@ h3 {
 .idt-demo-connector {
   position: absolute;
   height: 2px;
-  background: linear-gradient(90deg, transparent, #00e5c9, transparent);
+  background: linear-gradient(90deg, transparent, #8aa9ff, transparent);
 }
 
 .idt-demo-connector.c1 {
@@ -621,8 +661,8 @@ h3 {
 }
 
 .idt-steps li {
-  border: 1px solid rgba(0, 229, 201, 0.28);
-  background: rgba(16, 29, 56, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(11, 11, 13, 0.84);
   border-radius: 14px;
   padding: 1rem;
 }
@@ -653,12 +693,15 @@ h3 {
 }
 
 .idt-compare-table th {
-  background: rgba(0, 229, 201, 0.12);
-  color: #defaf5;
+  background: rgba(255, 255, 255, 0.05);
+  color: #f4f7ff;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
 }
 
 .idt-compare-table td {
-  color: #d5e5ff;
+  color: #d0d6e2;
 }
 
 .idt-quote-row {
@@ -671,12 +714,12 @@ h3 {
   border: 1px solid var(--idt-line);
   border-radius: 16px;
   padding: 1rem;
-  background: rgba(16, 29, 56, 0.7);
+  background: rgba(11, 11, 13, 0.8);
 }
 
 .idt-quote-card p {
   margin: 0 0 1rem;
-  color: #e5f1ff;
+  color: #e3e8f5;
 }
 
 .idt-quote-card strong {
@@ -712,17 +755,17 @@ h3 {
 .idt-form-grid input,
 .idt-form-grid select {
   width: 100%;
-  border: 1px solid rgba(169, 184, 211, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 12px;
   min-height: 42px;
   padding: 0.62rem 0.75rem;
-  background: rgba(10, 20, 40, 0.76);
+  background: rgba(7, 7, 9, 0.9);
   color: #fff;
 }
 
 .idt-roi-output {
-  border: 1px solid rgba(0, 229, 201, 0.26);
-  background: rgba(0, 229, 201, 0.08);
+  border: 1px solid rgba(137, 169, 255, 0.42);
+  background: rgba(137, 169, 255, 0.11);
   border-radius: 12px;
   padding: 0.88rem;
 }
@@ -756,11 +799,11 @@ h3 {
 
 .idt-form-success {
   margin-bottom: 0;
-  border: 1px solid rgba(0, 229, 201, 0.34);
+  border: 1px solid rgba(137, 169, 255, 0.45);
   border-radius: 12px;
-  background: rgba(0, 229, 201, 0.14);
+  background: rgba(137, 169, 255, 0.14);
   padding: 0.75rem;
-  color: #dcfff8;
+  color: #ecf2ff;
 }
 
 .idt-lead-form.is-compact {
@@ -778,8 +821,8 @@ h3 {
   width: 100%;
   min-height: 680px;
   border-radius: 12px;
-  border: 1px solid rgba(169, 184, 211, 0.35);
-  background: #081124;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #09090b;
 }
 
 .idt-page-hero {
@@ -809,7 +852,7 @@ h3 {
 }
 
 .idt-pricing-toggle button span {
-  color: var(--idt-accent);
+  color: #c8d5f3;
   margin-left: 0.2rem;
 }
 
@@ -830,8 +873,8 @@ h3 {
 }
 
 .idt-pricing-card.is-featured {
-  border-color: rgba(0, 229, 201, 0.62);
-  box-shadow: 0 20px 60px rgba(0, 229, 201, 0.2);
+  border-color: rgba(137, 169, 255, 0.68);
+  box-shadow: 0 20px 60px rgba(42, 62, 110, 0.35);
 }
 
 .idt-badge {
@@ -839,8 +882,8 @@ h3 {
   display: inline-flex;
   border-radius: 999px;
   padding: 0.3rem 0.7rem;
-  background: rgba(0, 229, 201, 0.18);
-  color: #dcfff8;
+  background: rgba(137, 169, 255, 0.2);
+  color: #f2f6ff;
   font-weight: 700;
   font-size: 0.76rem;
 }
@@ -871,14 +914,14 @@ h3 {
   justify-content: space-between;
   gap: 0.6rem;
   margin-bottom: 0.4rem;
-  color: var(--idt-accent);
+  color: #dce7ff;
   font-weight: 700;
   font-size: 0.82rem;
 }
 
 .idt-doc-tags,
 .idt-muted-strong {
-  color: #99afd0;
+  color: #a8afbf;
   font-weight: 600;
   font-size: 0.9rem;
 }
@@ -893,58 +936,143 @@ h3 {
 }
 
 .idt-footer {
-  border-top: 1px solid var(--idt-line);
-  background: rgba(5, 12, 24, 0.84);
   margin-top: 2rem;
 }
 
-.idt-footer-grid {
+.idt-footer-showcase {
+  border-top: 1px solid var(--idt-line);
+  border-bottom: 1px solid var(--idt-line);
+  background:
+    radial-gradient(circle at 80% 20%, rgba(137, 169, 255, 0.1), transparent 38%),
+    linear-gradient(180deg, #070709 0%, #040405 100%);
+  color: #f5f7fb;
+}
+
+.idt-footer-showcase .idt-shell {
+  padding: clamp(2.4rem, 6vw, 4rem) 0;
+}
+
+.idt-footer-showcase h2 {
+  margin-bottom: 1rem;
+}
+
+.idt-benefits-row {
   display: grid;
-  grid-template-columns: 2fr repeat(3, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.idt-benefits-row span {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  font-weight: 700;
+  text-align: center;
+  padding: 0.8rem 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.72rem;
+}
+
+.idt-footer-showcase p {
+  margin: 1.1rem 0 1.2rem;
+  max-width: 70ch;
+  color: #c4ccdc;
+}
+
+.idt-footer-cta-row {
+  max-width: 640px;
+}
+
+.idt-footer-super-cta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   gap: 1rem;
-  padding: 2rem 0;
-}
-
-.idt-footer-brand {
-  margin-bottom: 0.8rem;
-}
-
-.idt-footer-copy {
-  margin: 0;
-  max-width: 46ch;
-  color: #b8cae7;
-}
-
-.idt-footer h3 {
-  font-size: 0.95rem;
-  margin-bottom: 0.6rem;
-}
-
-.idt-footer ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 0.35rem;
-}
-
-.idt-footer a {
-  color: #d8e6ff;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #f3f6ff 0%, #e6ebf8 100%);
+  color: #030303;
   text-decoration: none;
+  padding: 1.1rem 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.84);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
 }
 
-.idt-footer a:hover,
-.idt-footer a:focus-visible {
-  color: var(--idt-accent);
+.idt-footer-super-cta span {
+  font-family: var(--idt-display);
+  font-size: 1.12rem;
 }
 
-.idt-footer-bottom {
-  padding: 0.8rem 0 1.2rem;
-  border-top: 1px solid rgba(169, 184, 211, 0.2);
+.idt-footer-super-cta small {
+  color: rgba(3, 3, 3, 0.72);
+  text-align: right;
 }
 
-.idt-footer-bottom small {
-  color: var(--idt-text-muted);
+.idt-footer-bar {
+  background: #050507;
+  color: #f5f7fb;
+}
+
+.idt-footer-bar-row {
+  min-height: 88px;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 1rem;
+  align-items: center;
+}
+
+.idt-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.idt-footer-links a {
+  color: #f5f7fb;
+  text-decoration: none;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.73rem;
+}
+
+.idt-footer-links a:hover,
+.idt-footer-links a:focus-visible {
+  text-decoration: underline;
+}
+
+.idt-footer-bar-row small {
+  color: rgba(245, 247, 251, 0.78);
+  font-weight: 600;
+}
+
+.idt-footer-socials {
+  display: flex;
+  gap: 0.45rem;
+}
+
+.idt-social-link {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  color: #f5f7fb;
+  border: 1px solid rgba(255, 255, 255, 0.23);
+  background: rgba(255, 255, 255, 0.04);
+  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+
+.idt-social-link:hover,
+.idt-social-link:focus-visible {
+  border-color: rgba(215, 227, 255, 0.75);
+  background: rgba(137, 169, 255, 0.22);
+  transform: translateY(-1px);
+}
+
+.idt-social-link svg {
+  width: 18px;
+  height: 18px;
 }
 
 .idt-modal-backdrop {
@@ -959,9 +1087,9 @@ h3 {
 
 .idt-modal {
   width: min(100%, 680px);
-  border: 1px solid rgba(0, 229, 201, 0.4);
+  border: 1px solid rgba(137, 169, 255, 0.52);
   border-radius: 18px;
-  background: #0f1f3d;
+  background: #0d1017;
   box-shadow: var(--idt-shadow);
   padding: 1.2rem;
   position: relative;
@@ -1019,7 +1147,6 @@ h3 {
 
   .idt-hero-grid,
   .idt-demo-surface,
-  .idt-footer-grid,
   .idt-pricing-grid,
   .idt-roi-grid,
   .idt-card-grid.two-col,
@@ -1040,10 +1167,14 @@ h3 {
     min-height: 380px;
   }
 
-  .idt-deployment-inner {
-    flex-direction: column;
+  .idt-benefits-row {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-footer-bar-row {
+    grid-template-columns: 1fr;
     align-items: flex-start;
-    padding: 0.8rem 0;
+    padding: 0.9rem 0;
   }
 }
 
