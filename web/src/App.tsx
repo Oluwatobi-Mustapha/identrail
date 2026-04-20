@@ -2085,6 +2085,21 @@ function DocsPage() {
       </section>
 
       <section className="idt-section idt-shell">
+        <div className="idt-card-grid three-col">
+          {DOC_ENTRIES.slice(0, 3).map((entry) => (
+            <article key={entry.href} className="idt-card idt-doc-highlight-card">
+              <p className="idt-eyebrow">Quickstart</p>
+              <h2>{entry.title}</h2>
+              <p>{entry.description}</p>
+              <SafeLink href={entry.href} className="idt-inline-link">
+                Open guide
+              </SafeLink>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="idt-section idt-shell">
         <label className="idt-search" htmlFor="docs-query">
           Search docs topics
           <input
@@ -2096,18 +2111,28 @@ function DocsPage() {
           />
         </label>
 
-        <div className="idt-card-grid two-col idt-docs-grid">
-          {filtered.map((entry) => (
-            <article key={entry.href} className="idt-card">
-              <h2>{entry.title}</h2>
-              <p>{entry.description}</p>
-              <p className="idt-doc-tags">{entry.tags.join(' / ')}</p>
-              <SafeLink href={entry.href} className="idt-btn idt-btn-ghost">
-                Read guide
-              </SafeLink>
-            </article>
-          ))}
-        </div>
+        {filtered.length > 0 ? (
+          <div className="idt-card-grid two-col idt-docs-grid">
+            {filtered.map((entry) => (
+              <article key={entry.href} className="idt-card">
+                <h2>{entry.title}</h2>
+                <p>{entry.description}</p>
+                <p className="idt-doc-tags">{entry.tags.join(' / ')}</p>
+                <SafeLink href={entry.href} className="idt-btn idt-btn-ghost">
+                  Read guide
+                </SafeLink>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <article className="idt-card idt-empty-state">
+            <h2>No docs match that query</h2>
+            <p>Try a broader search term such as aws, kubernetes, deployment, or security.</p>
+            <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-ghost">
+              Browse full docs index
+            </SafeLink>
+          </article>
+        )}
       </section>
 
       <section className="idt-section idt-shell">
@@ -2155,20 +2180,23 @@ function BlogPage() {
   );
 }
 
-function BlogPostPage() {
-  const { slug = '' } = useParams();
-  const post = BLOG_POSTS.find((item) => item.slug === slug);
+function BlogArticlePage() {
+  const { slug } = useParams<{ slug: string }>();
+  const post = BLOG_POSTS.find((entry) => entry.slug === slug);
+  const seoTitle = post ? `${post.title} | Identrail Blog` : 'Blog Article | Identrail';
+  const seoDescription = post ? post.description : 'Explore machine identity security guidance from Identrail.';
+  const seoPath = post ? `/blog/${post.slug}` : '/blog';
+
+  useSeo({
+    title: seoTitle,
+    description: seoDescription,
+    path: seoPath,
+    schemaType: 'Article'
+  });
 
   if (!post) {
     return <NotFoundPage />;
   }
-
-  useSeo({
-    title: `${post.title} | Identrail Blog`,
-    description: post.description,
-    path: `/blog/${post.slug}`,
-    schemaType: 'Article'
-  });
 
   return (
     <>
@@ -2177,19 +2205,34 @@ function BlogPostPage() {
         <h1>{post.title}</h1>
         <p>{post.description}</p>
       </section>
+
       <section className="idt-section idt-shell">
-        <p>
-          Full article publishing is in progress. In the meantime, book a guided walkthrough to map this topic to your machine
-          identity rollout.
-        </p>
-        <div className="idt-inline-actions">
-          <Link to="/demo" className="idt-btn idt-btn-primary">
-            Book a demo
-          </Link>
-          <Link to="/blog" className="idt-btn idt-btn-ghost">
-            Back to blog
-          </Link>
-        </div>
+        <article className="idt-card idt-blog-article">
+          <p>
+            Machine identity security failures are rarely one bad permission in isolation. They are usually trust chains that span
+            cloud IAM, Kubernetes, OIDC federation, and CI workflows.
+          </p>
+          <h2>What this means for operating teams</h2>
+          <p>
+            Treat identity relationships as a graph, not disconnected policy files. This reveals which non-human identities can
+            actually reach sensitive systems and where blast radius expands.
+          </p>
+          <h2>What to implement next</h2>
+          <ul>
+            <li>Continuously map trust paths from machine principals to critical resources.</li>
+            <li>Prioritize high-severity paths with reachable production impact.</li>
+            <li>Simulate trust-policy hardening before enforcement in production.</li>
+            <li>Record remediation outcomes for audit and executive risk reporting.</li>
+          </ul>
+          <div className="idt-inline-actions">
+            <Link to="/pricing" className="idt-btn idt-btn-primary">
+              Start Free Risk Scan
+            </Link>
+            <Link to="/blog" className="idt-btn idt-btn-ghost">
+              Back to Blog
+            </Link>
+          </div>
+        </article>
       </section>
     </>
   );
@@ -2410,7 +2453,7 @@ export function RoutedSite() {
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />
           <Route path="/blog" element={<BlogPage />} />
-          <Route path="/blog/:slug" element={<BlogPostPage />} />
+          <Route path="/blog/:slug" element={<BlogArticlePage />} />
           <Route path="/security" element={<SecurityPage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/enterprise" element={<EnterprisePage />} />
