@@ -395,22 +395,17 @@ func localRepository(target string) (repositoryLocation, bool) {
 	if !looksLikeLocalPath(path) {
 		return repositoryLocation{}, false
 	}
-	if isGitWorktree(path) {
-		absolute, absErr := filepath.Abs(path)
-		if absErr != nil {
-			absolute = path
-		}
+
+	absolute, absErr := filepath.Abs(filepath.Clean(path))
+	if absErr != nil {
+		return repositoryLocation{}, false
+	}
+
+	if isGitWorktree(absolute) {
 		return repositoryLocation{Path: absolute, Bare: false, Display: absolute}, true
 	}
-	if !isGitBareRepository(path) {
+	if !isGitBareRepository(absolute) {
 		return repositoryLocation{}, false
-	}
-	if _, err := os.Stat(filepath.Join(path, "objects")); err != nil {
-		return repositoryLocation{}, false
-	}
-	absolute, absErr := filepath.Abs(path)
-	if absErr != nil {
-		absolute = path
 	}
 	return repositoryLocation{Path: absolute, Bare: true, Display: absolute}, true
 }
