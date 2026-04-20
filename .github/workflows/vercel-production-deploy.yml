@@ -20,26 +20,18 @@ jobs:
     if: github.repository == 'identrail/identrail'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@4b810e26f7bb2a331c698af186f890cbf20d5f72 # v42.2.0
         with:
-          node-version: "24"
-
-      - name: Install Vercel CLI
-        run: npm install --global vercel@50.37.3
-
-      - name: Pull Vercel Environment Information
-        run: vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
-
-      - name: Build Project Artifacts
-        run: vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
-
-      - name: Deploy to Production
-        run: vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-comment: false
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          target: production
+          force: true
+          root-directory: web
