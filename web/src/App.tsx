@@ -46,10 +46,12 @@ const X_URL = 'https://x.com/identrail';
 const CALENDLY_URL = 'https://calendly.com/identrail/15min';
 
 const NAV_LINKS = [
+  { to: '/product', label: 'Product' },
   { to: '/solutions', label: 'Solutions' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/demo', label: 'Demo' },
   { to: '/docs', label: 'Docs' },
+  { to: '/security', label: 'Security' },
   { to: '/blog', label: 'Blog' }
 ] as const;
 
