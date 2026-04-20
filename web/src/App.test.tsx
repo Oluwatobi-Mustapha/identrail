@@ -10,14 +10,14 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: 'Machine Identities, Fully Visible. Risks, Fully Controlled.'
+        name: 'Identify risky AWS IAM, Kubernetes, and GitHub trust paths before attackers use them.'
       })
     ).toBeInTheDocument();
 
-    expect(screen.getAllByRole('link', { name: /Try Free Hosted SaaS|Start Free Risk Scan/i }).length).toBeGreaterThan(0);
-    expect(screen.getByRole('link', { name: 'Star on GitHub' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Book 15-min Demo' })).toBeInTheDocument();
-    expect(screen.getByText(/Choose Deployment/i)).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Start Free Risk Scan' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: 'Book Demo' }).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Adoption Paths/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Kubernetes service account can assume production AWS role/i).length).toBeGreaterThan(0);
   });
 
   it('renders pricing page routes and key elements', () => {
