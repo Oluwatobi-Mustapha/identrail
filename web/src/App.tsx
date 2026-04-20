@@ -780,6 +780,10 @@ function TrustGraphHeroVisual() {
       <article className="idt-hero-preview-card">
         <p className="idt-hero-preview-title">Sample Finding</p>
         <h3>Kubernetes service account can assume production AWS role</h3>
+        <p className="idt-hero-preview-meta">
+          <span className="idt-severity-pill">High severity</span>
+          <span>Reachable resources: 18</span>
+        </p>
         <dl>
           <div>
             <dt>Severity</dt>
@@ -1278,12 +1282,17 @@ function HomePage() {
     <>
       <section className="idt-hero">
         <div className="idt-shell idt-hero-grid">
-          <div>
+          <div className="idt-hero-copy">
             <p className="idt-eyebrow">Machine Identity Security for AWS, Kubernetes, OIDC, and GitHub</p>
             <h1>Identify risky AWS IAM, Kubernetes, and GitHub trust paths before attackers use them.</h1>
             <p className="idt-lead">
               Identrail discovers machine identities, maps trust paths, and shows cloud identity blast radius reduction actions your team can roll out safely.
             </p>
+            <ul className="idt-hero-points" aria-label="What Identrail does">
+              <li>Discover machine identities and trust relationships across cloud and clusters.</li>
+              <li>Prioritize high-risk paths with clear blast-radius evidence.</li>
+              <li>Simulate remediations before rollout to avoid production breakage.</li>
+            </ul>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
               <a href="#risk-scan-form" className="idt-btn idt-btn-primary">
                 Start Free Risk Scan
