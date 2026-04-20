@@ -41,25 +41,56 @@ const SITE_URL = 'https://identrail.com';
 const GITHUB_REPO = 'https://github.com/identrail/identrail';
 const DOCS_REPO = 'https://github.com/identrail/identrail/tree/main/docs';
 const DISCORD_URL = 'https://discord.gg/7jSUSnQC';
+const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
+const X_URL = 'https://x.com/identrail';
 const CALENDLY_URL = 'https://calendly.com/identrail/15min';
 
 const NAV_LINKS = [
-  { to: '/product', label: 'Product' },
-  { to: '/features', label: 'Features' },
   { to: '/solutions', label: 'Solutions' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/demo', label: 'Demo' },
   { to: '/docs', label: 'Docs' },
-  { to: '/blog', label: 'Blog' },
-  { to: '/security', label: 'Security' }
+  { to: '/blog', label: 'Blog' }
 ] as const;
 
-const TRUSTED_LOGOS = [
-  'Fortune 50 Financial Services',
-  'Global Commerce Platform',
-  'Top 3 Cloud-Native Fintech',
-  'Enterprise Healthcare Provider',
-  'Public Sector Infrastructure Team'
+const CREDIBILITY_SIGNALS = [
+  'Built for cloud security and platform teams',
+  'Open-source core under Apache-2.0',
+  'Public GitHub repository, docs, and changelog',
+  'Security policy and responsible disclosure workflow'
+] as const;
+
+const HOME_FAQ_ITEMS = [
+  {
+    question: 'Is the scan read-only?',
+    answer:
+      'Yes. Identrail discovery connectors are built for read-only collection of identity and trust-path metadata. You control write actions separately through staged policy workflows.'
+  },
+  {
+    question: 'How does Identrail access AWS, Kubernetes, and GitHub data?',
+    answer:
+      'Identrail uses least-privilege service principals, IAM roles, and API tokens to collect machine identity metadata from AWS IAM, Kubernetes RBAC and service accounts, plus repository and workflow signals from Git providers.'
+  },
+  {
+    question: 'What data is stored?',
+    answer:
+      'By default, Identrail stores graph metadata needed for trust-path analysis, findings, and remediation history. Sensitive values such as raw secrets are not required for core trust-path mapping.'
+  },
+  {
+    question: 'Can we self-host?',
+    answer:
+      'Yes. The open-source core is designed for self-hosted evaluation and production environments. Teams can later adopt hosted SaaS or enterprise deployment models without re-platforming.'
+  },
+  {
+    question: 'How does policy simulation avoid breaking production?',
+    answer:
+      'Policy simulation shows which workloads and trust paths would be affected before enforcement. Teams can roll out in stages, monitor impact, and use rollback controls if needed.'
+  },
+  {
+    question: 'What integrations are supported?',
+    answer:
+      'Identrail supports AWS IAM, Kubernetes identities and RBAC, OIDC trust relationships, and Git-based repository/workflow telemetry. Enterprise workflows can connect ticketing and operational controls.'
+  }
 ] as const;
 
 const BLOG_POSTS: BlogPost[] = [
@@ -584,15 +615,19 @@ function SectionTitle({
 }
 
 function LeadCaptureForm({
+  id,
   title,
   caption,
   ctaLabel,
-  compact = false
+  compact = false,
+  variant = 'full'
 }: {
+  id?: string;
   title: string;
   caption: string;
   ctaLabel: string;
   compact?: boolean;
+  variant?: 'full' | 'short';
 }) {
   const [submitted, setSubmitted] = useState(false);
 
@@ -602,35 +637,50 @@ function LeadCaptureForm({
   };
 
   return (
-    <section className={`idt-lead-form ${compact ? 'is-compact' : ''}`} aria-label={title}>
+    <section id={id} className={`idt-lead-form ${compact ? 'is-compact' : ''}`} aria-label={title}>
       <h3>{title}</h3>
       <p>{caption}</p>
 
       {!submitted ? (
-        <form onSubmit={handleSubmit} className="idt-form-grid">
+        <form onSubmit={handleSubmit} className={`idt-form-grid ${variant === 'short' ? 'is-short' : ''}`}>
           <label>
             Work email
             <input required type="email" name="email" autoComplete="email" placeholder="you@company.com" />
           </label>
           <label>
-            Company
-            <input required type="text" name="company" autoComplete="organization" placeholder="Acme Corp" />
-          </label>
-          <label>
-            Biggest challenge
-            <select name="challenge" defaultValue="Trust path visibility">
-              <option>Trust path visibility</option>
-              <option>Overprivileged service accounts</option>
-              <option>Credential leak response</option>
-              <option>Authorization rollout safety</option>
+            Primary environment
+            <select name="environment" defaultValue="AWS IAM + Kubernetes">
+              <option>AWS IAM + Kubernetes</option>
+              <option>AWS IAM</option>
+              <option>Kubernetes</option>
+              <option>GitHub/GitOps pipelines</option>
+              <option>Hybrid cloud</option>
             </select>
           </label>
+          {variant === 'full' ? (
+            <>
+              <label>
+                Company (optional)
+                <input type="text" name="company" autoComplete="organization" placeholder="Acme Corp" />
+              </label>
+              <label>
+                Biggest challenge
+                <select name="challenge" defaultValue="Trust path visibility">
+                  <option>Trust path visibility</option>
+                  <option>Overprivileged service accounts</option>
+                  <option>Credential leak response</option>
+                  <option>Authorization rollout safety</option>
+                </select>
+              </label>
+            </>
+          ) : null}
           <button type="submit" className="idt-btn idt-btn-primary">
             {ctaLabel}
           </button>
+          <p className="idt-form-note">Receive a practical 30-day machine identity risk reduction plan.</p>
         </form>
       ) : (
-        <p className="idt-form-success">Thanks. We will send a practical risk assessment framework within one business day.</p>
+        <p className="idt-form-success">Thanks. We will send your machine identity risk reduction plan within one business day.</p>
       )}
     </section>
   );
@@ -682,15 +732,14 @@ function ExitIntentPopup() {
         <button className="idt-modal-close" type="button" onClick={close} aria-label="Close">
           x
         </button>
-        <h3 id="exit-modal-title">Before you leave: get your free machine identity risk assessment</h3>
-        <p>
-          Receive a practical checklist for AWS IAM, Kubernetes RBAC, and Git exposure risk.
-        </p>
+        <h3 id="exit-modal-title">Before you leave: run a free machine identity risk scan</h3>
+        <p>Identify risky AWS IAM, Kubernetes, and GitHub trust paths before attackers use them.</p>
         <LeadCaptureForm
           compact
-          title="Risk Assessment"
-          caption="No spam. One actionable email with implementation steps."
-          ctaLabel="Send Risk Checklist"
+          variant="short"
+          title="Start Free Risk Scan"
+          caption="No spam. One actionable plan for cloud identity blast radius reduction."
+          ctaLabel="Start Free Risk Scan"
         />
       </div>
     </div>
@@ -717,17 +766,35 @@ function CalendlyEmbed() {
 
 function TrustGraphHeroVisual() {
   return (
-    <div className="idt-graph-visual" aria-hidden="true">
+    <div className="idt-graph-visual" aria-label="Trust path product preview">
       <div className="idt-graph-grid" />
-      <div className="idt-node idt-node-root">OIDC Provider</div>
-      <div className="idt-node idt-node-role">AWS Role: payment-prod</div>
-      <div className="idt-node idt-node-k8s">K8s SA: checkout-api</div>
-      <div className="idt-node idt-node-repo">Git Repo: deploy-config</div>
+      <div className="idt-node idt-node-root">GitHub Actions OIDC</div>
+      <div className="idt-node idt-node-role">AWS Role: billing-prod</div>
+      <div className="idt-node idt-node-k8s">K8s SA: payments-api</div>
+      <div className="idt-node idt-node-repo">RDS: billing-ledger</div>
       <span className="idt-edge idt-edge-a" />
       <span className="idt-edge idt-edge-b" />
       <span className="idt-edge idt-edge-c" />
       <span className="idt-pulse idt-pulse-a" />
       <span className="idt-pulse idt-pulse-b" />
+      <article className="idt-hero-preview-card">
+        <p className="idt-hero-preview-title">Sample Finding</p>
+        <h3>Kubernetes service account can assume production AWS role</h3>
+        <dl>
+          <div>
+            <dt>Severity</dt>
+            <dd className="idt-severity-high">High</dd>
+          </div>
+          <div>
+            <dt>Path</dt>
+            <dd>GitHub Actions → OIDC Provider → AWS Role → RDS Billing Resource</dd>
+          </div>
+          <div>
+            <dt>Fix</dt>
+            <dd>Restrict trust policy conditions and scope role permissions.</dd>
+          </div>
+        </dl>
+      </article>
     </div>
   );
 }
@@ -792,14 +859,62 @@ function TrustGraphDemo() {
         </ul>
         <div className="idt-inline-actions">
           <Link to="/pricing" className="idt-btn idt-btn-primary">
-            Try Free Hosted SaaS
+            Start Free Risk Scan
           </Link>
-          <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
-            Run Self-Hosted
-          </SafeLink>
+          <Link to="/enterprise" className="idt-btn idt-btn-dark">
+            Book Demo
+          </Link>
         </div>
       </aside>
     </section>
+  );
+}
+
+type RoiNumberFieldProps = {
+  id: string;
+  label: string;
+  value: number;
+  min: number;
+  step: number;
+  onChange: (value: number) => void;
+};
+
+function RoiNumberField({ id, label, value, min, step, onChange }: RoiNumberFieldProps) {
+  const updateValue = (next: number) => {
+    const safe = Math.max(min, Math.round(next));
+    onChange(safe);
+  };
+
+  return (
+    <label htmlFor={id} className="idt-roi-field">
+      <span>{label}</span>
+      <div className="idt-roi-input-wrap">
+        <input
+          id={id}
+          className="idt-roi-number-input"
+          type="number"
+          min={min}
+          step={step}
+          inputMode="numeric"
+          value={value}
+          onChange={(event) => {
+            const parsed = Number(event.target.value);
+            if (Number.isNaN(parsed)) {
+              return;
+            }
+            updateValue(parsed);
+          }}
+        />
+        <div className="idt-roi-stepper" role="group" aria-label={`${label} controls`}>
+          <button type="button" onClick={() => updateValue(value - step)} aria-label={`Decrease ${label}`}>
+            −
+          </button>
+          <button type="button" onClick={() => updateValue(value + step)} aria-label={`Increase ${label}`}>
+            +
+          </button>
+        </div>
+      </div>
+    </label>
   );
 }
 
@@ -830,33 +945,30 @@ function RoiCalculator() {
         body="Estimate impact from reduced machine identity incidents and faster remediation workflows."
       />
       <div className="idt-roi-grid">
-        <label>
-          Number of machine identities
-          <input
-            type="number"
-            min={100}
-            value={identities}
-            onChange={(event) => setIdentities(Number(event.target.value || 0))}
-          />
-        </label>
-        <label>
-          Average machine-identity incident cost (USD)
-          <input
-            type="number"
-            min={10000}
-            value={incidentCost}
-            onChange={(event) => setIncidentCost(Number(event.target.value || 0))}
-          />
-        </label>
-        <label>
-          Weekly hours spent on identity triage
-          <input
-            type="number"
-            min={1}
-            value={hoursPerWeek}
-            onChange={(event) => setHoursPerWeek(Number(event.target.value || 0))}
-          />
-        </label>
+        <RoiNumberField
+          id="roi-identities"
+          label="Number of machine identities"
+          value={identities}
+          min={100}
+          step={100}
+          onChange={setIdentities}
+        />
+        <RoiNumberField
+          id="roi-incident-cost"
+          label="Average machine-identity incident cost (USD)"
+          value={incidentCost}
+          min={10000}
+          step={5000}
+          onChange={setIncidentCost}
+        />
+        <RoiNumberField
+          id="roi-triage-hours"
+          label="Weekly hours spent on identity triage"
+          value={hoursPerWeek}
+          min={1}
+          step={1}
+          onChange={setHoursPerWeek}
+        />
 
         <div className="idt-roi-output" aria-live="polite">
           <p>
@@ -879,8 +991,6 @@ function RoiCalculator() {
 
 function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const ctaVariant = useCtaVariant('primary-cta-copy');
-  const primaryCta = ctaVariant === 'b' ? 'Start Free Risk Scan' : 'Try Free Hosted SaaS';
 
   return (
     <header className="idt-header">
@@ -912,7 +1022,7 @@ function Header() {
 
         <div className="idt-header-actions">
           <Link to="/pricing" className="idt-btn idt-btn-primary" data-ab-slot="header_primary_cta">
-            {primaryCta}
+            Start Free Risk Scan
           </Link>
           <Link to="/enterprise" className="idt-btn idt-btn-dark">
             Book Demo
@@ -928,106 +1038,225 @@ function Header() {
 
 function DeploymentPathBanner() {
   return (
-    <section className="idt-deployment-banner" aria-label="Choose deployment">
-      <div className="idt-shell idt-deployment-inner">
-        <p>
-          Choose deployment:
-          <span> Open Source Self-Hosted</span>
-          <span> Hosted SaaS Pro</span>
-          <span> Enterprise Private Deployment</span>
-        </p>
-        <div className="idt-inline-actions idt-inline-actions-tight">
-          <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
-            Deploy OSS
-          </SafeLink>
-          <Link to="/pricing" className="idt-btn idt-btn-primary">
-            Try Hosted SaaS
-          </Link>
-          <Link to="/enterprise" className="idt-btn idt-btn-dark">
-            Talk to Sales
-          </Link>
+    <section className="idt-section idt-shell idt-deployment-bridge" aria-label="Adoption paths">
+      <div className="idt-deployment-panel">
+        <p className="idt-eyebrow">Adoption Paths</p>
+        <h2>Choose the rollout model that matches your security and platform maturity.</h2>
+        <div className="idt-adoption-grid">
+          <article className="idt-adoption-card">
+            <h3>Open Source</h3>
+            <p className="idt-muted-strong">Best for self-hosted evaluation and internal platform control.</p>
+            <p>Run the open-core platform in your environment and validate trust-path findings before wider rollout.</p>
+            <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
+              View Open Source
+            </SafeLink>
+          </article>
+          <article className="idt-adoption-card is-featured">
+            <h3>Hosted SaaS</h3>
+            <p className="idt-muted-strong">Best for fast scanning and time-to-value.</p>
+            <p>Start quickly with managed infrastructure while your team focuses on machine identity risk reduction.</p>
+            <Link to="/pricing" className="idt-btn idt-btn-primary">
+              Start Free Risk Scan
+            </Link>
+          </article>
+          <article className="idt-adoption-card">
+            <h3>Enterprise</h3>
+            <p className="idt-muted-strong">Best for private deployment, procurement, and advanced controls.</p>
+            <p>Deploy with enterprise governance requirements, support expectations, and security program alignment.</p>
+            <Link to="/enterprise" className="idt-btn idt-btn-dark">
+              Book Demo
+            </Link>
+          </article>
         </div>
       </div>
     </section>
   );
 }
 
-function Footer() {
+function HomeCredibilityStrip() {
   return (
-    <footer className="idt-footer">
-      <div className="idt-shell idt-footer-grid">
-        <div>
-          <Link to="/" className="idt-brand idt-footer-brand">
-            <img src="/identrail-logo.png" width="30" height="30" alt="Identrail" />
-            <span>
-              Identrail
-              <small>Open-core machine identity platform</small>
-            </span>
-          </Link>
-          <p className="idt-footer-copy">
-            Discover machine identities, map trust paths, detect high-signal risk, and roll out authorization safely.
-          </p>
-        </div>
-
-        <div>
-          <h3>Product</h3>
-          <ul>
-            <li>
-              <Link to="/product">Platform Overview</Link>
-            </li>
-            <li>
-              <Link to="/features">Features</Link>
-            </li>
-            <li>
-              <Link to="/demo">Interactive Trust Graph</Link>
-            </li>
-            <li>
-              <Link to="/pricing">Pricing</Link>
-            </li>
-          </ul>
-        </div>
-
-        <div>
-          <h3>Resources</h3>
-          <ul>
-            <li>
-              <Link to="/docs">Docs</Link>
-            </li>
-            <li>
-              <Link to="/blog">Blog</Link>
-            </li>
-            <li>
-              <SafeLink href={DISCORD_URL}>Discord</SafeLink>
-            </li>
-            <li>
-              <SafeLink href={GITHUB_REPO}>GitHub</SafeLink>
-            </li>
-          </ul>
-        </div>
-
-        <div>
-          <h3>Company</h3>
-          <ul>
-            <li>
-              <Link to="/about">About</Link>
-            </li>
-            <li>
-              <Link to="/security">Security</Link>
-            </li>
-            <li>
-              <Link to="/terms">Terms</Link>
-            </li>
-            <li>
-              <Link to="/privacy">Privacy</Link>
-            </li>
-            <li>
-              <Link to="/privacy-choices">Privacy Choices</Link>
-            </li>
-          </ul>
+    <section className="idt-trust-strip" aria-label="Credibility and proof">
+      <div className="idt-shell">
+        <p>Built for cloud security and platform teams evaluating machine identity risk.</p>
+        <div className="idt-logo-row">
+          {CREDIBILITY_SIGNALS.map((signal) => (
+            <span key={signal}>{signal}</span>
+          ))}
         </div>
       </div>
-      <div className="idt-footer-bottom idt-shell">
-        <small>Copyright {new Date().getFullYear()} Identrail. Built for platform and security teams.</small>
+    </section>
+  );
+}
+
+function ProductProofFindingSection() {
+  return (
+    <section className="idt-section idt-shell">
+      <SectionTitle
+        eyebrow="Product Proof"
+        title="See a realistic high-risk trust path before you connect anything"
+        body="Identrail surfaces risky machine identity paths with evidence, impact, and remediation guidance security teams can act on immediately."
+      />
+      <div className="idt-finding-proof-grid">
+        <article className="idt-card idt-finding-card">
+          <p className="idt-finding-label">Risk</p>
+          <h3>Kubernetes service account can assume production AWS role</h3>
+          <p>
+            <strong>Severity:</strong> <span className="idt-severity-high">High</span>
+          </p>
+          <p>
+            <strong>Path:</strong> GitHub Actions → OIDC Provider → AWS Role → RDS Billing Resource
+          </p>
+          <p>
+            <strong>Why it matters:</strong> Compromise of CI/CD could reach sensitive production data.
+          </p>
+          <p>
+            <strong>Recommended remediation:</strong> Restrict trust policy conditions and scope role permissions.
+          </p>
+        </article>
+        <article className="idt-card idt-finding-impact">
+          <h3>What teams do next in Identrail</h3>
+          <ul>
+            <li>Inspect every edge in the trust path with source policy evidence.</li>
+            <li>Simulate tighter trust conditions before enforcing policy changes.</li>
+            <li>Roll out in stages to reduce blast radius without breaking production.</li>
+          </ul>
+          <div className="idt-inline-actions">
+            <Link to="/pricing" className="idt-btn idt-btn-primary">
+              Start Free Risk Scan
+            </Link>
+            <Link to="/enterprise" className="idt-btn idt-btn-dark">
+              Book Demo
+            </Link>
+          </div>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function HomeFaqSection() {
+  return (
+    <section className="idt-section idt-shell">
+      <SectionTitle
+        eyebrow="FAQ"
+        title="Answers for security and platform teams evaluating adoption"
+        body="Each answer focuses on safe data access, deployment options, and rollout reliability."
+      />
+      <div className="idt-faq-list">
+        {HOME_FAQ_ITEMS.map((item) => (
+          <details key={item.question} className="idt-faq-item">
+            <summary>{item.question}</summary>
+            <p>{item.answer}</p>
+          </details>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function GitHubIcon() {
+  return (
+    <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M12 2C6.48 2 2 6.59 2 12.25c0 4.52 2.87 8.35 6.84 9.7.5.1.68-.22.68-.49 0-.24-.01-.89-.01-1.75-2.78.62-3.37-1.37-3.37-1.37-.46-1.2-1.12-1.51-1.12-1.51-.92-.64.07-.63.07-.63 1.02.08 1.55 1.07 1.55 1.07.9 1.59 2.37 1.13 2.95.87.09-.67.35-1.13.64-1.39-2.22-.26-4.56-1.14-4.56-5.08 0-1.12.39-2.03 1.03-2.74-.1-.26-.45-1.31.1-2.73 0 0 .84-.27 2.75 1.05A9.4 9.4 0 0 1 12 6.8c.85 0 1.7.12 2.5.36 1.9-1.32 2.74-1.05 2.74-1.05.56 1.42.21 2.47.11 2.73.64.71 1.02 1.62 1.02 2.74 0 3.95-2.35 4.82-4.58 5.08.36.32.67.95.67 1.91 0 1.38-.01 2.49-.01 2.83 0 .27.18.6.69.49A10.25 10.25 0 0 0 22 12.25C22 6.59 17.52 2 12 2Z"
+      />
+    </svg>
+  );
+}
+
+function LinkedInIcon() {
+  return (
+    <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003ZM7.119 20.452H3.555V9h3.564v11.452ZM5.337 7.433a2.063 2.063 0 1 1 0-4.126 2.063 2.063 0 0 1 0 4.126ZM20.452 20.452H16.89V14.89c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.94v5.659H9.344V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286Z"
+      />
+    </svg>
+  );
+}
+
+function DiscordIcon() {
+  return (
+    <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M19.79 5.59A15.66 15.66 0 0 0 15.9 4.4l-.19.4a14.54 14.54 0 0 1 3.71 1.19 11.77 11.77 0 0 0-3.62-1.13c-2.39-.26-4.79-.26-7.18 0A11.7 11.7 0 0 0 5 6a14.56 14.56 0 0 1 3.71-1.19l-.19-.4a15.7 15.7 0 0 0-3.88 1.18C2.2 9.24 1.52 12.79 1.86 16.29a15.95 15.95 0 0 0 4.77 2.42l.95-1.58c-.52-.2-1.01-.45-1.49-.73.13.1.27.19.41.28 2.06 1.15 4.35 1.52 6.5 1.52 2.15 0 4.44-.37 6.49-1.52.14-.09.28-.18.41-.28-.47.28-.97.53-1.49.73l.95 1.58a15.92 15.92 0 0 0 4.77-2.42c.4-4.06-.68-7.58-2.53-10.7ZM9.54 14.14c-.76 0-1.39-.72-1.39-1.61s.61-1.6 1.39-1.6c.78 0 1.4.72 1.39 1.6 0 .9-.61 1.61-1.39 1.61Zm4.93 0c-.76 0-1.39-.72-1.39-1.61s.61-1.6 1.39-1.6c.78 0 1.4.72 1.39 1.6 0 .9-.61 1.61-1.39 1.61Z"
+      />
+    </svg>
+  );
+}
+
+function XIcon() {
+  return (
+    <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M18.901 1.153h3.68l-8.04 9.19 9.46 12.504H16.62l-5.778-7.553-6.607 7.553H.552l8.603-9.834L0 1.154h7.57l5.215 6.882 6.116-6.883Zm-1.291 19.496h2.039L6.463 3.237H4.276L17.61 20.649Z"
+      />
+    </svg>
+  );
+}
+
+function Footer() {
+  const footerLinks = [
+    { to: '/solutions', label: 'Solutions' },
+    { to: '/pricing', label: 'Pricing' },
+    { to: '/demo', label: 'Demo' },
+    { to: '/docs', label: 'Docs' },
+    { to: '/blog', label: 'Blog' },
+    { to: '/privacy', label: 'Privacy' },
+    { to: '/terms', label: 'Terms' }
+  ] as const;
+
+  return (
+    <footer className="idt-footer">
+      <section className="idt-footer-showcase">
+        <div className="idt-shell">
+          <h2>Benefits</h2>
+          <div className="idt-benefits-row">
+            <span>Fast OSS Start</span>
+            <span>Enterprise-Ready Controls</span>
+            <span>Trust Graph Clarity</span>
+            <span>Safer Rollouts</span>
+          </div>
+          <p>
+            Start with the open-core platform, prove value quickly, and move to hosted or enterprise deployment without re-platforming.
+          </p>
+          <div className="idt-footer-cta-row">
+            <Link to="/pricing" className="idt-footer-super-cta">
+              <span>Start Free Risk Scan</span>
+              <small>Try hosted SaaS or choose enterprise rollout</small>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <div className="idt-footer-bar">
+        <div className="idt-shell idt-footer-bar-row">
+          <nav className="idt-footer-links" aria-label="Footer">
+            {footerLinks.map((item) => (
+              <Link key={item.to} to={item.to}>
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+          <small>© {new Date().getFullYear()} Identrail. All rights reserved.</small>
+          <div className="idt-footer-socials">
+            <SafeLink href={X_URL} aria-label="X" className="idt-social-link">
+              <XIcon />
+            </SafeLink>
+            <SafeLink href={LINKEDIN_URL} aria-label="LinkedIn" className="idt-social-link">
+              <LinkedInIcon />
+            </SafeLink>
+            <SafeLink href={GITHUB_REPO} aria-label="GitHub" className="idt-social-link">
+              <GitHubIcon />
+            </SafeLink>
+            <SafeLink href={DISCORD_URL} aria-label="Discord" className="idt-social-link">
+              <DiscordIcon />
+            </SafeLink>
+          </div>
+        </div>
       </div>
     </footer>
   );
@@ -1035,37 +1264,40 @@ function Footer() {
 
 function HomePage() {
   const seo: SeoConfig = {
-    title: 'Identrail | Machine Identities, Fully Visible. Risks, Fully Controlled.',
+    title: 'Machine Identity Security | AWS IAM Trust Path Analysis | Identrail',
     description:
-      'Open-core machine identity security for AWS IAM, Kubernetes RBAC, and Git repositories. Discover trust paths, cut blast radius, and deploy safer authorization controls.',
+      'Identrail delivers machine identity security with AWS IAM trust path analysis, Kubernetes service account risk detection, OIDC security visibility, and cloud identity blast radius reduction.',
     path: '/',
+    keywords:
+      'machine identity security, AWS IAM trust path analysis, Kubernetes service account risk, OIDC security, cloud identity blast radius reduction, GitHub trust path risk',
     schemaType: 'WebPage'
   };
   useSeo(seo);
-
-  const ctaVariant = useCtaVariant('home-hero-primary');
 
   return (
     <>
       <section className="idt-hero">
         <div className="idt-shell idt-hero-grid">
           <div>
-            <p className="idt-eyebrow">Open-Core Machine Identity Security</p>
-            <h1>Machine Identities, Fully Visible. Risks, Fully Controlled.</h1>
+            <p className="idt-eyebrow">Machine Identity Security for AWS, Kubernetes, OIDC, and GitHub</p>
+            <h1>Identify risky AWS IAM, Kubernetes, and GitHub trust paths before attackers use them.</h1>
             <p className="idt-lead">
-              Discover every IAM role, Kubernetes service account, and trust path. Reduce blast radius by 87% in minutes with open-source core and enterprise SaaS.
+              Identrail discovers machine identities, maps trust paths, and shows cloud identity blast radius reduction actions your team can roll out safely.
             </p>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
-              <Link to="/pricing" className="idt-btn idt-btn-primary">
-                {ctaVariant === 'b' ? 'Start Free Risk Scan' : 'Try Free Hosted SaaS'}
-              </Link>
-              <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
-                Star on GitHub
-              </SafeLink>
+              <a href="#risk-scan-form" className="idt-btn idt-btn-primary">
+                Start Free Risk Scan
+              </a>
               <Link to="/enterprise" className="idt-btn idt-btn-dark">
-                Book 15-min Demo
+                Book Demo
               </Link>
             </div>
+            <p className="idt-inline-link-note">
+              Prefer self-hosted evaluation?{' '}
+              <SafeLink href={GITHUB_REPO} className="idt-inline-link">
+                View Open Source on GitHub
+              </SafeLink>
+            </p>
             <div className="idt-kpi-row">
               <article>
                 <strong>87%</strong>
@@ -1077,7 +1309,7 @@ function HomePage() {
               </article>
               <article>
                 <strong>3x faster</strong>
-                <span>Identity triage workflows for security teams</span>
+                <span>Identity triage for cloud security and platform teams</span>
               </article>
             </div>
           </div>
@@ -1085,44 +1317,47 @@ function HomePage() {
         </div>
       </section>
 
-      <section className="idt-trust-strip" aria-label="Trusted by platform teams">
-        <div className="idt-shell">
-          <p>Trusted by platform teams at modern cloud-native organizations</p>
-          <div className="idt-logo-row">
-            {TRUSTED_LOGOS.map((logo) => (
-              <span key={logo}>{logo}</span>
-            ))}
-          </div>
-        </div>
-      </section>
+      <HomeCredibilityStrip />
 
       <section className="idt-section idt-shell">
         <SectionTitle
-          eyebrow="Problem to Solution"
-          title="Machine identity complexity grows faster than most security programs"
-          body="Identrail turns fragmented IAM and RBAC data into a prioritized graph of exposures and remediation paths."
+          eyebrow="Why This Matters"
+          title="Machine identities are hard to secure because trust data is fragmented"
+          body="Cloud teams need one view across AWS IAM, Kubernetes RBAC, OIDC relationships, and GitHub/GitOps workflows to understand real exposure. Identrail delivers machine identity security with AWS IAM trust path analysis, Kubernetes service account risk detection, OIDC security visibility, and cloud identity blast radius reduction."
         />
         <div className="idt-card-grid three-col">
           <article className="idt-card">
-            <h3>Fragmented visibility</h3>
-            <p>Cloud IAM, Kubernetes RBAC, and repository signals live in different systems with no unified risk context.</p>
+            <h3>What is this?</h3>
+            <p>A machine identity security platform focused on risky trust-path discovery and control.</p>
           </article>
           <article className="idt-card">
-            <h3>Blast radius uncertainty</h3>
-            <p>Security teams struggle to answer who can actually reach crown-jewel resources through trust chains.</p>
+            <h3>Why does it matter?</h3>
+            <p>Hidden trust chains can turn one compromised workload into broad access to production resources.</p>
           </article>
           <article className="idt-card">
-            <h3>Risky policy rollouts</h3>
-            <p>Least privilege initiatives stall when policy changes can break production workloads.</p>
+            <h3>What should we do next?</h3>
+            <p>Prioritize high-impact paths and safely reduce overprivileged access with policy simulation.</p>
           </article>
         </div>
       </section>
 
       <section className="idt-section idt-shell">
+        <LeadCaptureForm
+          id="risk-scan-form"
+          variant="short"
+          title="Start your free risk scan in under one minute"
+          caption="Share your work email and environment. Receive a practical 30-day machine identity risk reduction plan."
+          ctaLabel="Start Free Risk Scan"
+        />
+      </section>
+
+      <ProductProofFindingSection />
+
+      <section className="idt-section idt-shell">
         <SectionTitle
-          eyebrow="Interactive Preview"
-          title="Trust Graph teaser"
-          body="Explore one machine trust path and see why this feature is central to triage and remediation velocity."
+          eyebrow="Interactive Trust Graph"
+          title="See trust-path evidence in a product-style preview"
+          body="Follow one machine identity path from source principal to sensitive resource and understand risk severity, blast radius, and remediation options."
         />
         <TrustGraphDemo />
       </section>
@@ -1148,6 +1383,8 @@ function HomePage() {
           </li>
         </ol>
       </section>
+
+      <DeploymentPathBanner />
 
       <section className="idt-section idt-shell">
         <SectionTitle
@@ -1179,9 +1416,9 @@ function HomePage() {
 
       <section className="idt-section idt-shell">
         <SectionTitle
-          eyebrow="Customer Signals"
-          title="Teams improving machine identity posture with measurable outcomes"
-          body="Security and platform organizations use Identrail to cut time-to-remediation and reduce incident exposure."
+          eyebrow="Early User Signals"
+          title="Initial feedback from design-partner cloud teams"
+          body="Placeholder testimonials are shown here until public case studies and named customer logos are published."
         />
         <div className="idt-quote-row" role="list">
           {SOCIAL_QUOTES.map((quote) => (
@@ -1196,29 +1433,31 @@ function HomePage() {
 
       <section className="idt-section idt-shell">
         <RoiCalculator />
+        <p className="idt-roi-disclaimer">
+          ROI assumptions are transparent placeholders based on incident-frequency and triage-time reduction inputs you control.
+        </p>
       </section>
 
-      <section className="idt-section idt-shell idt-final-cta">
+      <HomeFaqSection />
+
+      <section className="idt-section idt-shell idt-final-cta" id="start">
         <SectionTitle
           eyebrow="Get Started"
-          title="Run Identrail your way: hosted SaaS, self-hosted OSS, or enterprise"
-          body="Choose the adoption path that matches your security and platform maturity today."
+          title="Move from trust-path uncertainty to controlled machine identity risk"
+          body="Start with a free risk scan, then book a technical demo for your AWS IAM, Kubernetes, OIDC, and GitHub environment."
         />
         <div className="idt-inline-actions">
           <Link to="/pricing" className="idt-btn idt-btn-primary">
-            Try Free Hosted SaaS
+            Start Free Risk Scan
           </Link>
-          <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
-            Self-Host from GitHub
-          </SafeLink>
           <Link to="/enterprise" className="idt-btn idt-btn-dark">
-            Talk to Sales
+            Book Demo
           </Link>
         </div>
         <LeadCaptureForm
-          title="Get Free Risk Assessment"
-          caption="Tell us your machine identity goals and we will send a practical 30-day plan."
-          ctaLabel="Get Free Risk Assessment"
+          title="Get your machine identity reduction plan"
+          caption="Provide your core context and receive a practical 30-day plan focused on high-risk trust-path reduction."
+          ctaLabel="Start Free Risk Scan"
         />
       </section>
     </>
@@ -2045,7 +2284,7 @@ function NotFoundPage() {
   );
 }
 
-function RoutedSite() {
+export function RoutedSite() {
   useAnalytics();
 
   return (
@@ -2066,11 +2305,9 @@ function RoutedSite() {
             <Route key={page.slug} path={`/features/${page.slug}`} element={<FeatureDetailPage page={page} />} />
           ))}
           <Route path="/solutions" element={<SolutionsPage />} />
-          <Route path="/solutions/aws" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[0]} />} />
-          <Route path="/solutions/kubernetes" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[1]} />} />
-          <Route path="/solutions/multi-cloud" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[2]} />} />
-          <Route path="/solutions/platform-engineering" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[3]} />} />
-          <Route path="/solutions/security-teams" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[4]} />} />
+          {SOLUTION_DEEP_PAGES.map((page) => (
+            <Route key={page.slug} path={`/solutions/${page.slug}`} element={<SolutionDetailPage page={page} />} />
+          ))}
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />
