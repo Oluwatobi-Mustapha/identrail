@@ -1134,6 +1134,275 @@ h3 {
   color: #fff;
 }
 
+.idt-hero-copy {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 18px;
+  padding: clamp(1.15rem, 3vw, 1.85rem);
+  background: linear-gradient(150deg, rgba(14, 14, 17, 0.83), rgba(7, 7, 8, 0.8));
+}
+
+.idt-hero-points {
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.48rem;
+}
+
+.idt-hero-points li {
+  color: #d8deea;
+  font-size: 0.86rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1.45;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+
+.idt-hero-points li::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
+  margin-top: 0.45rem;
+  flex: 0 0 6px;
+}
+
+.idt-inline-link-note {
+  margin: 0.88rem 0 0;
+  color: #bac3d7;
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.idt-inline-link {
+  color: #eaf0ff;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.idt-inline-link:hover,
+.idt-inline-link:focus-visible {
+  text-decoration: underline;
+}
+
+.idt-hero-preview-card {
+  position: absolute;
+  right: 0.85rem;
+  bottom: 0.85rem;
+  z-index: 3;
+  width: min(100% - 1.7rem, 360px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  background: linear-gradient(165deg, rgba(8, 8, 10, 0.95), rgba(14, 14, 17, 0.96));
+  padding: 0.85rem;
+  box-shadow: 0 20px 40px rgba(1, 8, 22, 0.55);
+}
+
+.idt-hero-preview-title {
+  margin: 0;
+  color: #dbe6ff;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.idt-hero-preview-card h3 {
+  margin: 0.5rem 0 0.7rem;
+  font-size: 0.88rem;
+}
+
+.idt-hero-preview-meta {
+  margin: 0 0 0.65rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  align-items: center;
+  color: #c8d6eb;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.idt-severity-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.2rem 0.54rem;
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: rgba(255, 125, 125, 0.15);
+  color: #ffb4b1;
+}
+
+.idt-hero-preview-card dl {
+  margin: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.idt-hero-preview-card dl div {
+  display: grid;
+  gap: 0.14rem;
+}
+
+.idt-hero-preview-card dt {
+  color: #a7b3c8;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.idt-hero-preview-card dd {
+  margin: 0;
+  color: #ecf4ff;
+  font-size: 0.78rem;
+}
+
+.idt-severity-high {
+  color: #ffaca7;
+  font-weight: 800;
+}
+
+.idt-roi-field > span {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.idt-roi-input-wrap {
+  position: relative;
+}
+
+.idt-roi-number-input {
+  min-height: 52px;
+  padding-right: 4.8rem;
+  padding-left: 0.95rem;
+  font-size: clamp(0.95rem, 1.05vw, 1.05rem);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.idt-roi-number-input::-webkit-outer-spin-button,
+.idt-roi-number-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.idt-roi-number-input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+.idt-roi-stepper {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.idt-roi-stepper button {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: rgba(12, 18, 28, 0.95);
+  color: #f8fafc;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.idt-roi-stepper button:hover,
+.idt-roi-stepper button:focus-visible {
+  border-color: rgba(255, 255, 255, 0.64);
+  box-shadow: 0 0 0 2px rgba(245, 247, 251, 0.12);
+}
+
+.idt-form-grid.is-short {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.idt-form-grid.is-short .idt-btn {
+  min-height: 42px;
+}
+
+.idt-form-note {
+  margin: 0;
+  color: #9ca8bf;
+  font-size: 0.8rem;
+}
+
+.idt-finding-proof-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 1rem;
+}
+
+.idt-finding-card {
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.idt-finding-label {
+  margin: 0;
+  color: #d9e2f4;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.idt-finding-card p {
+  margin: 0.5rem 0;
+}
+
+.idt-finding-impact ul {
+  margin-top: 0.6rem;
+}
+
+.idt-faq-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.idt-faq-item {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  background: rgba(11, 11, 13, 0.78);
+  padding: 0.9rem;
+}
+
+.idt-faq-item summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #eef5ff;
+}
+
+.idt-faq-item p {
+  margin: 0.65rem 0 0;
+  color: #c8d2e3;
+}
+
+.idt-roi-disclaimer {
+  margin: 0.85rem 0 0;
+  color: #9eaabd;
+  font-size: 0.82rem;
+}
+
+.idt-connect-cloud {
+  border-top: 1px solid var(--idt-line);
+}
+
 @media (max-width: 1080px) {
   .idt-header-row {
     grid-template-columns: auto auto;
@@ -1175,6 +1444,8 @@ h3 {
   .idt-demo-surface,
   .idt-pricing-grid,
   .idt-roi-grid,
+  .idt-finding-proof-grid,
+  .idt-adoption-grid,
   .idt-card-grid.two-col,
   .idt-card-grid.three-col,
   .idt-quote-row {
@@ -1201,6 +1472,14 @@ h3 {
     grid-template-columns: 1fr;
     align-items: flex-start;
     padding: 0.9rem 0;
+  }
+
+  .idt-form-grid.is-short {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-hero-copy {
+    padding: 1.2rem;
   }
 }
 
@@ -1232,6 +1511,25 @@ h3 {
   .idt-demo-node {
     font-size: 0.72rem;
     padding: 0.45rem 0.7rem;
+  }
+
+  .idt-hero-points li {
+    font-size: 0.82rem;
+  }
+
+  .idt-hero-preview-card {
+    position: static;
+    margin: 1rem;
+    width: auto;
+  }
+
+  .idt-footer-super-cta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .idt-footer-super-cta small {
+    text-align: left;
   }
 
   .idt-calendly iframe {
