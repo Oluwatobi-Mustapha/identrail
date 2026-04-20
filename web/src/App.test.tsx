@@ -17,6 +17,7 @@ describe('App', () => {
     expect(screen.getAllByRole('link', { name: /Try Free Hosted SaaS|Start Free Risk Scan/i }).length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: 'Star on GitHub' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Book 15-min Demo' })).toBeInTheDocument();
+    expect(screen.getByText(/Choose deployment:/i)).toBeInTheDocument();
   });
 
   it('renders pricing page routes and key elements', () => {

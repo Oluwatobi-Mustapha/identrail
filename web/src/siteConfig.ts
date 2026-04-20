@@ -7,24 +7,24 @@ export const siteLinks = {
   company: '/company',
   pricing: '/pricing',
   docs: '/docs',
-  github: 'https://github.com/Oluwatobi-Mustapha/identrail',
+  github: 'https://github.com/identrail/identrail',
   blog: '/blog',
   discord: 'https://discord.gg/7jSUSnQC',
-  starOnGithub: 'https://github.com/Oluwatobi-Mustapha/identrail',
+  starOnGithub: 'https://github.com/identrail/identrail',
   requestDemo: '/request-demo',
-  getStarted: 'https://github.com/Oluwatobi-Mustapha/identrail',
+  getStarted: 'https://github.com/identrail/identrail',
   watchDemo: '/demo',
   contribute: '/contribute',
   quickstartDocker: '/docs/self-host/docker',
-  webSource: 'https://github.com/Oluwatobi-Mustapha/identrail/tree/main/web',
+  webSource: 'https://github.com/identrail/identrail/tree/main/web',
   reportDownload: '/resources/2026-state-of-machine-identity',
   accessGraph: '/product/access-graph',
   platformOverview: '/platform',
   howWeDoIt: '/platform/how-it-works',
-  impactQueries: 'https://github.com/Oluwatobi-Mustapha/identrail',
-  detectionEngine: 'https://github.com/Oluwatobi-Mustapha/identrail/tree/main/internal/detection',
+  impactQueries: 'https://github.com/identrail/identrail',
+  detectionEngine: 'https://github.com/identrail/identrail/tree/main/internal/detection',
   interactiveDemo: '/demo/interactive-trust-graph',
-  agentRelease: 'https://github.com/Oluwatobi-Mustapha/identrail',
+  agentRelease: 'https://github.com/identrail/identrail',
   technicalDocs: '/docs/technical-console',
   findingsDocs: '/docs/findings-queue',
   policyDocs: '/docs/policy-simulation',
@@ -45,7 +45,7 @@ export const siteLinks = {
 } as const;
 
 export const githubRepo = {
-  owner: 'Oluwatobi-Mustapha',
+  owner: 'identrail',
   name: 'identrail'
 } as const;
 
