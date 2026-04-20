@@ -45,6 +45,11 @@ a {
   color: inherit;
 }
 
+:focus-visible {
+  outline: 2px solid rgba(215, 227, 255, 0.72);
+  outline-offset: 2px;
+}
+
 .idt-site {
   min-height: 100vh;
 }
@@ -322,6 +327,25 @@ h3 {
   max-width: 62ch;
 }
 
+.idt-inline-link-note {
+  margin: 0.88rem 0 0;
+  color: #bac3d7;
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.idt-inline-link {
+  color: #ebf0ff;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.idt-inline-link:hover,
+.idt-inline-link:focus-visible {
+  text-decoration: underline;
+}
+
 .idt-inline-actions {
   margin-top: 1.65rem;
   display: flex;
@@ -459,6 +483,63 @@ h3 {
   top: 62%;
   left: 56%;
   animation-delay: 0.95s;
+}
+
+.idt-hero-preview-card {
+  position: absolute;
+  right: 0.85rem;
+  bottom: 0.85rem;
+  z-index: 3;
+  width: min(100% - 1.7rem, 360px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  background: linear-gradient(165deg, rgba(8, 8, 10, 0.95), rgba(14, 14, 17, 0.96));
+  padding: 0.85rem;
+  box-shadow: 0 20px 40px rgba(1, 8, 22, 0.55);
+}
+
+.idt-hero-preview-title {
+  margin: 0;
+  color: #dbe6ff;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.idt-hero-preview-card h3 {
+  margin: 0.5rem 0 0.7rem;
+  font-size: 0.88rem;
+}
+
+.idt-hero-preview-card dl {
+  margin: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.idt-hero-preview-card dl div {
+  display: grid;
+  gap: 0.14rem;
+}
+
+.idt-hero-preview-card dt {
+  color: #a7b3c8;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.idt-hero-preview-card dd {
+  margin: 0;
+  color: #ecf4ff;
+  font-size: 0.78rem;
+}
+
+.idt-severity-high {
+  color: #ffaca7;
+  font-weight: 800;
 }
 
 @keyframes idtPulse {
@@ -776,6 +857,15 @@ h3 {
   color: #d9e9ff;
 }
 
+.idt-roi-field > span {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.idt-roi-input-wrap {
+  position: relative;
+}
+
 .idt-roi input,
 .idt-search input,
 .idt-form-grid input,
@@ -789,6 +879,54 @@ h3 {
   color: #fff;
 }
 
+.idt-roi-number-input {
+  min-height: 52px;
+  padding-right: 4.8rem;
+  padding-left: 0.95rem;
+  font-size: clamp(0.95rem, 1.05vw, 1.05rem);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.idt-roi-number-input::-webkit-outer-spin-button,
+.idt-roi-number-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.idt-roi-number-input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+.idt-roi-stepper {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.idt-roi-stepper button {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: rgba(12, 18, 28, 0.95);
+  color: #f8fafc;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.idt-roi-stepper button:hover,
+.idt-roi-stepper button:focus-visible {
+  border-color: rgba(255, 255, 255, 0.64);
+  box-shadow: 0 0 0 2px rgba(245, 247, 251, 0.12);
+}
+
 .idt-roi-output {
   border: 1px solid rgba(137, 169, 255, 0.42);
   background: rgba(137, 169, 255, 0.11);
@@ -798,6 +936,10 @@ h3 {
 
 .idt-roi-output p {
   margin: 0.35rem 0;
+}
+
+.idt-roi-output strong {
+  font-variant-numeric: tabular-nums;
 }
 
 .idt-roi-total {
@@ -823,6 +965,21 @@ h3 {
   gap: 0.75rem;
 }
 
+.idt-form-grid.is-short {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.idt-form-grid.is-short .idt-btn {
+  min-height: 42px;
+}
+
+.idt-form-note {
+  margin: 0;
+  color: #9ca8bf;
+  font-size: 0.8rem;
+}
+
 .idt-form-success {
   margin-bottom: 0;
   border: 1px solid rgba(137, 169, 255, 0.45);
@@ -837,6 +994,62 @@ h3 {
   background: transparent;
   padding-inline: 0;
   border: 0;
+}
+
+.idt-finding-proof-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 1rem;
+}
+
+.idt-finding-card {
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.idt-finding-label {
+  margin: 0;
+  color: #d9e2f4;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.idt-finding-card p {
+  margin: 0.5rem 0;
+}
+
+.idt-finding-impact ul {
+  margin-top: 0.6rem;
+}
+
+.idt-faq-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.idt-faq-item {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  background: rgba(11, 11, 13, 0.78);
+  padding: 0.9rem;
+}
+
+.idt-faq-item summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #eef5ff;
+}
+
+.idt-faq-item p {
+  margin: 0.65rem 0 0;
+  color: #c8d2e3;
+}
+
+.idt-roi-disclaimer {
+  margin: 0.85rem 0 0;
+  color: #9eaabd;
+  font-size: 0.82rem;
 }
 
 .idt-calendly {
@@ -858,6 +1071,102 @@ h3 {
 .idt-page-hero p {
   color: #d5e3ff;
   max-width: 72ch;
+}
+
+.idt-page-hero {
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 18px;
+  padding: clamp(2rem, 5vw, 3rem);
+  background:
+    radial-gradient(circle at 86% -12%, rgba(137, 169, 255, 0.18), transparent 42%),
+    linear-gradient(155deg, rgba(12, 12, 15, 0.9), rgba(8, 8, 10, 0.84));
+  box-shadow: var(--idt-shadow);
+  overflow: hidden;
+}
+
+.idt-page-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(1px 1px at 22% 20%, rgba(255, 255, 255, 0.42), transparent 60%),
+    radial-gradient(1px 1px at 78% 64%, rgba(255, 255, 255, 0.26), transparent 60%),
+    radial-gradient(1px 1px at 42% 84%, rgba(255, 255, 255, 0.2), transparent 60%);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.idt-page-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.idt-page-hero h1 {
+  margin-bottom: 0.9rem;
+  max-width: 18ch;
+}
+
+.idt-page-hero p {
+  margin-top: 0;
+  color: #d0d8e9;
+}
+
+.idt-page-hero .idt-inline-actions {
+  margin-top: 1.1rem;
+}
+
+.idt-page-hero > .idt-btn {
+  margin-top: 1rem;
+}
+
+.idt-product-capabilities .idt-card,
+.idt-feature-detail-grid .idt-card,
+.idt-solutions-grid .idt-card,
+.idt-solution-detail-grid .idt-card,
+.idt-docs-grid .idt-card,
+.idt-blog-grid .idt-card,
+.idt-security-grid .idt-card,
+.idt-about-grid .idt-card,
+.idt-enterprise-grid .idt-card {
+  height: 100%;
+}
+
+.idt-product-capabilities .idt-card,
+.idt-docs-grid .idt-card,
+.idt-blog-grid .idt-card,
+.idt-security-grid .idt-card,
+.idt-about-grid .idt-card,
+.idt-enterprise-grid .idt-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.idt-docs-grid .idt-btn,
+.idt-blog-grid .idt-btn,
+.idt-enterprise-grid .idt-btn {
+  margin-top: auto;
+}
+
+.idt-blog-grid .idt-chip-row {
+  margin-bottom: 0.7rem;
+}
+
+.idt-pricing-section .idt-pricing-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.idt-pricing-section .idt-pricing-card .idt-btn {
+  margin-top: auto;
+}
+
+.idt-pricing-roi .idt-section-title {
+  margin-bottom: 1rem;
+}
+
+.idt-connect-cloud {
+  border-top: 1px solid var(--idt-line);
 }
 
 .idt-pricing-toggle {
@@ -1175,6 +1484,8 @@ h3 {
   .idt-demo-surface,
   .idt-pricing-grid,
   .idt-roi-grid,
+  .idt-finding-proof-grid,
+  .idt-adoption-grid,
   .idt-card-grid.two-col,
   .idt-card-grid.three-col,
   .idt-quote-row {
@@ -1201,6 +1512,14 @@ h3 {
     grid-template-columns: 1fr;
     align-items: flex-start;
     padding: 0.9rem 0;
+  }
+
+  .idt-form-grid.is-short {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-page-hero {
+    padding: 1.4rem 1.1rem;
   }
 }
 
@@ -1232,6 +1551,21 @@ h3 {
   .idt-demo-node {
     font-size: 0.72rem;
     padding: 0.45rem 0.7rem;
+  }
+
+  .idt-hero-preview-card {
+    position: static;
+    margin: 1rem;
+    width: auto;
+  }
+
+  .idt-footer-super-cta {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .idt-footer-super-cta small {
+    text-align: left;
   }
 
   .idt-calendly iframe {
