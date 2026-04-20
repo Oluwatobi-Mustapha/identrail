@@ -722,7 +722,7 @@ h3 {
 }
 
 .idt-roi-field > span {
-  font-size: 1.02rem;
+  font-size: 0.97rem;
   font-weight: 600;
 }
 
@@ -744,12 +744,12 @@ h3 {
 }
 
 .idt-roi-number-input {
-  min-height: 64px;
-  padding-right: 5.8rem;
+  min-height: 56px;
+  padding-right: 5.2rem;
   padding-left: 0.95rem;
-  font-size: 1.55rem;
-  font-weight: 800;
-  letter-spacing: 0.01em;
+  font-size: clamp(1.08rem, 1.3vw, 1.2rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .idt-roi-number-input::-webkit-outer-spin-button,
@@ -773,13 +773,13 @@ h3 {
 }
 
 .idt-roi-stepper button {
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   border-radius: 10px;
   border: 1px solid rgba(169, 184, 211, 0.45);
   background: rgba(16, 29, 56, 0.92);
   color: #f8fafc;
-  font-size: 1.2rem;
+  font-size: 1.02rem;
   font-weight: 800;
   line-height: 1;
   cursor: pointer;
@@ -800,16 +800,17 @@ h3 {
 
 .idt-roi-output p {
   margin: 0.42rem 0;
-  font-size: 1.03rem;
+  font-size: 0.99rem;
 }
 
 .idt-roi-output strong {
-  font-size: 1.18rem;
+  font-size: 1.06rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .idt-roi-total {
   margin-top: 0.8rem;
-  font-size: 1.15rem;
+  font-size: 1.04rem;
 }
 
 .idt-lead-form {
