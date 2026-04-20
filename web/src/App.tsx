@@ -2294,7 +2294,6 @@ export function RoutedSite() {
       </a>
 
       <Header />
-      <DeploymentPathBanner />
 
       <main id="main-content">
         <Routes>
