@@ -10,7 +10,7 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: 'Identify risky AWS IAM, Kubernetes, and GitHub trust paths before attackers use them.'
+        name: 'See risky machine trust paths before attackers do.'
       })
     ).toBeInTheDocument();
 

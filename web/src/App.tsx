@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserRouter, Link, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
+import { apiClient } from './api/client';
 
 type SeoConfig = {
   title: string;
@@ -611,10 +612,38 @@ function LeadCaptureForm({
   variant?: 'full' | 'short';
 }) {
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setSubmitted(true);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const email = String(formData.get('email') ?? '').trim();
+    const environment = String(formData.get('environment') ?? '').trim();
+    const company = String(formData.get('company') ?? '').trim();
+    const challenge = String(formData.get('challenge') ?? '').trim();
+
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      await apiClient.submitLeadCapture({
+        email,
+        environment,
+        company: company || undefined,
+        challenge: challenge || undefined,
+        source: title,
+        page_path: window.location.pathname
+      });
+      setSubmitted(true);
+      form.reset();
+    } catch (submissionError) {
+      const message = submissionError instanceof Error ? submissionError.message : 'Unable to submit request.';
+      setError(message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -655,9 +684,10 @@ function LeadCaptureForm({
               </label>
             </>
           ) : null}
-          <button type="submit" className="idt-btn idt-btn-primary">
-            {ctaLabel}
+          <button type="submit" className="idt-btn idt-btn-primary" disabled={submitting}>
+            {submitting ? 'Submitting...' : ctaLabel}
           </button>
+          {error ? <p className="idt-form-error">{error} If urgent, use Book Demo.</p> : null}
           <p className="idt-form-note">Receive a practical 30-day machine identity risk reduction plan.</p>
         </form>
       ) : (
