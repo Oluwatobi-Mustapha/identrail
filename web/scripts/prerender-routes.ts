@@ -9,6 +9,248 @@ const webRoot = path.resolve(__dirname, '..');
 const distDir = path.join(webRoot, 'dist');
 const templatePath = path.join(distDir, 'index.html');
 const rootMarker = '<div id="root"></div>';
+const SITE_URL = 'https://www.identrail.com';
+const DEFAULT_KEYWORDS =
+  'machine identity security, AWS IAM trust path analysis, Kubernetes service account risk, OIDC security, cloud identity blast radius reduction';
+
+type RouteMeta = {
+  title: string;
+  description: string;
+  keywords?: string;
+  schemaType?: 'WebPage' | 'Product' | 'Article' | 'AboutPage';
+};
+
+const ROUTE_META: Record<string, RouteMeta> = {
+  '/': {
+    title: 'Machine Identity Security | AWS IAM Trust Path Analysis | Identrail',
+    description:
+      'Identify risky AWS IAM, Kubernetes, and GitHub trust paths before attackers use them with machine identity security built for security and platform teams.',
+    keywords: DEFAULT_KEYWORDS
+  },
+  '/product': {
+    title: 'Product | Identrail Machine Identity Security Platform',
+    description:
+      'Discover machine identities, map trust paths, prioritize risky access, and roll out safer authorization controls with Identrail.',
+    schemaType: 'Product'
+  },
+  '/features': {
+    title: 'Features | AWS IAM, Kubernetes RBAC, Git Scanner, Trust Graph',
+    description:
+      'Explore Identrail features for AWS IAM trust path analysis, Kubernetes service account risk detection, Git scanner workflows, and trust graph visibility.'
+  },
+  '/features/aws': {
+    title: 'AWS IAM Security Feature | Identrail',
+    description:
+      'Map IAM role chains, cross-account trust paths, and high-risk access patterns with explainable machine identity evidence.'
+  },
+  '/features/kubernetes': {
+    title: 'Kubernetes Machine Identity Feature | Identrail',
+    description:
+      'Correlate service accounts, RBAC privileges, and cloud federation paths to reduce Kubernetes machine identity risk safely.'
+  },
+  '/features/git-scanner': {
+    title: 'Git Scanner Feature | Identrail',
+    description:
+      'Scan repositories for credential leaks and risky machine identity patterns, then connect findings to trust-path impact.'
+  },
+  '/features/trust-graph': {
+    title: 'Interactive Trust Graph Feature | Identrail',
+    description:
+      'Visualize trust paths from source identity to sensitive resources and prioritize blast-radius reduction with explainable graph evidence.'
+  },
+  '/solutions': {
+    title: 'Solutions | AWS, Kubernetes, Multi-cloud, Security and Platform Teams',
+    description:
+      'Solution patterns for cloud security, platform engineering, and identity teams managing machine trust paths across AWS and Kubernetes.'
+  },
+  '/solutions/aws': {
+    title: 'AWS Security Teams Solution | Identrail',
+    description:
+      'Reduce AWS IAM blast radius with trust-path evidence, policy simulation, and rollout-safe least-privilege workflows.'
+  },
+  '/solutions/kubernetes': {
+    title: 'Kubernetes Platform Teams Solution | Identrail',
+    description:
+      'Control Kubernetes service account and RBAC risk with end-to-end trust-path visibility and safer rollout workflows.'
+  },
+  '/solutions/multi-cloud': {
+    title: 'Multi-cloud Machine Identity Solution | Identrail',
+    description:
+      'Unify fragmented machine identity posture across cloud environments with consistent trust-path analysis and remediation workflows.'
+  },
+  '/solutions/platform-engineering': {
+    title: 'Platform Engineering Solution | Identrail',
+    description:
+      'Ship safer authorization changes with policy simulation, staged rollout controls, and rollback guardrails.'
+  },
+  '/solutions/security-teams': {
+    title: 'Security Teams Solution | Identrail',
+    description:
+      'Prioritize machine identity findings by exploitability and impact to reduce queue noise and remediation time.'
+  },
+  '/pricing': {
+    title: 'Pricing | Identrail Open Source, Hosted SaaS, and Enterprise',
+    description:
+      'Compare Open Source, Hosted SaaS, and Enterprise machine identity security plans based on team size, deployment needs, and controls.'
+  },
+  '/demo': {
+    title: 'Demo | Interactive Trust Graph and Risk Workflows',
+    description:
+      'Explore an interactive trust graph demo showing machine identity attack-path evidence, risk scoring, and recommended controls.'
+  },
+  '/docs': {
+    title: 'Docs | Identrail Documentation Hub',
+    description:
+      'Read deployment, integration, and operational documentation for Identrail machine identity security workflows.'
+  },
+  '/blog': {
+    title: 'Blog | Machine Identity Security Guides and Insights',
+    description:
+      'Learn practical machine identity security tactics for AWS IAM, Kubernetes service accounts, OIDC trust paths, and blast-radius reduction.'
+  },
+  '/security': {
+    title: 'Security and Compliance | Identrail',
+    description:
+      'Review Identrail security controls, compliance roadmap, disclosure process, and deployment safeguards.'
+  },
+  '/about': {
+    title: 'About | Identrail',
+    description:
+      'Meet Identrail, the open-core machine identity security platform built for cloud security and platform teams.',
+    schemaType: 'AboutPage'
+  },
+  '/enterprise': {
+    title: 'Enterprise | Private Deployment and Advanced Controls',
+    description:
+      'Plan enterprise machine identity security rollout with private deployment options, advanced controls, and support.'
+  },
+  '/privacy': {
+    title: 'Privacy Policy | Identrail',
+    description: 'Read the Identrail privacy policy for website usage and communication practices.'
+  },
+  '/terms': {
+    title: 'Terms of Service | Identrail',
+    description: 'Review the terms governing use of Identrail services and website resources.'
+  },
+  '/privacy-choices': {
+    title: 'Privacy Choices | Identrail',
+    description: 'Manage your privacy choices and communication preferences for Identrail.'
+  }
+};
+
+function getRouteMeta(route: string): RouteMeta {
+  const fallback = ROUTE_META['/'];
+  return ROUTE_META[route] ?? {
+    title: fallback.title,
+    description: fallback.description,
+    keywords: fallback.keywords
+  };
+}
+
+function escapeAttribute(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+function replaceOrAppend(headHtml: string, pattern: RegExp, replacement: string): string {
+  if (pattern.test(headHtml)) {
+    return headHtml.replace(pattern, replacement);
+  }
+
+  return headHtml.replace('</head>', `    ${replacement}\n  </head>`);
+}
+
+function withRouteHead(template: string, route: string): string {
+  const meta = getRouteMeta(route);
+  const canonicalPath = route === '/' ? '/' : route;
+  const canonicalUrl = `${SITE_URL}${canonicalPath}`;
+  const title = escapeAttribute(meta.title);
+  const description = escapeAttribute(meta.description);
+  const keywords = escapeAttribute(meta.keywords ?? DEFAULT_KEYWORDS);
+
+  let html = template;
+  html = replaceOrAppend(html, /<title>[\s\S]*?<\/title>/i, `<title>${title}</title>`);
+  html = replaceOrAppend(
+    html,
+    /<meta\s+name="description"\s+content="[^"]*"\s*\/?>/i,
+    `<meta name="description" content="${description}" />`
+  );
+  html = replaceOrAppend(
+    html,
+    /<meta\s+name="keywords"\s+content="[^"]*"\s*\/?>/i,
+    `<meta name="keywords" content="${keywords}" />`
+  );
+  html = replaceOrAppend(
+    html,
+    /<link\s+rel="canonical"\s+href="[^"]*"\s*\/?>/i,
+    `<link rel="canonical" href="${canonicalUrl}" />`
+  );
+  html = replaceOrAppend(
+    html,
+    /<meta\s+property="og:title"\s+content="[^"]*"\s*\/?>/i,
+    `<meta property="og:title" content="${title}" />`
+  );
+  html = replaceOrAppend(
+    html,
+    /<meta\s+property="og:description"\s+content="[^"]*"\s*\/?>/i,
+    `<meta property="og:description" content="${description}" />`
+  );
+  html = replaceOrAppend(
+    html,
+    /<meta\s+property="og:type"\s+content="[^"]*"\s*\/?>/i,
+    '<meta property="og:type" content="website" />'
+  );
+  html = replaceOrAppend(
+    html,
+    /<meta\s+property="og:url"\s+content="[^"]*"\s*\/?>/i,
+    `<meta property="og:url" content="${canonicalUrl}" />`
+  );
+  html = replaceOrAppend(
+    html,
+    /<meta\s+property="og:image"\s+content="[^"]*"\s*\/?>/i,
+    `<meta property="og:image" content="${SITE_URL}/identrail-logo.png" />`
+  );
+  html = replaceOrAppend(
+    html,
+    /<meta\s+name="twitter:card"\s+content="[^"]*"\s*\/?>/i,
+    '<meta name="twitter:card" content="summary_large_image" />'
+  );
+  html = replaceOrAppend(
+    html,
+    /<meta\s+name="twitter:title"\s+content="[^"]*"\s*\/?>/i,
+    `<meta name="twitter:title" content="${title}" />`
+  );
+  html = replaceOrAppend(
+    html,
+    /<meta\s+name="twitter:description"\s+content="[^"]*"\s*\/?>/i,
+    `<meta name="twitter:description" content="${description}" />`
+  );
+
+  const schema = {
+    '@context': 'https://schema.org',
+    '@type': meta.schemaType ?? 'WebPage',
+    name: meta.title,
+    description: meta.description,
+    url: canonicalUrl,
+    isPartOf: {
+      '@type': 'WebSite',
+      name: 'Identrail',
+      url: SITE_URL
+    }
+  };
+
+  const schemaJson = JSON.stringify(schema).replaceAll('</script', '<\\/script');
+  html = replaceOrAppend(
+    html,
+    /<script\s+id="identrail-schema"\s+type="application\/ld\+json">[\s\S]*?<\/script>/i,
+    `<script id="identrail-schema" type="application/ld+json">${schemaJson}</script>`
+  );
+
+  return html;
+}
 
 function outputDirForRoute(route: string): string {
   if (route === '/') {
@@ -27,7 +269,8 @@ async function main() {
 
   for (const route of PRERENDER_ROUTES) {
     const rendered = await prerender({ url: route });
-    const html = template.replace(rootMarker, `<div id="root">${rendered.html}</div>`);
+    const baseHtml = template.replace(rootMarker, `<div id="root">${rendered.html}</div>`);
+    const html = withRouteHead(baseHtml, route);
     const outputDir = outputDirForRoute(route);
 
     await mkdir(outputDir, { recursive: true });

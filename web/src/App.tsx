@@ -37,7 +37,7 @@ declare global {
   }
 }
 
-const SITE_URL = 'https://identrail.com';
+const SITE_URL = 'https://www.identrail.com';
 const GITHUB_REPO = 'https://github.com/identrail/identrail';
 const DOCS_REPO = 'https://github.com/identrail/identrail/tree/main/docs';
 const DISCORD_URL = 'https://discord.gg/7jSUSnQC';
