@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { apiClient } from './api/client';
@@ -697,6 +697,80 @@ function LeadCaptureForm({
   );
 }
 
+function ModalShell({
+  titleId,
+  onClose,
+  children
+}: {
+  titleId: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const modalRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const getFocusableElements = () =>
+      modalRef.current?.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      ) ?? [];
+
+    getFocusableElements()[0]?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+        return;
+      }
+
+      if (event.key !== 'Tab') {
+        return;
+      }
+
+      const focusableElements = getFocusableElements();
+      if (focusableElements.length === 0) {
+        return;
+      }
+
+      const first = focusableElements[0];
+      const last = focusableElements[focusableElements.length - 1];
+      const active = document.activeElement;
+
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div className="idt-modal-backdrop" role="presentation" onClick={onClose}>
+      <div
+        ref={modalRef}
+        className="idt-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function ExitIntentPopup() {
   const [open, setOpen] = useState(false);
   const dismissedRef = useRef(false);
@@ -738,22 +812,20 @@ function ExitIntentPopup() {
   if (!open) return null;
 
   return (
-    <div className="idt-modal-backdrop" role="presentation" onClick={close}>
-      <div className="idt-modal" role="dialog" aria-modal="true" aria-labelledby="exit-modal-title" onClick={(event) => event.stopPropagation()}>
-        <button className="idt-modal-close" type="button" onClick={close} aria-label="Close">
-          x
-        </button>
-        <h3 id="exit-modal-title">Before you leave: run a free machine identity risk scan</h3>
-        <p>Identify risky AWS IAM, Kubernetes, and GitHub trust paths before attackers use them.</p>
-        <LeadCaptureForm
-          compact
-          variant="short"
-          title="Start Free Risk Scan"
-          caption="No spam. One actionable plan for cloud identity blast radius reduction."
-          ctaLabel="Start Free Risk Scan"
-        />
-      </div>
-    </div>
+    <ModalShell titleId="exit-modal-title" onClose={close}>
+      <button className="idt-modal-close" type="button" onClick={close} aria-label="Close">
+        x
+      </button>
+      <h3 id="exit-modal-title">Before you leave: run a free machine identity risk scan</h3>
+      <p>Identify risky AWS IAM, Kubernetes, and GitHub trust paths before attackers use them.</p>
+      <LeadCaptureForm
+        compact
+        variant="short"
+        title="Start Free Risk Scan"
+        caption="No spam. One actionable plan for cloud identity blast radius reduction."
+        ctaLabel="Start Free Risk Scan"
+      />
+    </ModalShell>
   );
 }
 
@@ -1051,6 +1123,26 @@ function RoiCalculator() {
 
 function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [menuOpen]);
 
   return (
     <header className="idt-header">
@@ -1063,11 +1155,18 @@ function Header() {
           </span>
         </Link>
 
-        <button className="idt-menu-toggle" type="button" onClick={() => setMenuOpen((prev) => !prev)}>
+        <button
+          className="idt-menu-toggle"
+          type="button"
+          onClick={() => setMenuOpen((prev) => !prev)}
+          aria-expanded={menuOpen}
+          aria-controls="primary-nav"
+          aria-label="Toggle primary navigation"
+        >
           Menu
         </button>
 
-        <nav className={`idt-nav ${menuOpen ? 'is-open' : ''}`} aria-label="Primary">
+        <nav id="primary-nav" className={`idt-nav ${menuOpen ? 'is-open' : ''}`} aria-label="Primary">
           {NAV_LINKS.map((item) => (
             <NavLink
               key={item.to}
@@ -1964,26 +2063,24 @@ function PricingPage() {
       </section>
 
       {salesModalOpen ? (
-        <div className="idt-modal-backdrop" onClick={() => setSalesModalOpen(false)} role="presentation">
-          <div className="idt-modal" role="dialog" aria-modal="true" aria-labelledby="sales-modal-title" onClick={(event) => event.stopPropagation()}>
-            <button
-              type="button"
-              className="idt-modal-close"
-              aria-label="Close"
-              onClick={() => setSalesModalOpen(false)}
-            >
-              x
-            </button>
-            <h3 id="sales-modal-title">Contact Enterprise Sales</h3>
-            <p>Tell us your environment size and compliance goals. We will tailor a deployment and pricing plan.</p>
-            <LeadCaptureForm
-              compact
-              title="Enterprise Sales"
-              caption="Expected response time: under 1 business day."
-              ctaLabel="Contact Sales"
-            />
-          </div>
-        </div>
+        <ModalShell titleId="sales-modal-title" onClose={() => setSalesModalOpen(false)}>
+          <button
+            type="button"
+            className="idt-modal-close"
+            aria-label="Close"
+            onClick={() => setSalesModalOpen(false)}
+          >
+            x
+          </button>
+          <h3 id="sales-modal-title">Contact Enterprise Sales</h3>
+          <p>Tell us your environment size and compliance goals. We will tailor a deployment and pricing plan.</p>
+          <LeadCaptureForm
+            compact
+            title="Enterprise Sales"
+            caption="Expected response time: under 1 business day."
+            ctaLabel="Contact Sales"
+          />
+        </ModalShell>
       ) : null}
     </>
   );
