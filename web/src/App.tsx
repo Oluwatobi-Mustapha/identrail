@@ -42,6 +42,7 @@ const GITHUB_REPO = 'https://github.com/identrail/identrail';
 const DOCS_REPO = 'https://github.com/identrail/identrail/tree/main/docs';
 const DISCORD_URL = 'https://discord.gg/7jSUSnQC';
 const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
+const X_URL = 'https://x.com/identrail';
 const CALENDLY_URL = 'https://calendly.com/identrail/15min';
 
 const NAV_LINKS = [
@@ -801,6 +802,54 @@ function TrustGraphDemo() {
   );
 }
 
+type RoiNumberFieldProps = {
+  id: string;
+  label: string;
+  value: number;
+  min: number;
+  step: number;
+  onChange: (value: number) => void;
+};
+
+function RoiNumberField({ id, label, value, min, step, onChange }: RoiNumberFieldProps) {
+  const updateValue = (next: number) => {
+    const safe = Math.max(min, Math.round(next));
+    onChange(safe);
+  };
+
+  return (
+    <label htmlFor={id} className="idt-roi-field">
+      <span>{label}</span>
+      <div className="idt-roi-input-wrap">
+        <input
+          id={id}
+          className="idt-roi-number-input"
+          type="number"
+          min={min}
+          step={step}
+          inputMode="numeric"
+          value={value}
+          onChange={(event) => {
+            const parsed = Number(event.target.value);
+            if (Number.isNaN(parsed)) {
+              return;
+            }
+            updateValue(parsed);
+          }}
+        />
+        <div className="idt-roi-stepper" role="group" aria-label={`${label} controls`}>
+          <button type="button" onClick={() => updateValue(value - step)} aria-label={`Decrease ${label}`}>
+            −
+          </button>
+          <button type="button" onClick={() => updateValue(value + step)} aria-label={`Increase ${label}`}>
+            +
+          </button>
+        </div>
+      </div>
+    </label>
+  );
+}
+
 function RoiCalculator() {
   const [identities, setIdentities] = useState(3200);
   const [incidentCost, setIncidentCost] = useState(195000);
@@ -828,33 +877,30 @@ function RoiCalculator() {
         body="Estimate impact from reduced machine identity incidents and faster remediation workflows."
       />
       <div className="idt-roi-grid">
-        <label>
-          Number of machine identities
-          <input
-            type="number"
-            min={100}
-            value={identities}
-            onChange={(event) => setIdentities(Number(event.target.value || 0))}
-          />
-        </label>
-        <label>
-          Average machine-identity incident cost (USD)
-          <input
-            type="number"
-            min={10000}
-            value={incidentCost}
-            onChange={(event) => setIncidentCost(Number(event.target.value || 0))}
-          />
-        </label>
-        <label>
-          Weekly hours spent on identity triage
-          <input
-            type="number"
-            min={1}
-            value={hoursPerWeek}
-            onChange={(event) => setHoursPerWeek(Number(event.target.value || 0))}
-          />
-        </label>
+        <RoiNumberField
+          id="roi-identities"
+          label="Number of machine identities"
+          value={identities}
+          min={100}
+          step={100}
+          onChange={setIdentities}
+        />
+        <RoiNumberField
+          id="roi-incident-cost"
+          label="Average machine-identity incident cost (USD)"
+          value={incidentCost}
+          min={10000}
+          step={5000}
+          onChange={setIncidentCost}
+        />
+        <RoiNumberField
+          id="roi-triage-hours"
+          label="Weekly hours spent on identity triage"
+          value={hoursPerWeek}
+          min={1}
+          step={1}
+          onChange={setHoursPerWeek}
+        />
 
         <div className="idt-roi-output" aria-live="polite">
           <p>
@@ -980,6 +1026,17 @@ function DiscordIcon() {
   );
 }
 
+function XIcon() {
+  return (
+    <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="m18.9 2 2.7 3.9-6.16 7.04L22 22h-5.2l-4.08-5.33L8.06 22H2.8l6.6-7.54L2 2h5.33l3.72 4.86L15.32 2H18.9Zm-1.82 17.04h1.48L6.48 4.84H4.9l12.18 14.2Z"
+      />
+    </svg>
+  );
+}
+
 function Footer() {
   const footerLinks = [
     { to: '/solutions', label: 'Solutions' },
@@ -1025,14 +1082,17 @@ function Footer() {
           </nav>
           <small>© {new Date().getFullYear()} Identrail. All rights reserved.</small>
           <div className="idt-footer-socials">
+            <SafeLink href={X_URL} aria-label="X" className="idt-social-link">
+              <XIcon />
+            </SafeLink>
+            <SafeLink href={LINKEDIN_URL} aria-label="LinkedIn" className="idt-social-link">
+              <LinkedInIcon />
+            </SafeLink>
             <SafeLink href={GITHUB_REPO} aria-label="GitHub" className="idt-social-link">
               <GitHubIcon />
             </SafeLink>
             <SafeLink href={DISCORD_URL} aria-label="Discord" className="idt-social-link">
               <DiscordIcon />
-            </SafeLink>
-            <SafeLink href={LINKEDIN_URL} aria-label="LinkedIn" className="idt-social-link">
-              <LinkedInIcon />
             </SafeLink>
           </div>
         </div>
