@@ -3,28 +3,34 @@ import { describe, expect, it } from 'vitest';
 import { App } from './App';
 
 describe('App', () => {
-  it('renders hero and top call-to-actions', () => {
+  it('renders homepage hero and conversion CTAs', () => {
+    window.history.pushState({}, '', '/');
     render(<App />);
 
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: 'Machine Identity Reimagined'
+        name: 'Machine Identities, Fully Visible. Risks, Fully Controlled.'
       })
     ).toBeInTheDocument();
 
-    expect(screen.getAllByRole('link', { name: 'Get Started (Open Source)' }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('link', { name: 'Request Demo' }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('link', { name: 'Star on GitHub' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: /Try Free Hosted SaaS|Start Free Risk Scan/i }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: 'Star on GitHub' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Book 15-min Demo' })).toBeInTheDocument();
   });
 
-  it('renders the premium section flow', () => {
+  it('renders pricing page routes and key elements', () => {
+    window.history.pushState({}, '', '/pricing');
     render(<App />);
 
-    expect(screen.getByRole('heading', { name: /One platform. Measurable machine identity outcomes./i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /From machine identity chaos to operating control/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Real security workflows, not just dashboards/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Trusted by teams securing production machine identities/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Integrations that fit your current stack/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: /Choose your rollout path: open source, hosted pro, or enterprise/i
+      })
+    ).toBeInTheDocument();
+
+    expect(screen.getByRole('button', { name: /Annual/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Contact Sales' })).toBeInTheDocument();
   });
 });
