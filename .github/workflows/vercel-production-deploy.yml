@@ -83,7 +83,7 @@ jobs:
 
       - name: Fallback deploy via hook
         id: deploy-hook
-        if: (steps.normalize-token.outputs.has_token != 'true' || steps.verify-token.outcome != 'success' || steps.deploy-action.outcome != 'success') && env.VERCEL_DEPLOY_HOOK_URL != ''
+        if: (steps.normalize-token.outputs.has_token != 'true' || steps.deploy-action.outcome != 'success') && env.VERCEL_DEPLOY_HOOK_URL != ''
         run: |
           set -euo pipefail
           curl -fsS -X POST "$VERCEL_DEPLOY_HOOK_URL" > /tmp/vercel-hook-response.json
