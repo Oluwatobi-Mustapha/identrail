@@ -38,8 +38,8 @@ declare global {
 }
 
 const SITE_URL = 'https://identrail.com';
-const GITHUB_REPO = 'https://github.com/Oluwatobi-Mustapha/identrail';
-const DOCS_REPO = 'https://github.com/Oluwatobi-Mustapha/identrail/tree/main/docs';
+const GITHUB_REPO = 'https://github.com/identrail/identrail';
+const DOCS_REPO = 'https://github.com/identrail/identrail/tree/main/docs';
 const DISCORD_URL = 'https://discord.gg/7jSUSnQC';
 const CALENDLY_URL = 'https://calendly.com/identrail/15min';
 
@@ -133,37 +133,37 @@ const DOC_ENTRIES: DocEntry[] = [
   {
     title: 'Quickstart on Docker',
     description: 'Deploy Identrail locally in under 10 minutes using Docker Compose.',
-    href: 'https://github.com/Oluwatobi-Mustapha/identrail/blob/main/deploy/docker/README.md',
+    href: 'https://github.com/identrail/identrail/blob/main/deploy/docker/README.md',
     tags: ['quickstart', 'docker', 'self-hosted']
   },
   {
     title: 'Deploy Anywhere Runbook',
     description: 'Production deployment guidance for Kubernetes, Helm, Terraform, and systemd.',
-    href: 'https://github.com/Oluwatobi-Mustapha/identrail/blob/main/docs/deployment-anywhere.md',
+    href: 'https://github.com/identrail/identrail/blob/main/docs/deployment-anywhere.md',
     tags: ['deployment', 'kubernetes', 'terraform']
   },
   {
     title: 'Architecture Deep Dive',
     description: 'Understand ingestion pipelines, trust graph construction, and authorization controls.',
-    href: 'https://github.com/Oluwatobi-Mustapha/identrail/blob/main/docs/architecture.md',
+    href: 'https://github.com/identrail/identrail/blob/main/docs/architecture.md',
     tags: ['architecture', 'graph', 'platform']
   },
   {
     title: 'AWS Collector',
     description: 'Collector configuration, permissions, and scaling tips for IAM role and policy discovery.',
-    href: 'https://github.com/Oluwatobi-Mustapha/identrail/blob/main/docs/aws-collector.md',
+    href: 'https://github.com/identrail/identrail/blob/main/docs/aws-collector.md',
     tags: ['aws', 'iam', 'collector']
   },
   {
     title: 'Repo Exposure Scanner',
     description: 'Scan Git repositories for credential leaks and machine identity exposure patterns.',
-    href: 'https://github.com/Oluwatobi-Mustapha/identrail/blob/main/docs/repo-exposure.md',
+    href: 'https://github.com/identrail/identrail/blob/main/docs/repo-exposure.md',
     tags: ['git', 'secrets', 'scanner']
   },
   {
     title: 'Security Hardening Guide',
     description: 'Hardening checklist, supply chain controls, and incident response guidance.',
-    href: 'https://github.com/Oluwatobi-Mustapha/identrail/blob/main/docs/security-hardening.md',
+    href: 'https://github.com/identrail/identrail/blob/main/docs/security-hardening.md',
     tags: ['security', 'hardening', 'operations']
   }
 ];
@@ -260,6 +260,165 @@ const FEATURE_ROWS = [
     openSource: 'Community',
     pro: 'Business-hour support',
     enterprise: '24/7, named TAM, custom SLA'
+  }
+] as const;
+
+const FEATURE_DEEP_PAGES = [
+  {
+    slug: 'aws',
+    navLabel: 'AWS',
+    heroTitle: 'AWS IAM security with path-level explainability',
+    description:
+      'Discover roles, trust policies, and cross-account assumptions in one graph so teams can reduce IAM blast radius with confidence.',
+    bullets: [
+      'Map every role assumption chain and transitive trust path across accounts',
+      'Prioritize overprivileged IAM paths by reachable sensitive resources',
+      'Preview trust-policy hardening before production rollout'
+    ],
+    outcomes: [
+      'Faster IAM triage for security engineering teams',
+      'Clear remediation stories for platform owners',
+      'Reduced high-risk cross-account pathways'
+    ]
+  },
+  {
+    slug: 'kubernetes',
+    navLabel: 'Kubernetes',
+    heroTitle: 'Kubernetes machine identity visibility beyond RBAC tables',
+    description:
+      'Correlate service accounts, tokens, roles, and bindings with cloud federation context to find exploitable privilege paths.',
+    bullets: [
+      'Trace namespace and cluster-level escalation paths from service accounts',
+      'Understand cluster-to-cloud trust bridges through OIDC federation',
+      'Simulate RBAC hardening changes to avoid workload breakage'
+    ],
+    outcomes: [
+      'Lower RBAC drift and accidental privilege growth',
+      'Safer service account governance in production clusters',
+      'Faster root-cause analysis during identity incidents'
+    ]
+  },
+  {
+    slug: 'git-scanner',
+    navLabel: 'Git Scanner',
+    heroTitle: 'Repository exposure scanning tied directly to machine identity risk',
+    description:
+      'Catch leaked credentials and dangerous identity patterns in repositories, then connect each finding to live trust-path impact.',
+    bullets: [
+      'Scan historical and incoming commits for credentials and risky configs',
+      'Tune detection signatures for organization-specific token patterns',
+      'Link findings to trust graph nodes for prioritized remediation'
+    ],
+    outcomes: [
+      'Earlier credential leak detection and containment',
+      'Lower false-priority triage load for security teams',
+      'Stronger software-to-cloud identity governance'
+    ]
+  },
+  {
+    slug: 'trust-graph',
+    navLabel: 'Trust Graph',
+    heroTitle: 'Interactive Trust Graph for machine identity attack-path analysis',
+    description:
+      'Visualize identity relationships end-to-end, inspect every edge, and answer exactly how a machine principal can reach sensitive resources.',
+    bullets: [
+      'Inspect path evidence with policy, principal, and resource context',
+      'Highlight blast-radius expansion from any identity node',
+      'Export remediation stories for engineering execution'
+    ],
+    outcomes: [
+      'Common operating picture across security and platform teams',
+      'Higher-confidence prioritization of real exposure chains',
+      'Faster decision-making for authorization change control'
+    ]
+  }
+] as const;
+
+const SOLUTION_DEEP_PAGES = [
+  {
+    slug: 'aws',
+    navLabel: 'AWS',
+    heroTitle: 'Solution for AWS security teams',
+    description:
+      'Reduce IAM blast radius with explainable trust paths, prioritized exposure queues, and rollout-safe least-privilege workflows.',
+    bullets: [
+      'Continuously discover machine identities and trust relationships in AWS',
+      'Detect high-impact assumption chains and overprivileged role paths',
+      'Coordinate remediation with platform teams through shared graph evidence'
+    ],
+    outcomes: [
+      '60-90% reduction in overprivileged IAM role exposure',
+      'Faster incident-response triage for identity pathways',
+      'Audit-ready visibility into trust policy changes'
+    ]
+  },
+  {
+    slug: 'kubernetes',
+    navLabel: 'Kubernetes',
+    heroTitle: 'Solution for Kubernetes platform teams',
+    description:
+      'Control service-account and RBAC risk in production clusters without slowing down release velocity.',
+    bullets: [
+      'Expose hidden service-account privilege escalation paths',
+      'Correlate RBAC risk with cloud permissions and federated trust',
+      'Roll out safer RBAC policy controls with staged validation'
+    ],
+    outcomes: [
+      'Reduced cluster authorization incidents',
+      'More predictable least-privilege rollouts',
+      'Clear ownership of identity remediation tasks'
+    ]
+  },
+  {
+    slug: 'multi-cloud',
+    navLabel: 'Multi-cloud',
+    heroTitle: 'Solution for multi-cloud machine identity operations',
+    description:
+      'Unify fragmented identity posture and trust-path analysis across cloud and cluster boundaries with one operating model.',
+    bullets: [
+      'Normalize machine identity telemetry into one graph-backed workflow',
+      'Apply consistent triage criteria across environments',
+      'Track policy and exposure changes with centralized evidence'
+    ],
+    outcomes: [
+      'Unified identity risk visibility across environments',
+      'Lower operational overhead for security operations',
+      'Improved governance consistency for compliance programs'
+    ]
+  },
+  {
+    slug: 'platform-engineering',
+    navLabel: 'Platform Engineering',
+    heroTitle: 'Solution for platform engineering organizations',
+    description:
+      'Ship authorization changes faster with simulation and staged rollout controls that protect production reliability.',
+    bullets: [
+      'Preview policy impact before enforcement',
+      'Run controlled rollouts with rollback safety rails',
+      'Share remediation context directly with service owners'
+    ],
+    outcomes: [
+      'Faster delivery of least-privilege controls',
+      'Lower risk of authorization-related outages',
+      'Higher trust between security and platform teams'
+    ]
+  },
+  {
+    slug: 'security-teams',
+    navLabel: 'Security Teams',
+    heroTitle: 'Solution for security operations and detection teams',
+    description:
+      'Prioritize machine identity findings by exploitability and business impact, not by alert volume.',
+    bullets: [
+      'Surface high-signal findings tied to reachable critical assets',
+      'Reduce queue noise with trust-path context and path scoring',
+      'Route ownership quickly to teams that can execute remediation'
+    ],
+    outcomes: [
+      'Lower mean time to remediation for identity findings',
+      'Improved signal-to-noise in security queues',
+      'Stronger executive reporting on identity risk reduction'
+    ]
   }
 ] as const;
 
@@ -767,6 +926,32 @@ function Header() {
   );
 }
 
+function DeploymentPathBanner() {
+  return (
+    <section className="idt-deployment-banner" aria-label="Choose deployment">
+      <div className="idt-shell idt-deployment-inner">
+        <p>
+          Choose deployment:
+          <span> Open Source Self-Hosted</span>
+          <span> Hosted SaaS Pro</span>
+          <span> Enterprise Private Deployment</span>
+        </p>
+        <div className="idt-inline-actions idt-inline-actions-tight">
+          <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
+            Deploy OSS
+          </SafeLink>
+          <Link to="/pricing" className="idt-btn idt-btn-primary">
+            Try Hosted SaaS
+          </Link>
+          <Link to="/enterprise" className="idt-btn idt-btn-dark">
+            Talk to Sales
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Footer() {
   return (
     <footer className="idt-footer">
@@ -1128,6 +1313,53 @@ function FeaturesPage() {
     path: '/features'
   });
 
+  const featureSummaries = [
+    {
+      id: 'aws',
+      title: 'AWS IAM Security',
+      body: 'Discover roles, policies, trust relationships, and cross-account assumptions in one explainable graph.',
+      href: '/features/aws',
+      bullets: [
+        'Map role assumption chains and transitive trust paths',
+        'Detect wildcard trust and overprivileged action sets',
+        'Prioritize exposure by reachable resource sensitivity'
+      ]
+    },
+    {
+      id: 'kubernetes',
+      title: 'Kubernetes Machine Identity',
+      body: 'Correlate service accounts, tokens, RBAC bindings, and workload privileges with cluster context.',
+      href: '/features/kubernetes',
+      bullets: [
+        'Identify namespace and cluster-level privilege escalation paths',
+        'Trace service account to cloud-role federation',
+        'Simulate RBAC control tightening before rollout'
+      ]
+    },
+    {
+      id: 'git-scanner',
+      title: 'Git Scanner',
+      body: 'Scan repositories for machine credential leaks and risky identity configuration patterns.',
+      href: '/features/git-scanner',
+      bullets: [
+        'Continuous and historical scan support',
+        'Policy-backed detector tuning',
+        'Findings linked directly to trust graph context'
+      ]
+    },
+    {
+      id: 'trust-graph',
+      title: 'Interactive Trust Graph',
+      body: 'Visualize how identities reach resources and why a detection matters, with actionable remediation paths.',
+      href: '/features/trust-graph',
+      bullets: [
+        'Path-based impact previews',
+        'Evidence snapshots for audits',
+        'Exportable remediation stories for engineering teams'
+      ]
+    }
+  ] as const;
+
   return (
     <>
       <section className="idt-page-hero idt-shell">
@@ -1136,52 +1368,84 @@ function FeaturesPage() {
         <p>Deep technical workflows for security and platform teams, from discovery to rollout-safe control.</p>
       </section>
 
-      <section className="idt-section idt-shell" id="aws">
-        <article className="idt-card idt-feature-callout">
-          <h2>AWS IAM Security</h2>
-          <p>Discover roles, policies, trust relationships, and cross-account assumptions in one explainable graph.</p>
-          <ul>
-            <li>Map role assumption chains and transitive trust paths</li>
-            <li>Detect wildcard trust and overprivileged action sets</li>
-            <li>Prioritize exposure by reachable resource sensitivity</li>
-          </ul>
-        </article>
+      {featureSummaries.map((feature) => (
+        <section key={feature.id} className="idt-section idt-shell" id={feature.id}>
+          <article className="idt-card idt-feature-callout">
+            <h2>{feature.title}</h2>
+            <p>{feature.body}</p>
+            <ul>
+              {feature.bullets.map((bullet) => (
+                <li key={bullet}>{bullet}</li>
+              ))}
+            </ul>
+            <div className="idt-inline-actions idt-inline-actions-tight">
+              <Link to={feature.href} className="idt-btn idt-btn-primary">
+                Explore {feature.title}
+              </Link>
+              <Link to="/demo" className="idt-btn idt-btn-ghost">
+                Open Demo
+              </Link>
+            </div>
+          </article>
+        </section>
+      ))}
+    </>
+  );
+}
+
+function FeatureDetailPage({ page }: { page: (typeof FEATURE_DEEP_PAGES)[number] }) {
+  useSeo({
+    title: `${page.heroTitle} | Identrail Features`,
+    description: page.description,
+    path: `/features/${page.slug}`
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">Feature: {page.navLabel}</p>
+        <h1>{page.heroTitle}</h1>
+        <p>{page.description}</p>
+        <div className="idt-inline-actions">
+          <Link to="/demo" className="idt-btn idt-btn-primary">
+            Open Interactive Demo
+          </Link>
+          <Link to="/pricing" className="idt-btn idt-btn-dark">
+            Try Free Hosted SaaS
+          </Link>
+          <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
+            Star on GitHub
+          </SafeLink>
+        </div>
       </section>
 
-      <section className="idt-section idt-shell" id="kubernetes">
-        <article className="idt-card idt-feature-callout">
-          <h2>Kubernetes Machine Identity</h2>
-          <p>Correlate service accounts, tokens, RBAC bindings, and workload privileges with cluster context.</p>
-          <ul>
-            <li>Identify namespace and cluster-level privilege escalation paths</li>
-            <li>Trace service account to cloud-role federation</li>
-            <li>Simulate RBAC control tightening before rollout</li>
-          </ul>
-        </article>
+      <section className="idt-section idt-shell">
+        <div className="idt-card-grid two-col">
+          <article className="idt-card">
+            <h2>What this feature gives you</h2>
+            <ul>
+              {page.bullets.map((bullet) => (
+                <li key={bullet}>{bullet}</li>
+              ))}
+            </ul>
+          </article>
+          <article className="idt-card">
+            <h2>Expected outcomes</h2>
+            <ul>
+              {page.outcomes.map((outcome) => (
+                <li key={outcome}>{outcome}</li>
+              ))}
+            </ul>
+          </article>
+        </div>
       </section>
 
-      <section className="idt-section idt-shell" id="git-scanner">
-        <article className="idt-card idt-feature-callout">
-          <h2>Git Scanner</h2>
-          <p>Scan repositories for machine credential leaks and risky identity configuration patterns.</p>
-          <ul>
-            <li>Continuous and historical scan support</li>
-            <li>Policy-backed detector tuning</li>
-            <li>Findings linked directly to trust graph context</li>
-          </ul>
-        </article>
-      </section>
-
-      <section className="idt-section idt-shell" id="trust-graph">
-        <article className="idt-card idt-feature-callout">
-          <h2>Interactive Trust Graph</h2>
-          <p>Visualize how identities reach resources and why a detection matters, with actionable remediation paths.</p>
-          <ul>
-            <li>Path-based impact previews</li>
-            <li>Evidence snapshots for audits</li>
-            <li>Exportable remediation stories for engineering teams</li>
-          </ul>
-        </article>
+      <section className="idt-section idt-shell">
+        <LeadCaptureForm
+          title={`Get a ${page.navLabel} workflow walkthrough`}
+          caption="Share your environment goals and we will tailor a practical machine identity rollout plan."
+          ctaLabel="Get Free Risk Assessment"
+        />
       </section>
     </>
   );
@@ -1199,27 +1463,32 @@ function SolutionsPage() {
     {
       title: 'AWS Security Teams',
       body: 'Reduce IAM blast radius with trust path evidence, role chain analysis, and policy simulations.',
-      metric: 'Cut overprivileged role exposure by 60-90%'
+      metric: 'Cut overprivileged role exposure by 60-90%',
+      href: '/solutions/aws'
     },
     {
       title: 'Kubernetes Platform Teams',
       body: 'Gain visibility into service account privileges and prevent RBAC drift before incidents happen.',
-      metric: 'Reduce cluster authz incidents with staged controls'
+      metric: 'Reduce cluster authz incidents with staged controls',
+      href: '/solutions/kubernetes'
     },
     {
       title: 'Multi-cloud Environments',
       body: 'Normalize machine identity data across providers with one operational control layer.',
-      metric: 'Unify remediation workflows across clouds'
+      metric: 'Unify remediation workflows across clouds',
+      href: '/solutions/multi-cloud'
     },
     {
       title: 'Platform Engineering',
       body: 'Ship authorization changes faster with simulation, rollout safety, and clear policy traceability.',
-      metric: 'Deliver identity controls without release friction'
+      metric: 'Deliver identity controls without release friction',
+      href: '/solutions/platform-engineering'
     },
     {
       title: 'Security Operations',
       body: 'Prioritize detections with high exploitability and route to owners using trust graph context.',
-      metric: 'Lower mean time to remediation'
+      metric: 'Lower mean time to remediation',
+      href: '/solutions/security-teams'
     }
   ] as const;
 
@@ -1236,12 +1505,70 @@ function SolutionsPage() {
               <h2>{solution.title}</h2>
               <p>{solution.body}</p>
               <p className="idt-muted-strong">{solution.metric}</p>
+              <div className="idt-inline-actions idt-inline-actions-tight">
+                <Link to={solution.href} className="idt-btn idt-btn-primary">
+                  Explore solution
+                </Link>
+              </div>
             </article>
           ))}
         </div>
       </section>
       <section className="idt-section idt-shell">
         <CalendlyEmbed />
+      </section>
+    </>
+  );
+}
+
+function SolutionDetailPage({ page }: { page: (typeof SOLUTION_DEEP_PAGES)[number] }) {
+  useSeo({
+    title: `${page.heroTitle} | Identrail Solutions`,
+    description: page.description,
+    path: `/solutions/${page.slug}`
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">Solution: {page.navLabel}</p>
+        <h1>{page.heroTitle}</h1>
+        <p>{page.description}</p>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <div className="idt-card-grid two-col">
+          <article className="idt-card">
+            <h2>How teams use this solution</h2>
+            <ul>
+              {page.bullets.map((bullet) => (
+                <li key={bullet}>{bullet}</li>
+              ))}
+            </ul>
+          </article>
+          <article className="idt-card">
+            <h2>Business outcomes</h2>
+            <ul>
+              {page.outcomes.map((outcome) => (
+                <li key={outcome}>{outcome}</li>
+              ))}
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <div className="idt-inline-actions">
+          <Link to="/enterprise" className="idt-btn idt-btn-primary">
+            Book 15-min Demo
+          </Link>
+          <Link to="/pricing" className="idt-btn idt-btn-dark">
+            Compare Plans
+          </Link>
+          <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
+            Deploy Self-Hosted
+          </SafeLink>
+        </div>
       </section>
     </>
   );
@@ -1728,13 +2055,23 @@ function RoutedSite() {
       </a>
 
       <Header />
+      <DeploymentPathBanner />
 
       <main id="main-content">
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/product" element={<ProductPage />} />
           <Route path="/features" element={<FeaturesPage />} />
+          <Route path="/features/aws" element={<FeatureDetailPage page={FEATURE_DEEP_PAGES[0]} />} />
+          <Route path="/features/kubernetes" element={<FeatureDetailPage page={FEATURE_DEEP_PAGES[1]} />} />
+          <Route path="/features/git-scanner" element={<FeatureDetailPage page={FEATURE_DEEP_PAGES[2]} />} />
+          <Route path="/features/trust-graph" element={<FeatureDetailPage page={FEATURE_DEEP_PAGES[3]} />} />
           <Route path="/solutions" element={<SolutionsPage />} />
+          <Route path="/solutions/aws" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[0]} />} />
+          <Route path="/solutions/kubernetes" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[1]} />} />
+          <Route path="/solutions/multi-cloud" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[2]} />} />
+          <Route path="/solutions/platform-engineering" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[3]} />} />
+          <Route path="/solutions/security-teams" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[4]} />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />

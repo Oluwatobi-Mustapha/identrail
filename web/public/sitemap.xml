@@ -3,7 +3,16 @@
   <url><loc>https://identrail.com/</loc></url>
   <url><loc>https://identrail.com/product</loc></url>
   <url><loc>https://identrail.com/features</loc></url>
+  <url><loc>https://identrail.com/features/aws</loc></url>
+  <url><loc>https://identrail.com/features/kubernetes</loc></url>
+  <url><loc>https://identrail.com/features/git-scanner</loc></url>
+  <url><loc>https://identrail.com/features/trust-graph</loc></url>
   <url><loc>https://identrail.com/solutions</loc></url>
+  <url><loc>https://identrail.com/solutions/aws</loc></url>
+  <url><loc>https://identrail.com/solutions/kubernetes</loc></url>
+  <url><loc>https://identrail.com/solutions/multi-cloud</loc></url>
+  <url><loc>https://identrail.com/solutions/platform-engineering</loc></url>
+  <url><loc>https://identrail.com/solutions/security-teams</loc></url>
   <url><loc>https://identrail.com/pricing</loc></url>
   <url><loc>https://identrail.com/demo</loc></url>
   <url><loc>https://identrail.com/docs</loc></url>

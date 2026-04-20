@@ -191,6 +191,36 @@ a {
   font-weight: 700;
 }
 
+.idt-deployment-banner {
+  border-bottom: 1px solid var(--idt-line);
+  background: linear-gradient(90deg, rgba(0, 229, 201, 0.08), rgba(36, 178, 255, 0.08));
+}
+
+.idt-deployment-inner {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 0;
+}
+
+.idt-deployment-inner p {
+  margin: 0;
+  color: #d8e8ff;
+  font-weight: 600;
+  font-size: 0.93rem;
+}
+
+.idt-deployment-inner p span {
+  color: var(--idt-accent);
+  margin-left: 0.45rem;
+}
+
+.idt-inline-actions-tight {
+  margin-top: 0;
+}
+
 .idt-hero {
   padding: clamp(4rem, 10vw, 6.6rem) 0 clamp(3rem, 8vw, 5rem);
 }
@@ -1008,6 +1038,12 @@ h3 {
 
   .idt-demo-graph {
     min-height: 380px;
+  }
+
+  .idt-deployment-inner {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 0.8rem 0;
   }
 }
 

@@ -4,7 +4,7 @@ import { SafeLink } from './SafeLink';
 
 describe('SafeLink', () => {
   it('opens external links in a new tab with safe rel defaults', () => {
-    render(<SafeLink href="https://github.com/Oluwatobi-Mustapha/identrail">GitHub</SafeLink>);
+    render(<SafeLink href="https://github.com/identrail/identrail">GitHub</SafeLink>);
 
     const link = screen.getByRole('link', { name: 'GitHub' });
     expect(link).toHaveAttribute('target', '_blank');
