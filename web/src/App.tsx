@@ -2300,16 +2300,13 @@ export function RoutedSite() {
           <Route path="/" element={<HomePage />} />
           <Route path="/product" element={<ProductPage />} />
           <Route path="/features" element={<FeaturesPage />} />
-          <Route path="/features/aws" element={<FeatureDetailPage page={FEATURE_DEEP_PAGES[0]} />} />
-          <Route path="/features/kubernetes" element={<FeatureDetailPage page={FEATURE_DEEP_PAGES[1]} />} />
-          <Route path="/features/git-scanner" element={<FeatureDetailPage page={FEATURE_DEEP_PAGES[2]} />} />
-          <Route path="/features/trust-graph" element={<FeatureDetailPage page={FEATURE_DEEP_PAGES[3]} />} />
+          {FEATURE_DEEP_PAGES.map((page) => (
+            <Route key={page.slug} path={`/features/${page.slug}`} element={<FeatureDetailPage page={page} />} />
+          ))}
           <Route path="/solutions" element={<SolutionsPage />} />
-          <Route path="/solutions/aws" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[0]} />} />
-          <Route path="/solutions/kubernetes" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[1]} />} />
-          <Route path="/solutions/multi-cloud" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[2]} />} />
-          <Route path="/solutions/platform-engineering" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[3]} />} />
-          <Route path="/solutions/security-teams" element={<SolutionDetailPage page={SOLUTION_DEEP_PAGES[4]} />} />
+          {SOLUTION_DEEP_PAGES.map((page) => (
+            <Route key={page.slug} path={`/solutions/${page.slug}`} element={<SolutionDetailPage page={page} />} />
+          ))}
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />

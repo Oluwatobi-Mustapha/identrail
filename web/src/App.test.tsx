@@ -16,7 +16,7 @@ describe('App', () => {
 
     expect(screen.getAllByRole('link', { name: 'Start Free Risk Scan' }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('link', { name: 'Book Demo' }).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Adoption Paths/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Kubernetes service account can assume production AWS role/i).length).toBeGreaterThan(0);
   });
 
