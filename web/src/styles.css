@@ -482,56 +482,32 @@ h3 {
   animation-delay: 0.95s;
 }
 
-.idt-hero-preview-card {
+.idt-hero-graph-caption {
   position: absolute;
   right: 0.85rem;
   bottom: 0.85rem;
   z-index: 3;
-  width: min(100% - 1.7rem, 360px);
+  width: min(100% - 1.7rem, 420px);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 14px;
   background: linear-gradient(165deg, rgba(8, 8, 10, 0.95), rgba(14, 14, 17, 0.96));
-  padding: 0.85rem;
+  padding: 0.9rem;
   box-shadow: 0 20px 40px rgba(1, 8, 22, 0.55);
 }
 
-.idt-hero-preview-title {
+.idt-hero-graph-title {
   margin: 0;
   color: #dbe6ff;
-  font-size: 0.68rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
   font-weight: 700;
 }
 
-.idt-hero-preview-card h3 {
-  margin: 0.5rem 0 0.7rem;
+.idt-hero-graph-caption > p {
+  margin: 0.45rem 0 0.6rem;
+  color: #d6dff0;
   font-size: 0.88rem;
-}
-
-.idt-hero-preview-card dl {
-  margin: 0;
-  display: grid;
-  gap: 0.55rem;
-}
-
-.idt-hero-preview-card dl div {
-  display: grid;
-  gap: 0.14rem;
-}
-
-.idt-hero-preview-card dt {
-  color: #a7b3c8;
-  font-size: 0.66rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.idt-hero-preview-card dd {
-  margin: 0;
-  color: #ecf4ff;
-  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
 .idt-severity-high {
@@ -1976,7 +1952,7 @@ h2 {
   .idt-hero-points li {
     font-size: 0.9rem;
   }
-  .idt-hero-preview-card {
+  .idt-hero-graph-caption {
     position: static;
     margin: 1rem;
     width: auto;

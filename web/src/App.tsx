@@ -777,24 +777,13 @@ function TrustGraphHeroVisual() {
       <span className="idt-edge idt-edge-c" />
       <span className="idt-pulse idt-pulse-a" />
       <span className="idt-pulse idt-pulse-b" />
-      <article className="idt-hero-preview-card">
-        <p className="idt-hero-preview-title">Sample Finding</p>
-        <h3>Kubernetes service account can assume production AWS role</h3>
-        <p className="idt-hero-preview-meta">
-          <span className="idt-severity-pill">High severity</span>
-          <span>Reachable resources: 18</span>
-        </p>
-        <dl>
-          <div>
-            <dt>Path</dt>
-            <dd>GitHub Actions → OIDC Provider → AWS Role → RDS Billing Resource</dd>
-          </div>
-          <div>
-            <dt>Fix</dt>
-            <dd>Restrict trust policy conditions and scope role permissions.</dd>
-          </div>
-        </dl>
-      </article>
+      <aside className="idt-hero-graph-caption">
+        <p className="idt-hero-graph-title">Trust graph preview</p>
+        <p>GitHub Actions OIDC → AWS Role → K8s Service Account → RDS Billing Resource</p>
+        <Link to="/demo" className="idt-inline-link">
+          Open interactive demo
+        </Link>
+      </aside>
     </div>
   );
 }
@@ -1284,15 +1273,14 @@ function HomePage() {
       <section className="idt-hero">
         <div className="idt-shell idt-hero-grid">
           <div className="idt-hero-copy">
-            <p className="idt-eyebrow">Machine identity security for AWS, Kubernetes, OIDC, and GitHub</p>
-            <h1>Identify risky AWS IAM, Kubernetes, and GitHub trust paths before attackers use them.</h1>
+            <p className="idt-eyebrow">Machine identity security</p>
+            <h1>See risky machine trust paths before attackers do.</h1>
             <p className="idt-lead">
-              Find risky machine identity trust paths, understand blast radius, and roll out safer access without breaking production.
+              Identrail maps AWS, Kubernetes, and GitHub identity paths so your team can reduce blast radius safely.
             </p>
             <ul className="idt-hero-points" aria-label="What Identrail does">
               <li>Map machine identities and trust relationships across cloud and clusters.</li>
-              <li>Prioritize high-risk paths with clear blast-radius evidence.</li>
-              <li>Simulate remediations before rollout to avoid production breakage.</li>
+              <li>Simulate policy changes before rollout to avoid production breakage.</li>
             </ul>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
               <a href="#risk-scan-form" className="idt-btn idt-btn-primary">
