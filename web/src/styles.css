@@ -357,6 +357,14 @@ h3 {
   gap: 0.8rem;
 }
 
+.idt-impact-strip {
+  padding-top: clamp(1.3rem, 3vw, 2.2rem);
+}
+
+.idt-impact-strip .idt-kpi-row {
+  margin-top: 0;
+}
+
 .idt-kpi-row article {
   border: 1px solid var(--idt-line);
   background: rgba(12, 12, 14, 0.9);
