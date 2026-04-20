@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://identrail.com/sitemap.xml
+Sitemap: https://www.identrail.com/sitemap.xml
