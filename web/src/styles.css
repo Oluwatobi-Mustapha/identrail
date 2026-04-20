@@ -4,7 +4,7 @@
   --idt-bg-soft: #141416;
   --idt-text: #f5f7fb;
   --idt-text-muted: #9ca3b2;
-  --idt-line: rgba(245, 247, 251, 0.16);
+  --idt-line: rgba(245, 247, 251, 0.12);
   --idt-accent: #d7e3ff;
   --idt-accent-soft: rgba(215, 227, 255, 0.12);
   --idt-glow: rgba(137, 169, 255, 0.32);
@@ -13,7 +13,7 @@
   --idt-body: 'Inter', 'Segoe UI', sans-serif;
   --idt-radius: 14px;
   --idt-shell: 1200px;
-  --idt-shadow: 0 14px 42px rgba(0, 0, 0, 0.45);
+  --idt-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
 }
 
 * {
@@ -30,11 +30,8 @@ body {
   margin: 0;
   font-family: var(--idt-body);
   background:
-    radial-gradient(2px 2px at 20% 24%, rgba(255, 255, 255, 0.45), transparent 55%),
-    radial-gradient(1px 1px at 72% 62%, rgba(255, 255, 255, 0.35), transparent 50%),
-    radial-gradient(1px 1px at 42% 80%, rgba(255, 255, 255, 0.25), transparent 50%),
-    radial-gradient(circle at 75% -25%, rgba(139, 165, 255, 0.13), transparent 48%),
-    radial-gradient(circle at 8% 22%, rgba(255, 255, 255, 0.05), transparent 36%),
+    radial-gradient(circle at 80% -20%, rgba(137, 169, 255, 0.14), transparent 42%),
+    radial-gradient(circle at 6% 18%, rgba(215, 227, 255, 0.08), transparent 34%),
     var(--idt-bg);
   color: var(--idt-text);
   line-height: 1.7;
@@ -82,7 +79,7 @@ a {
   z-index: 160;
   border-bottom: 1px solid var(--idt-line);
   backdrop-filter: blur(14px);
-  background: rgba(3, 3, 3, 0.88);
+  background: rgba(4, 4, 6, 0.93);
 }
 
 .idt-header-row {
@@ -284,7 +281,7 @@ a {
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 18px;
   padding: clamp(1.15rem, 3vw, 1.85rem);
-  background: linear-gradient(150deg, rgba(14, 14, 17, 0.83), rgba(7, 7, 8, 0.8));
+  background: linear-gradient(150deg, rgba(12, 12, 14, 0.94), rgba(8, 8, 10, 0.92));
 }
 
 h1,
@@ -567,7 +564,7 @@ h3 {
 .idt-trust-strip {
   border-top: 1px solid var(--idt-line);
   border-bottom: 1px solid var(--idt-line);
-  background: rgba(8, 8, 10, 0.76);
+  background: rgba(7, 9, 15, 0.64);
 }
 
 .idt-trust-strip .idt-shell {
@@ -636,8 +633,8 @@ h3 {
 .idt-roi {
   border: 1px solid var(--idt-line);
   border-radius: var(--idt-radius);
-  background: rgba(11, 11, 13, 0.84);
-  box-shadow: var(--idt-shadow);
+  background: rgba(11, 11, 13, 0.9);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
 }
 
 .idt-card {
@@ -674,6 +671,7 @@ h3 {
   display: grid;
   place-items: center;
   overflow: hidden;
+  background: linear-gradient(160deg, rgba(10, 10, 12, 0.92), rgba(6, 6, 8, 0.95));
 }
 
 .idt-demo-node {
@@ -1275,6 +1273,9 @@ h2 {
 
 .idt-proof-demo-card {
   margin-top: 1rem;
+  background:
+    radial-gradient(circle at 82% -18%, rgba(137, 169, 255, 0.12), transparent 44%),
+    rgba(11, 11, 13, 0.92);
 }
 
 .idt-proof-demo-card h3 {
@@ -1283,6 +1284,10 @@ h2 {
 
 .idt-proof-demo-card > p {
   margin-top: 0;
+}
+
+.idt-proof-demo-card .idt-demo-surface {
+  margin-top: 0.9rem;
 }
 
 .idt-roi label,
@@ -1421,9 +1426,7 @@ h2 {
 .idt-footer-showcase {
   border-top: 1px solid var(--idt-line);
   border-bottom: 1px solid var(--idt-line);
-  background:
-    radial-gradient(circle at 80% 20%, rgba(137, 169, 255, 0.1), transparent 38%),
-    linear-gradient(180deg, #070709 0%, #040405 100%);
+  background: linear-gradient(180deg, rgba(9, 10, 16, 0.92) 0%, rgba(5, 6, 10, 0.98) 100%);
   color: #f5f7fb;
 }
 
@@ -1469,12 +1472,12 @@ h2 {
   align-items: center;
   gap: 1rem;
   border-radius: 18px;
-  background: linear-gradient(135deg, #f3f6ff 0%, #e6ebf8 100%);
-  color: #030303;
+  background: rgba(13, 16, 24, 0.96);
+  color: #f6f8ff;
   text-decoration: none;
   padding: 1.1rem 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.84);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.3);
 }
 
 .idt-footer-super-cta span {
@@ -1483,7 +1486,7 @@ h2 {
 }
 
 .idt-footer-super-cta small {
-  color: rgba(3, 3, 3, 0.72);
+  color: rgba(246, 248, 255, 0.78);
   text-align: right;
 }
 
@@ -1531,8 +1534,8 @@ h2 {
 }
 
 .idt-social-link {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   border-radius: 999px;
   display: inline-grid;
   place-items: center;
@@ -1550,8 +1553,8 @@ h2 {
 }
 
 .idt-social-link svg {
-  width: 18px;
-  height: 18px;
+  width: 19px;
+  height: 19px;
 }
 
 .idt-modal-backdrop {
