@@ -55,14 +55,13 @@ export function RiskInsightSection() {
           {SCENARIOS.map((scenario) => {
             const isActive = scenario.id === activeScenario.id;
             const tabId = `risk-scenario-tab-${scenario.id}`;
-            const panelId = `risk-scenario-panel-${scenario.id}`;
             return (
               <button
                 key={scenario.id}
                 id={tabId}
                 type="button"
                 role="tab"
-                aria-controls={panelId}
+                aria-controls="risk-scenario-panel"
                 aria-selected={isActive}
                 className={`idt-risk-scenario-item ${isActive ? 'is-active' : ''}`}
                 onClick={() => setActiveScenarioId(scenario.id)}
@@ -75,7 +74,7 @@ export function RiskInsightSection() {
         </div>
 
         <article
-          id={`risk-scenario-panel-${activeScenario.id}`}
+          id="risk-scenario-panel"
           className="idt-card idt-risk-evidence-card"
           role="tabpanel"
           aria-labelledby={`risk-scenario-tab-${activeScenario.id}`}
