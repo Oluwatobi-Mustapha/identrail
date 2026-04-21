@@ -76,7 +76,7 @@ const FOOTER_TRUST_LINKS = [
 ] as const;
 
 export function Footer({ xUrl, linkedInUrl, githubRepo, discordUrl }: FooterProps) {
-  const buildDate = new Date().toISOString().slice(0, 10);
+  const buildDate = ((import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_BUILD_DATE ?? 'unknown').slice(0, 10);
 
   return (
     <footer className="idt-footer">
