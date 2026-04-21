@@ -45,6 +45,8 @@ const DISCORD_URL = 'https://discord.gg/7jSUSnQC';
 const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
 const X_URL = 'https://x.com/identrail';
 const CALENDLY_URL = 'https://calendly.com/identrail/15min';
+let activeModalLocks = 0;
+let bodyOverflowBeforeModal = '';
 
 const NAV_LINKS = [
   { to: '/product', label: 'Product' },
@@ -709,8 +711,11 @@ function ModalShell({
   const modalRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    if (activeModalLocks === 0) {
+      bodyOverflowBeforeModal = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+    }
+    activeModalLocks += 1;
 
     const getFocusableElements = () =>
       modalRef.current?.querySelectorAll<HTMLElement>(
@@ -750,7 +755,10 @@ function ModalShell({
     document.addEventListener('keydown', onKeyDown);
 
     return () => {
-      document.body.style.overflow = previousOverflow;
+      activeModalLocks = Math.max(0, activeModalLocks - 1);
+      if (activeModalLocks === 0) {
+        document.body.style.overflow = bodyOverflowBeforeModal;
+      }
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [onClose]);
