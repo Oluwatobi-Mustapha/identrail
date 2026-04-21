@@ -2,6 +2,7 @@ import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'reac
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
+import { RiskInsightSection } from './components/home/RiskInsightSection';
 import { TrustProofStrip } from './components/home/TrustProofStrip';
 import { Footer } from './components/layout/Footer';
 import { Header } from './components/layout/Header';
@@ -954,57 +955,6 @@ function DeploymentPathBanner() {
   );
 }
 
-function ProductProofFindingSection() {
-  return (
-    <section className="idt-section idt-shell">
-      <SectionTitle
-        eyebrow="Product Proof"
-        title="See a realistic high-risk trust path before you connect anything"
-        body="Identrail surfaces risky machine identity paths with evidence, impact, and remediation guidance teams can act on immediately."
-      />
-      <div className="idt-finding-proof-grid">
-        <article className="idt-card idt-finding-card">
-          <p className="idt-finding-label">Risk</p>
-          <h3>Kubernetes service account can assume production AWS role</h3>
-          <p>
-            <strong>Severity:</strong> <span className="idt-severity-high">High</span>
-          </p>
-          <p>
-            <strong>Path:</strong> GitHub Actions → OIDC Provider → AWS Role → RDS Billing Resource
-          </p>
-          <p>
-            <strong>Why it matters:</strong> Compromise of CI/CD could reach sensitive production data.
-          </p>
-          <p>
-            <strong>Recommended remediation:</strong> Restrict trust policy conditions and scope role permissions.
-          </p>
-        </article>
-        <article className="idt-card idt-finding-impact">
-          <h3>What teams do next in Identrail</h3>
-          <ul>
-            <li>Inspect every edge in the trust path with source policy evidence.</li>
-            <li>Simulate tighter trust conditions before enforcing policy changes.</li>
-            <li>Roll out in stages to reduce blast radius without breaking production.</li>
-          </ul>
-          <div className="idt-inline-actions">
-            <Link to="/pricing" className="idt-btn idt-btn-primary">
-              Start Free Risk Scan
-            </Link>
-            <Link to="/enterprise" className="idt-btn idt-btn-dark">
-              Book Demo
-            </Link>
-          </div>
-        </article>
-      </div>
-      <div className="idt-card idt-proof-demo-card">
-        <h3>Interactive trust-path preview</h3>
-        <p>Inspect a sample trust path from source identity to sensitive resource before connecting your environment.</p>
-        <TrustGraphDemo />
-      </div>
-    </section>
-  );
-}
-
 function HomeFaqSection() {
   return (
     <section className="idt-section idt-shell">
@@ -1072,7 +1022,15 @@ function HomePage() {
         />
       </section>
 
-      <ProductProofFindingSection />
+      <RiskInsightSection />
+
+      <section className="idt-section idt-shell">
+        <div className="idt-card idt-proof-demo-card">
+          <h3>Interactive trust-path preview</h3>
+          <p>Inspect a sample trust path from source identity to sensitive resource before connecting your environment.</p>
+          <TrustGraphDemo />
+        </div>
+      </section>
 
       <section className="idt-section idt-shell">
         <SectionTitle eyebrow="How It Works" title="Discover, prioritize, simulate, and roll out in four steps" />
