@@ -1,7 +1,8 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { apiClient } from './api/client';
+import { BLOG_POSTS, DOC_ENTRIES, HOME_FAQ_ITEMS } from './content/resources';
 
 type SeoConfig = {
   title: string;
@@ -11,29 +12,11 @@ type SeoConfig = {
   schemaType?: 'WebPage' | 'Product' | 'Article' | 'AboutPage';
 };
 
-type DocEntry = {
-  title: string;
-  description: string;
-  href: string;
-  tags: string[];
-};
-
-type BlogPost = {
-  title: string;
-  slug: string;
-  description: string;
-  category: string;
-  readTime: string;
-};
-
 declare global {
   interface Window {
     gtag?: (...args: unknown[]) => void;
     posthog?: {
       capture: (event: string, properties?: Record<string, unknown>) => void;
-    };
-    identrailAB?: {
-      variant?: string;
     };
   }
 }
@@ -45,6 +28,8 @@ const DISCORD_URL = 'https://discord.gg/7jSUSnQC';
 const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
 const X_URL = 'https://x.com/identrail';
 const CALENDLY_URL = 'https://calendly.com/identrail/15min';
+let activeModalLocks = 0;
+let bodyOverflowBeforeModal = '';
 
 const NAV_LINKS = [
   { to: '/product', label: 'Product' },
@@ -62,145 +47,6 @@ const CREDIBILITY_SIGNALS = [
   'Public repository, docs, and changelog',
   'Security policy and responsible disclosure process'
 ] as const;
-
-const HOME_FAQ_ITEMS = [
-  {
-    question: 'Is the scan read-only?',
-    answer:
-      'Yes. Identrail discovery connectors are built for read-only collection of identity and trust-path metadata. You control write actions separately through staged policy workflows.'
-  },
-  {
-    question: 'How does Identrail access AWS, Kubernetes, and GitHub data?',
-    answer:
-      'Identrail uses least-privilege service principals, IAM roles, and API tokens to collect machine identity metadata from AWS IAM, Kubernetes RBAC and service accounts, plus repository and workflow signals from Git providers.'
-  },
-  {
-    question: 'What data is stored?',
-    answer:
-      'By default, Identrail stores graph metadata needed for trust-path analysis, findings, and remediation history. Sensitive values such as raw secrets are not required for core trust-path mapping.'
-  },
-  {
-    question: 'Can we self-host?',
-    answer:
-      'Yes. The open-source core is designed for self-hosted evaluation and production environments. Teams can later adopt hosted SaaS or enterprise deployment models without re-platforming.'
-  },
-  {
-    question: 'How does policy simulation avoid breaking production?',
-    answer:
-      'Policy simulation shows which workloads and trust paths would be affected before enforcement. Teams can roll out in stages, monitor impact, and use rollback controls if needed.'
-  },
-  {
-    question: 'What integrations are supported?',
-    answer:
-      'Identrail supports AWS IAM, Kubernetes identities and RBAC, OIDC trust relationships, and Git-based repository/workflow telemetry. Enterprise workflows can connect ticketing and operational controls.'
-  }
-] as const;
-
-const BLOG_POSTS: BlogPost[] = [
-  {
-    title: 'Machine Identity Security in 2026: A Practical Operating Model',
-    slug: 'machine-identity-security-operating-model-2026',
-    description:
-      'The frameworks platform and security teams use to discover, prioritize, and control machine trust paths in production.',
-    category: 'Machine Identity Security',
-    readTime: '10 min'
-  },
-  {
-    title: 'AWS NHI Security: 14 Misconfigurations That Expand Blast Radius',
-    slug: 'aws-nhi-security-misconfigurations',
-    description:
-      'A field guide to overprivileged IAM role chains, cross-account assumptions, and practical remediation patterns.',
-    category: 'AWS Security',
-    readTime: '8 min'
-  },
-  {
-    title: 'Kubernetes Machine Identity: RBAC Risk Paths You Can Actually Fix',
-    slug: 'kubernetes-machine-identity-rbac-risk-paths',
-    description:
-      'How to map service account privilege escalations and implement rollout-safe policy tightening without downtime.',
-    category: 'Kubernetes Security',
-    readTime: '9 min'
-  },
-  {
-    title: 'From Secrets Sprawl to Signal: Building a Repo Exposure Program',
-    slug: 'repo-exposure-program-machine-identities',
-    description:
-      'How platform teams operationalize git credential leak findings and connect them to real machine identity risk.',
-    category: 'Software Supply Chain',
-    readTime: '7 min'
-  },
-  {
-    title: 'Open-Core vs Closed Platforms in Machine Identity Security',
-    slug: 'open-core-vs-closed-machine-identity-security',
-    description:
-      'A transparent analysis of architecture, control, and TCO tradeoffs for enterprise buyers evaluating vendors.',
-    category: 'Buying Guide',
-    readTime: '6 min'
-  },
-  {
-    title: 'How to Prove Least Privilege for Non-Human Identities to Auditors',
-    slug: 'least-privilege-evidence-for-non-human-identities',
-    description:
-      'Generate evidence for SOC 2 and ISO 27001 with trust graph snapshots, policy simulations, and remediation trails.',
-    category: 'Compliance',
-    readTime: '11 min'
-  },
-  {
-    title: 'Designing Rollout-Safe Authorization Controls for Platform Teams',
-    slug: 'rollout-safe-authorization-controls',
-    description:
-      'Staged policy rollouts, simulation gates, and kill-switch patterns that reduce authz outage risk in production.',
-    category: 'Platform Engineering',
-    readTime: '8 min'
-  },
-  {
-    title: 'Trust Graphs for Security Leaders: What to Measure and Why',
-    slug: 'trust-graph-metrics-for-security-leaders',
-    description:
-      'Metrics that connect machine identity posture improvements to incident reduction and executive risk reporting.',
-    category: 'Security Leadership',
-    readTime: '7 min'
-  }
-];
-
-const DOC_ENTRIES: DocEntry[] = [
-  {
-    title: 'Quickstart on Docker',
-    description: 'Deploy Identrail locally in under 10 minutes using Docker Compose.',
-    href: 'https://github.com/identrail/identrail/blob/main/deploy/docker/README.md',
-    tags: ['quickstart', 'docker', 'self-hosted']
-  },
-  {
-    title: 'Deploy Anywhere Runbook',
-    description: 'Production deployment guidance for Kubernetes, Helm, Terraform, and systemd.',
-    href: 'https://github.com/identrail/identrail/blob/main/docs/deployment-anywhere.md',
-    tags: ['deployment', 'kubernetes', 'terraform']
-  },
-  {
-    title: 'Architecture Deep Dive',
-    description: 'Understand ingestion pipelines, trust graph construction, and authorization controls.',
-    href: 'https://github.com/identrail/identrail/blob/main/docs/architecture.md',
-    tags: ['architecture', 'graph', 'platform']
-  },
-  {
-    title: 'AWS Collector',
-    description: 'Collector configuration, permissions, and scaling tips for IAM role and policy discovery.',
-    href: 'https://github.com/identrail/identrail/blob/main/docs/aws-collector.md',
-    tags: ['aws', 'iam', 'collector']
-  },
-  {
-    title: 'Repo Exposure Scanner',
-    description: 'Scan Git repositories for credential leaks and machine identity exposure patterns.',
-    href: 'https://github.com/identrail/identrail/blob/main/docs/repo-exposure.md',
-    tags: ['git', 'secrets', 'scanner']
-  },
-  {
-    title: 'Security Hardening Guide',
-    description: 'Hardening checklist, supply chain controls, and incident response guidance.',
-    href: 'https://github.com/identrail/identrail/blob/main/docs/security-hardening.md',
-    tags: ['security', 'hardening', 'operations']
-  }
-];
 
 const DIFFERENTIATION_ROWS = [
   {
@@ -546,38 +392,6 @@ function useAnalytics() {
   }, [location]);
 }
 
-function useCtaVariant(experimentKey: string): string {
-  const location = useLocation();
-  const [variant, setVariant] = useState<'a' | 'b'>('a');
-
-  useEffect(() => {
-    const search = new URLSearchParams(location.search);
-    const queryVariant = search.get('variant');
-    const storageKey = `identrail-exp-${experimentKey}`;
-
-    if (queryVariant === 'a' || queryVariant === 'b') {
-      localStorage.setItem(storageKey, queryVariant);
-      setVariant(queryVariant);
-      window.identrailAB = { variant: queryVariant };
-      return;
-    }
-
-    const persisted = localStorage.getItem(storageKey);
-    if (persisted === 'a' || persisted === 'b') {
-      setVariant(persisted);
-      window.identrailAB = { variant: persisted };
-      return;
-    }
-
-    const randomized: 'a' | 'b' = Math.random() > 0.5 ? 'a' : 'b';
-    localStorage.setItem(storageKey, randomized);
-    setVariant(randomized);
-    window.identrailAB = { variant: randomized };
-  }, [experimentKey, location.search]);
-
-  return variant;
-}
-
 function SectionTitle({
   eyebrow,
   title,
@@ -697,6 +511,86 @@ function LeadCaptureForm({
   );
 }
 
+function ModalShell({
+  titleId,
+  onClose,
+  children
+}: {
+  titleId: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const modalRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (activeModalLocks === 0) {
+      bodyOverflowBeforeModal = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+    }
+    activeModalLocks += 1;
+
+    const getFocusableElements = () =>
+      modalRef.current?.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      ) ?? [];
+
+    getFocusableElements()[0]?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+        return;
+      }
+
+      if (event.key !== 'Tab') {
+        return;
+      }
+
+      const focusableElements = getFocusableElements();
+      if (focusableElements.length === 0) {
+        return;
+      }
+
+      const first = focusableElements[0];
+      const last = focusableElements[focusableElements.length - 1];
+      const active = document.activeElement;
+
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      activeModalLocks = Math.max(0, activeModalLocks - 1);
+      if (activeModalLocks === 0) {
+        document.body.style.overflow = bodyOverflowBeforeModal;
+      }
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div className="idt-modal-backdrop" role="presentation" onClick={onClose}>
+      <div
+        ref={modalRef}
+        className="idt-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function ExitIntentPopup() {
   const [open, setOpen] = useState(false);
   const dismissedRef = useRef(false);
@@ -738,22 +632,20 @@ function ExitIntentPopup() {
   if (!open) return null;
 
   return (
-    <div className="idt-modal-backdrop" role="presentation" onClick={close}>
-      <div className="idt-modal" role="dialog" aria-modal="true" aria-labelledby="exit-modal-title" onClick={(event) => event.stopPropagation()}>
-        <button className="idt-modal-close" type="button" onClick={close} aria-label="Close">
-          x
-        </button>
-        <h3 id="exit-modal-title">Before you leave: run a free machine identity risk scan</h3>
-        <p>Identify risky AWS IAM, Kubernetes, and GitHub trust paths before attackers use them.</p>
-        <LeadCaptureForm
-          compact
-          variant="short"
-          title="Start Free Risk Scan"
-          caption="No spam. One actionable plan for cloud identity blast radius reduction."
-          ctaLabel="Start Free Risk Scan"
-        />
-      </div>
-    </div>
+    <ModalShell titleId="exit-modal-title" onClose={close}>
+      <button className="idt-modal-close" type="button" onClick={close} aria-label="Close">
+        x
+      </button>
+      <h3 id="exit-modal-title">Before you leave: run a free machine identity risk scan</h3>
+      <p>Identify risky AWS IAM, Kubernetes, and GitHub trust paths before attackers use them.</p>
+      <LeadCaptureForm
+        compact
+        variant="short"
+        title="Start Free Risk Scan"
+        caption="No spam. One actionable plan for cloud identity blast radius reduction."
+        ctaLabel="Start Free Risk Scan"
+      />
+    </ModalShell>
   );
 }
 
@@ -1051,6 +943,26 @@ function RoiCalculator() {
 
 function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [menuOpen]);
 
   return (
     <header className="idt-header">
@@ -1063,11 +975,18 @@ function Header() {
           </span>
         </Link>
 
-        <button className="idt-menu-toggle" type="button" onClick={() => setMenuOpen((prev) => !prev)}>
+        <button
+          className="idt-menu-toggle"
+          type="button"
+          onClick={() => setMenuOpen((prev) => !prev)}
+          aria-expanded={menuOpen}
+          aria-controls="primary-nav"
+          aria-label="Toggle primary navigation"
+        >
           Menu
         </button>
 
-        <nav className={`idt-nav ${menuOpen ? 'is-open' : ''}`} aria-label="Primary">
+        <nav id="primary-nav" className={`idt-nav ${menuOpen ? 'is-open' : ''}`} aria-label="Primary">
           {NAV_LINKS.map((item) => (
             <NavLink
               key={item.to}
@@ -1964,26 +1883,24 @@ function PricingPage() {
       </section>
 
       {salesModalOpen ? (
-        <div className="idt-modal-backdrop" onClick={() => setSalesModalOpen(false)} role="presentation">
-          <div className="idt-modal" role="dialog" aria-modal="true" aria-labelledby="sales-modal-title" onClick={(event) => event.stopPropagation()}>
-            <button
-              type="button"
-              className="idt-modal-close"
-              aria-label="Close"
-              onClick={() => setSalesModalOpen(false)}
-            >
-              x
-            </button>
-            <h3 id="sales-modal-title">Contact Enterprise Sales</h3>
-            <p>Tell us your environment size and compliance goals. We will tailor a deployment and pricing plan.</p>
-            <LeadCaptureForm
-              compact
-              title="Enterprise Sales"
-              caption="Expected response time: under 1 business day."
-              ctaLabel="Contact Sales"
-            />
-          </div>
-        </div>
+        <ModalShell titleId="sales-modal-title" onClose={() => setSalesModalOpen(false)}>
+          <button
+            type="button"
+            className="idt-modal-close"
+            aria-label="Close"
+            onClick={() => setSalesModalOpen(false)}
+          >
+            x
+          </button>
+          <h3 id="sales-modal-title">Contact Enterprise Sales</h3>
+          <p>Tell us your environment size and compliance goals. We will tailor a deployment and pricing plan.</p>
+          <LeadCaptureForm
+            compact
+            title="Enterprise Sales"
+            caption="Expected response time: under 1 business day."
+            ctaLabel="Contact Sales"
+          />
+        </ModalShell>
       ) : null}
     </>
   );
@@ -2085,6 +2002,21 @@ function DocsPage() {
       </section>
 
       <section className="idt-section idt-shell">
+        <div className="idt-card-grid three-col">
+          {DOC_ENTRIES.slice(0, 3).map((entry) => (
+            <article key={entry.href} className="idt-card idt-doc-highlight-card">
+              <p className="idt-eyebrow">Quickstart</p>
+              <h2>{entry.title}</h2>
+              <p>{entry.description}</p>
+              <SafeLink href={entry.href} className="idt-inline-link">
+                Open guide
+              </SafeLink>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="idt-section idt-shell">
         <label className="idt-search" htmlFor="docs-query">
           Search docs topics
           <input
@@ -2096,18 +2028,28 @@ function DocsPage() {
           />
         </label>
 
-        <div className="idt-card-grid two-col idt-docs-grid">
-          {filtered.map((entry) => (
-            <article key={entry.href} className="idt-card">
-              <h2>{entry.title}</h2>
-              <p>{entry.description}</p>
-              <p className="idt-doc-tags">{entry.tags.join(' / ')}</p>
-              <SafeLink href={entry.href} className="idt-btn idt-btn-ghost">
-                Read guide
-              </SafeLink>
-            </article>
-          ))}
-        </div>
+        {filtered.length > 0 ? (
+          <div className="idt-card-grid two-col idt-docs-grid">
+            {filtered.map((entry) => (
+              <article key={entry.href} className="idt-card">
+                <h2>{entry.title}</h2>
+                <p>{entry.description}</p>
+                <p className="idt-doc-tags">{entry.tags.join(' / ')}</p>
+                <SafeLink href={entry.href} className="idt-btn idt-btn-ghost">
+                  Read guide
+                </SafeLink>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <article className="idt-card idt-empty-state">
+            <h2>No docs match that query</h2>
+            <p>Try a broader search term such as aws, kubernetes, deployment, or security.</p>
+            <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-ghost">
+              Browse full docs index
+            </SafeLink>
+          </article>
+        )}
       </section>
 
       <section className="idt-section idt-shell">
@@ -2155,20 +2097,23 @@ function BlogPage() {
   );
 }
 
-function BlogPostPage() {
-  const { slug = '' } = useParams();
-  const post = BLOG_POSTS.find((item) => item.slug === slug);
+function BlogArticlePage() {
+  const { slug } = useParams<{ slug: string }>();
+  const post = BLOG_POSTS.find((entry) => entry.slug === slug);
+  const seoTitle = post ? `${post.title} | Identrail Blog` : 'Blog Article | Identrail';
+  const seoDescription = post ? post.description : 'Explore machine identity security guidance from Identrail.';
+  const seoPath = post ? `/blog/${post.slug}` : '/blog';
+
+  useSeo({
+    title: seoTitle,
+    description: seoDescription,
+    path: seoPath,
+    schemaType: 'Article'
+  });
 
   if (!post) {
     return <NotFoundPage />;
   }
-
-  useSeo({
-    title: `${post.title} | Identrail Blog`,
-    description: post.description,
-    path: `/blog/${post.slug}`,
-    schemaType: 'Article'
-  });
 
   return (
     <>
@@ -2177,19 +2122,34 @@ function BlogPostPage() {
         <h1>{post.title}</h1>
         <p>{post.description}</p>
       </section>
+
       <section className="idt-section idt-shell">
-        <p>
-          Full article publishing is in progress. In the meantime, book a guided walkthrough to map this topic to your machine
-          identity rollout.
-        </p>
-        <div className="idt-inline-actions">
-          <Link to="/demo" className="idt-btn idt-btn-primary">
-            Book a demo
-          </Link>
-          <Link to="/blog" className="idt-btn idt-btn-ghost">
-            Back to blog
-          </Link>
-        </div>
+        <article className="idt-card idt-blog-article">
+          <p>
+            Machine identity security failures are rarely one bad permission in isolation. They are usually trust chains that span
+            cloud IAM, Kubernetes, OIDC federation, and CI workflows.
+          </p>
+          <h2>What this means for operating teams</h2>
+          <p>
+            Treat identity relationships as a graph, not disconnected policy files. This reveals which non-human identities can
+            actually reach sensitive systems and where blast radius expands.
+          </p>
+          <h2>What to implement next</h2>
+          <ul>
+            <li>Continuously map trust paths from machine principals to critical resources.</li>
+            <li>Prioritize high-severity paths with reachable production impact.</li>
+            <li>Simulate trust-policy hardening before enforcement in production.</li>
+            <li>Record remediation outcomes for audit and executive risk reporting.</li>
+          </ul>
+          <div className="idt-inline-actions">
+            <Link to="/pricing" className="idt-btn idt-btn-primary">
+              Start Free Risk Scan
+            </Link>
+            <Link to="/blog" className="idt-btn idt-btn-ghost">
+              Back to Blog
+            </Link>
+          </div>
+        </article>
       </section>
     </>
   );
@@ -2410,7 +2370,7 @@ export function RoutedSite() {
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />
           <Route path="/blog" element={<BlogPage />} />
-          <Route path="/blog/:slug" element={<BlogPostPage />} />
+          <Route path="/blog/:slug" element={<BlogArticlePage />} />
           <Route path="/security" element={<SecurityPage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/enterprise" element={<EnterprisePage />} />
