@@ -61,4 +61,16 @@ describe('App', () => {
       })
     ).toBeInTheDocument();
   });
+
+  it('renders integrations route', () => {
+    window.history.pushState({}, '', '/integrations');
+    render(<App />);
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: /Identity signal coverage across cloud, cluster, and code workflows/i
+      })
+    ).toBeInTheDocument();
+  });
 });
