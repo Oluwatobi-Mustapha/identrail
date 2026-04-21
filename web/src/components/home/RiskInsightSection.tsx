@@ -54,11 +54,14 @@ export function RiskInsightSection() {
         <div className="idt-risk-scenario-list" role="tablist" aria-label="Risk path scenarios">
           {SCENARIOS.map((scenario) => {
             const isActive = scenario.id === activeScenario.id;
+            const tabId = `risk-scenario-tab-${scenario.id}`;
             return (
               <button
                 key={scenario.id}
+                id={tabId}
                 type="button"
                 role="tab"
+                aria-controls="risk-scenario-panel"
                 aria-selected={isActive}
                 className={`idt-risk-scenario-item ${isActive ? 'is-active' : ''}`}
                 onClick={() => setActiveScenarioId(scenario.id)}
@@ -70,7 +73,13 @@ export function RiskInsightSection() {
           })}
         </div>
 
-        <article className="idt-card idt-risk-evidence-card" role="tabpanel" aria-live="polite">
+        <article
+          id="risk-scenario-panel"
+          className="idt-card idt-risk-evidence-card"
+          role="tabpanel"
+          aria-labelledby={`risk-scenario-tab-${activeScenario.id}`}
+          aria-live="polite"
+        >
           <p className="idt-finding-label">Selected path</p>
           <h3>{activeScenario.path}</h3>
           <p>
