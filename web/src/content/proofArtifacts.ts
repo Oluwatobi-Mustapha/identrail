@@ -16,7 +16,7 @@ export const TRUST_PROOF_LINKS: readonly ProofArtifact[] = [
   },
   {
     label: 'Read-Only Scan Model',
-    href: '/security',
+    href: '/docs',
     external: false,
     description: 'Permission scope and data access constraints for collection connectors.',
     freshness: 'Policy tracked'
