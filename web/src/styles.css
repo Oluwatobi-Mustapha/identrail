@@ -2031,6 +2031,46 @@ h2 {
   border-top: 1px solid var(--idt-line);
 }
 
+.idt-risk-insight-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.42fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.idt-risk-scenario-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.idt-risk-scenario-item {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #e6ecfb;
+  text-align: left;
+  padding: 0.68rem 0.75rem;
+  display: grid;
+  gap: 0.2rem;
+  cursor: pointer;
+}
+
+.idt-risk-scenario-item small {
+  font-size: 0.74rem;
+  color: #a2b0c7;
+}
+
+.idt-risk-scenario-item.is-active,
+.idt-risk-scenario-item:hover,
+.idt-risk-scenario-item:focus-visible {
+  border-color: rgba(172, 196, 255, 0.46);
+  background: rgba(172, 196, 255, 0.09);
+}
+
+.idt-risk-evidence-card {
+  display: grid;
+  gap: 0.54rem;
+}
+
 @media (max-width: 1080px) {
   .idt-header-row {
     grid-template-columns: auto auto;
@@ -2072,6 +2112,7 @@ h2 {
   .idt-demo-surface,
   .idt-pricing-grid,
   .idt-roi-grid,
+  .idt-risk-insight-grid,
   .idt-finding-proof-grid,
   .idt-adoption-grid,
   .idt-card-grid.two-col,
