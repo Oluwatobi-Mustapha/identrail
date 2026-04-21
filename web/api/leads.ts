@@ -3,9 +3,22 @@ type LeadCapturePayload = {
   environment?: string;
   company?: string;
   challenge?: string;
+  deployment_model?: string;
+  scan_goal?: string;
+  urgency?: string;
+  team_size?: string;
   source?: string;
   page_path?: string;
 };
+
+const ALLOWED_DEPLOYMENT_MODELS = new Set(['Hosted SaaS', 'Self-hosted open-core', 'Enterprise private tenancy']);
+const ALLOWED_URGENCY = new Set(['This quarter', 'This month', 'Immediate']);
+const ALLOWED_TEAM_SIZE = new Set(['1-5', '6-20', '21-50', '50+']);
+
+function trimOptional(value?: string): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -41,10 +54,16 @@ export default async function handler(
   const payload = {
     email,
     environment,
-    company: body.company?.trim() || undefined,
-    challenge: body.challenge?.trim() || undefined,
-    source: body.source?.trim() || 'unknown',
-    page_path: body.page_path?.trim() || '/',
+    company: trimOptional(body.company),
+    challenge: trimOptional(body.challenge),
+    deployment_model: ALLOWED_DEPLOYMENT_MODELS.has(body.deployment_model ?? '')
+      ? body.deployment_model
+      : trimOptional(body.deployment_model),
+    scan_goal: trimOptional(body.scan_goal),
+    urgency: ALLOWED_URGENCY.has(body.urgency ?? '') ? body.urgency : trimOptional(body.urgency),
+    team_size: ALLOWED_TEAM_SIZE.has(body.team_size ?? '') ? body.team_size : trimOptional(body.team_size),
+    source: trimOptional(body.source) || 'unknown',
+    page_path: trimOptional(body.page_path) || '/',
     captured_at: new Date().toISOString()
   };
 

@@ -1127,6 +1127,8 @@ function ReadOnlyScanPage() {
   const [environment, setEnvironment] = useState('AWS IAM + Kubernetes');
   const [deployment, setDeployment] = useState('Hosted SaaS');
   const [challenge, setChallenge] = useState('Trust path visibility');
+  const [urgency, setUrgency] = useState('This quarter');
+  const [teamSize, setTeamSize] = useState('6-20');
   const [company, setCompany] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -1153,7 +1155,11 @@ function ReadOnlyScanPage() {
         email: email.trim(),
         environment,
         company: company.trim() || undefined,
-        challenge: `${challenge} | ${deployment}`,
+        challenge: challenge,
+        deployment_model: deployment,
+        urgency,
+        team_size: teamSize,
+        scan_goal: `${environment} trust-path risk reduction`,
         source: 'Read-Only Scan Intake',
         page_path: '/read-only-scan'
       });
@@ -1240,6 +1246,23 @@ function ReadOnlyScanPage() {
                       <option>Overprivileged service accounts</option>
                       <option>Credential leak response</option>
                       <option>Authorization rollout safety</option>
+                    </select>
+                  </label>
+                  <label>
+                    Urgency
+                    <select value={urgency} onChange={(event) => setUrgency(event.target.value)}>
+                      <option>This quarter</option>
+                      <option>This month</option>
+                      <option>Immediate</option>
+                    </select>
+                  </label>
+                  <label>
+                    Team size
+                    <select value={teamSize} onChange={(event) => setTeamSize(event.target.value)}>
+                      <option>1-5</option>
+                      <option>6-20</option>
+                      <option>21-50</option>
+                      <option>50+</option>
                     </select>
                   </label>
                   <article className="idt-intake-summary">
