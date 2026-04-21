@@ -2490,8 +2490,14 @@ function ResponsibleDisclosurePage() {
           <article className="idt-card">
             <h2>How to report</h2>
             <ul>
-              <li>Submit detailed findings through our documented security contact channel</li>
+              <li>
+                Email <a href="mailto:security@identrail.com">security@identrail.com</a> with detailed findings and
+                proof-of-concept steps
+              </li>
               <li>Include reproduction steps, affected components, and potential impact</li>
+              <li>
+                Reference our security.txt policy at <code>/.well-known/security.txt</code> for reporting scope and expectations
+              </li>
               <li>Avoid public disclosure until coordinated remediation is completed</li>
             </ul>
           </article>
@@ -2500,6 +2506,7 @@ function ResponsibleDisclosurePage() {
             <ul>
               <li>Initial acknowledgement within one business day</li>
               <li>Triage and severity classification with engineering review</li>
+              <li>Status updates at least every three business days until remediation is complete</li>
               <li>Coordinated disclosure timeline after remediation is validated</li>
             </ul>
           </article>
