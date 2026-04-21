@@ -32,7 +32,7 @@ function badRequest(res: { status: (code: number) => { json: (payload: unknown) 
 }
 
 export default async function handler(
-  req: { method?: string; body?: LeadCapturePayload },
+  req: { method?: string; body?: unknown },
   res: { status: (code: number) => { json: (payload: unknown) => void } }
 ) {
   if (req.method !== 'POST') {
@@ -40,9 +40,9 @@ export default async function handler(
     return;
   }
 
-  const body = req.body ?? {};
-  const email = (body.email ?? '').trim();
-  const environment = (body.environment ?? '').trim();
+  const body: LeadCapturePayload = req.body && typeof req.body === 'object' ? (req.body as LeadCapturePayload) : {};
+  const email = trimOptional(body.email) ?? '';
+  const environment = trimOptional(body.environment) ?? '';
 
   if (!email || !isValidEmail(email)) {
     badRequest(res, 'Valid work email is required.');
@@ -54,17 +54,19 @@ export default async function handler(
     return;
   }
 
+  const deploymentModel = trimOptional(body.deployment_model);
+  const urgency = trimOptional(body.urgency);
+  const teamSize = trimOptional(body.team_size);
+
   const payload = {
     email,
     environment,
     company: trimOptional(body.company),
     challenge: trimOptional(body.challenge),
-    deployment_model: ALLOWED_DEPLOYMENT_MODELS.has(body.deployment_model ?? '')
-      ? body.deployment_model
-      : trimOptional(body.deployment_model),
+    deployment_model: deploymentModel && ALLOWED_DEPLOYMENT_MODELS.has(deploymentModel) ? deploymentModel : undefined,
     scan_goal: trimOptional(body.scan_goal),
-    urgency: ALLOWED_URGENCY.has(body.urgency ?? '') ? body.urgency : trimOptional(body.urgency),
-    team_size: ALLOWED_TEAM_SIZE.has(body.team_size ?? '') ? body.team_size : trimOptional(body.team_size),
+    urgency: urgency && ALLOWED_URGENCY.has(urgency) ? urgency : undefined,
+    team_size: teamSize && ALLOWED_TEAM_SIZE.has(teamSize) ? teamSize : undefined,
     source: trimOptional(body.source) || 'unknown',
     page_path: trimOptional(body.page_path) || '/',
     captured_at: new Date().toISOString()
