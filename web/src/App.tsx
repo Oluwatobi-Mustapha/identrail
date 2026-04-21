@@ -1780,8 +1780,8 @@ function PricingPage() {
     <>
       <section className="idt-page-hero idt-shell">
         <p className="idt-eyebrow">Pricing</p>
-        <h1>Choose your rollout path: open source, hosted Pro, or enterprise scale</h1>
-        <p>Start free and move up as your machine identity program matures.</p>
+        <h1>Pricing aligned to how teams adopt machine identity security</h1>
+        <p>Start with open source, move to hosted Pro for speed, then scale to enterprise controls when needed.</p>
       </section>
 
       <section className="idt-section idt-shell">
@@ -1793,11 +1793,17 @@ function PricingPage() {
             Annual <span>Save 25%</span>
           </button>
         </div>
+        <p className="idt-pricing-note">
+          Pro pricing is billed per user per month. All plans support read-only onboarding before any enforcement changes.
+        </p>
 
         <div className="idt-pricing-grid idt-pricing-section">
           <article className="idt-pricing-card">
             <h2>Open Source</h2>
             <p className="idt-price">$0</p>
+            <p className="idt-plan-fit">
+              <strong>Best for:</strong> Self-hosted evaluation and internal platform control.
+            </p>
             <p>Self-hosted core platform for AWS + Kubernetes machine identity workflows.</p>
             <ul>
               <li>Trust graph + exposure detections</li>
@@ -1816,11 +1822,15 @@ function PricingPage() {
               ${proPrice}
               <span>/user/mo</span>
             </p>
+            <p className="idt-plan-fit">
+              <strong>Best for:</strong> Fast time-to-value without managing infrastructure.
+            </p>
             <p>Hosted SaaS with advanced detections, collaboration workflows, and managed operations.</p>
             <ul>
               <li>Everything in Open Source</li>
               <li>Hosted trust graph and accelerated queries</li>
               <li>SAML SSO, alerts, and workflow integrations</li>
+              <li>14-day hosted trial with guided setup</li>
             </ul>
             <Link to="/enterprise" className="idt-btn idt-btn-primary">
               Start Free Risk Scan
@@ -1830,6 +1840,9 @@ function PricingPage() {
           <article className="idt-pricing-card">
             <h2>Enterprise</h2>
             <p className="idt-price">Starting at $50k/yr</p>
+            <p className="idt-plan-fit">
+              <strong>Best for:</strong> Private deployment, procurement workflows, and advanced governance.
+            </p>
             <p>Advanced governance, private deployment options, and enterprise-grade support.</p>
             <ul>
               <li>Everything in Pro</li>
@@ -1840,6 +1853,14 @@ function PricingPage() {
               Contact Sales
             </button>
           </article>
+        </div>
+        <div className="idt-pricing-inline-cta">
+          <Link to="/enterprise" className="idt-btn idt-btn-primary">
+            Start Free Risk Scan
+          </Link>
+          <button type="button" className="idt-btn idt-btn-dark" onClick={() => setSalesModalOpen(true)}>
+            Book Demo
+          </button>
         </div>
       </section>
 
@@ -1899,7 +1920,7 @@ function PricingPage() {
               compact
               title="Enterprise Sales"
               caption="Expected response time: under 1 business day."
-              ctaLabel="Book Demo"
+              ctaLabel="Contact Sales"
             />
           </div>
         </div>

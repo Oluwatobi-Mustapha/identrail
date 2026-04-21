@@ -27,7 +27,7 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: /Choose your rollout path: open source, hosted pro, or enterprise/i
+        name: /Pricing aligned to how teams adopt machine identity security/i
       })
     ).toBeInTheDocument();
 
