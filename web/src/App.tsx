@@ -2,6 +2,7 @@ import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'reac
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
+import { HowItWorksSection } from './components/home/HowItWorksSection';
 import { RiskInsightSection } from './components/home/RiskInsightSection';
 import { TrustProofStrip } from './components/home/TrustProofStrip';
 import { Footer } from './components/layout/Footer';
@@ -1048,27 +1049,7 @@ function HomePage() {
         </div>
       </section>
 
-      <section className="idt-section idt-shell">
-        <SectionTitle eyebrow="How It Works" title="Discover, prioritize, simulate, and roll out in four steps" />
-        <ol className="idt-steps">
-          <li>
-            <h3>1. Connect data sources</h3>
-            <p>Ingest AWS IAM, Kubernetes identities, and repository signals continuously.</p>
-          </li>
-          <li>
-            <h3>2. Build trust paths</h3>
-            <p>Correlate principals, permissions, resources, and transitive assumptions in one graph.</p>
-          </li>
-          <li>
-            <h3>3. Detect high-signal exposures</h3>
-            <p>Prioritize findings based on exploitability, sensitivity, and path reachability.</p>
-          </li>
-          <li>
-            <h3>4. Roll out safer controls</h3>
-            <p>Simulate policy updates, stage changes, and ship with kill-switch safety rails.</p>
-          </li>
-        </ol>
-      </section>
+      <HowItWorksSection />
 
       <DeploymentPathBanner />
 
