@@ -953,6 +953,25 @@ h3 {
   padding: 1rem;
 }
 
+.idt-workflow-steps li {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.idt-workflow-steps li p {
+  margin: 0;
+  color: #d2dcec;
+}
+
+.idt-workflow-output {
+  border: 1px dashed rgba(165, 190, 255, 0.4);
+  border-radius: 10px;
+  background: rgba(165, 190, 255, 0.08);
+  padding: 0.42rem 0.54rem;
+  font-size: 0.84rem;
+  color: #e1ecff;
+}
+
 .idt-steps p {
   margin: 0;
   color: #d7e5ff;
