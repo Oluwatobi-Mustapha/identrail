@@ -654,6 +654,50 @@ h3 {
   gap: 1rem;
 }
 
+.idt-demo-surface.is-full {
+  gap: 1.2rem;
+}
+
+.idt-demo-toolbar {
+  grid-column: 1 / -1;
+  border: 1px solid var(--idt-line);
+  border-radius: var(--idt-radius);
+  padding: 0.9rem 1rem;
+  background: rgba(10, 10, 12, 0.82);
+}
+
+.idt-demo-toolbar p {
+  margin: 0 0 0.7rem;
+  color: #d4ddf3;
+  font-size: 0.86rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.idt-demo-scenario-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.idt-demo-scenario-row button {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e6ecff;
+  border-radius: 999px;
+  min-height: 34px;
+  padding: 0 0.8rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.idt-demo-scenario-row button.is-active {
+  background: rgba(137, 169, 255, 0.28);
+  border-color: rgba(137, 169, 255, 0.74);
+}
+
 .idt-demo-graph {
   min-height: 420px;
   padding: 1rem;
@@ -744,6 +788,18 @@ h3 {
 
 .idt-demo-sidebar {
   padding: 1.15rem;
+}
+
+.idt-demo-evidence {
+  margin-top: 0.9rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.idt-demo-evidence p {
+  margin: 0.45rem 0;
 }
 
 .idt-steps {
