@@ -157,6 +157,24 @@ const INTEGRATION_ROWS = [
   }
 ] as const;
 
+const READ_ONLY_CONTROL_ROWS = [
+  {
+    area: 'Identity metadata collection',
+    access: 'Read-only API calls for identity, policy, and relationship metadata',
+    excluded: 'No secret material ingestion, no credential writeback'
+  },
+  {
+    area: 'Policy simulation',
+    access: 'Simulation engine evaluates proposed changes against collected graph state',
+    excluded: 'No direct policy mutation during simulation'
+  },
+  {
+    area: 'Remediation workflow',
+    access: 'Action plans and exportable recommendations',
+    excluded: 'No automatic enforcement without explicit operator action'
+  }
+] as const;
+
 const FEATURE_DEEP_PAGES = [
   {
     slug: 'aws',
@@ -2362,6 +2380,34 @@ function SecurityPage() {
       </section>
 
       <section className="idt-section idt-shell">
+        <SectionTitle
+          eyebrow="Read-Only Model"
+          title="Collection boundaries and control guarantees"
+          body="Use this matrix to validate how Identrail collects trust data and where write actions are intentionally excluded."
+        />
+        <div className="idt-table-wrap">
+          <table className="idt-compare-table">
+            <thead>
+              <tr>
+                <th scope="col">Control area</th>
+                <th scope="col">What Identrail does</th>
+                <th scope="col">What Identrail does not do</th>
+              </tr>
+            </thead>
+            <tbody>
+              {READ_ONLY_CONTROL_ROWS.map((row) => (
+                <tr key={row.area}>
+                  <th scope="row">{row.area}</th>
+                  <td>{row.access}</td>
+                  <td>{row.excluded}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="idt-section idt-shell">
         <div className="idt-card-grid two-col idt-security-grid">
           <article className="idt-card">
             <h2>Compliance roadmap</h2>
@@ -2398,11 +2444,56 @@ function SecurityPage() {
         </div>
       </section>
       <section className="idt-section idt-shell">
-        <LeadCaptureForm
-          title="Need vendor security documentation?"
-          caption="Request security package access for procurement and compliance review."
-          ctaLabel="Book Demo"
-        />
+        <div className="idt-inline-actions">
+          <Link to="/responsible-disclosure" className="idt-btn idt-btn-dark">
+            Responsible Disclosure
+          </Link>
+          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
+            Start Read-Only Risk Scan
+          </Link>
+          <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-ghost">
+            Review Security Docs
+          </SafeLink>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function ResponsibleDisclosurePage() {
+  useSeo({
+    title: 'Responsible Disclosure | Identrail Security',
+    description:
+      'Report potential vulnerabilities to Identrail using our responsible disclosure process and coordinated response workflow.',
+    path: '/responsible-disclosure'
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">Responsible Disclosure</p>
+        <h1>Report security issues through a coordinated disclosure process</h1>
+        <p>We investigate security reports promptly and coordinate remediation and communication with reporters.</p>
+      </section>
+      <section className="idt-section idt-shell">
+        <div className="idt-card-grid two-col">
+          <article className="idt-card">
+            <h2>How to report</h2>
+            <ul>
+              <li>Submit detailed findings through our documented security contact channel</li>
+              <li>Include reproduction steps, affected components, and potential impact</li>
+              <li>Avoid public disclosure until coordinated remediation is completed</li>
+            </ul>
+          </article>
+          <article className="idt-card">
+            <h2>Response expectations</h2>
+            <ul>
+              <li>Initial acknowledgement within one business day</li>
+              <li>Triage and severity classification with engineering review</li>
+              <li>Coordinated disclosure timeline after remediation is validated</li>
+            </ul>
+          </article>
+        </div>
       </section>
     </>
   );
@@ -2567,6 +2658,7 @@ export function RoutedSite() {
           <Route path="/blog" element={<BlogPage />} />
           <Route path="/blog/:slug" element={<BlogArticlePage />} />
           <Route path="/security" element={<SecurityPage />} />
+          <Route path="/responsible-disclosure" element={<ResponsibleDisclosurePage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/enterprise" element={<EnterprisePage />} />
           <Route path="/terms" element={<LegalPage title="Terms" body="Use of this website and platform is subject to our terms and acceptable use obligations." />} />
