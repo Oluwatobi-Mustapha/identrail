@@ -1,5 +1,5 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { Footer } from './components/layout/Footer';
 import { Header } from './components/layout/Header';
@@ -2167,7 +2167,7 @@ export function RoutedSite() {
           <Route path="/" element={<HomePage />} />
           <Route path="/product" element={<ProductPage />} />
           <Route path="/features" element={<FeaturesPage />} />
-          <Route path="/integrations" element={<FeaturesPage />} />
+          <Route path="/integrations" element={<Navigate to="/features" replace />} />
           {FEATURE_DEEP_PAGES.map((page) => (
             <Route key={page.slug} path={`/features/${page.slug}`} element={<FeatureDetailPage page={page} />} />
           ))}
@@ -2176,7 +2176,7 @@ export function RoutedSite() {
             <Route key={page.slug} path={`/solutions/${page.slug}`} element={<SolutionDetailPage page={page} />} />
           ))}
           <Route path="/pricing" element={<PricingPage />} />
-          <Route path="/deployment-models" element={<PricingPage />} />
+          <Route path="/deployment-models" element={<Navigate to="/pricing" replace />} />
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />
           <Route path="/blog" element={<BlogPage />} />
