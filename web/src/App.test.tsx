@@ -97,4 +97,16 @@ describe('App', () => {
       })
     ).toBeInTheDocument();
   });
+
+  it('renders responsible disclosure route', () => {
+    window.history.pushState({}, '', '/responsible-disclosure');
+    render(<App />);
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: /Report security issues through a coordinated disclosure process/i
+      })
+    ).toBeInTheDocument();
+  });
 });
