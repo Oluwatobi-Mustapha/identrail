@@ -85,4 +85,16 @@ describe('App', () => {
       })
     ).toBeInTheDocument();
   });
+
+  it('renders full FAQ route', () => {
+    window.history.pushState({}, '', '/faq');
+    render(<App />);
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: /Technical and operational questions teams ask before rollout/i
+      })
+    ).toBeInTheDocument();
+  });
 });

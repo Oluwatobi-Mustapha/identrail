@@ -1021,7 +1021,41 @@ function HomeFaqSection() {
           </details>
         ))}
       </div>
+      <div className="idt-inline-actions">
+        <Link to="/faq" className="idt-btn idt-btn-ghost">
+          View Full FAQ
+        </Link>
+      </div>
     </section>
+  );
+}
+
+function FaqPage() {
+  useSeo({
+    title: 'FAQ | Identrail Machine Identity Security',
+    description:
+      'Detailed answers for machine identity security adoption including read-only model, data handling, deployment options, and rollout safety.',
+    path: '/faq'
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">FAQ</p>
+        <h1>Technical and operational questions teams ask before rollout</h1>
+        <p>Answers focus on read-only collection boundaries, deployment models, and safe remediation workflows.</p>
+      </section>
+      <section className="idt-section idt-shell">
+        <div className="idt-faq-list">
+          {HOME_FAQ_ITEMS.map((item) => (
+            <details key={item.question} className="idt-faq-item">
+              <summary>{item.question}</summary>
+              <p>{item.answer}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -2539,6 +2573,7 @@ export function RoutedSite() {
           <Route path="/deployment-models" element={<DeploymentModelsPage />} />
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />
+          <Route path="/faq" element={<FaqPage />} />
           <Route path="/blog" element={<BlogPage />} />
           <Route path="/blog/:slug" element={<BlogArticlePage />} />
           <Route path="/security" element={<SecurityPage />} />
