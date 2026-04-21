@@ -1822,11 +1822,18 @@ function PricingPage() {
 
       <section className="idt-section idt-shell idt-pricing-roi">
         <SectionTitle
-          eyebrow="Plan Fit"
-          title="Project impact before selecting your deployment path"
-          body="Use transparent assumptions to estimate incident-exposure reduction and triage-efficiency gains."
+          eyebrow="Impact Model"
+          title="Need ROI modeling before procurement?"
+          body="Use the dedicated ROI assessment page with transparent assumptions and editable parameters."
         />
-        <RoiCalculator />
+        <div className="idt-inline-actions">
+          <Link to="/roi-assessment" className="idt-btn idt-btn-primary">
+            Open ROI Assessment
+          </Link>
+          <Link to="/read-only-scan" className="idt-btn idt-btn-dark">
+            Start Read-Only Risk Scan
+          </Link>
+        </div>
       </section>
 
       {salesModalOpen ? (
@@ -1849,6 +1856,47 @@ function PricingPage() {
           />
         </ModalShell>
       ) : null}
+    </>
+  );
+}
+
+function RoiAssessmentPage() {
+  useSeo({
+    title: 'ROI Assessment | Machine Identity Security Impact Model',
+    description:
+      'Run a transparent ROI assessment for machine identity security risk reduction with editable assumptions and impact calculations.',
+    path: '/roi-assessment'
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">ROI Assessment</p>
+        <h1>Model risk-reduction impact with transparent assumptions</h1>
+        <p>
+          This tool is a planning model, not a guarantee. Adjust each input to match your environment and validate assumptions with
+          your security and finance stakeholders.
+        </p>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <RoiCalculator />
+        <p className="idt-roi-disclaimer">
+          Assumptions: labor savings = weekly triage hours × 52 × $110; incident exposure reduction coefficient = 0.87; high-risk
+          identity reduction coefficient = 0.32.
+        </p>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <div className="idt-inline-actions">
+          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
+            Start Read-Only Risk Scan
+          </Link>
+          <Link to="/pricing" className="idt-btn idt-btn-dark">
+            Compare Pricing Plans
+          </Link>
+        </div>
+      </section>
     </>
   );
 }
@@ -2486,6 +2534,7 @@ export function RoutedSite() {
             <Route key={page.slug} path={`/solutions/${page.slug}`} element={<SolutionDetailPage page={page} />} />
           ))}
           <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/roi-assessment" element={<RoiAssessmentPage />} />
           <Route path="/read-only-scan" element={<ReadOnlyScanPage />} />
           <Route path="/deployment-models" element={<DeploymentModelsPage />} />
           <Route path="/demo" element={<DemoPage />} />
