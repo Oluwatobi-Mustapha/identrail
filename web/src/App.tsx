@@ -1,6 +1,11 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
+import { HeroProductReveal } from './components/home/HeroProductReveal';
+import { RiskInsightSection } from './components/home/RiskInsightSection';
+import { TrustProofStrip } from './components/home/TrustProofStrip';
+import { Footer } from './components/layout/Footer';
+import { Header } from './components/layout/Header';
 import { apiClient } from './api/client';
 import { BLOG_POSTS, DOC_ENTRIES, HOME_FAQ_ITEMS } from './content/resources';
 
@@ -34,19 +39,15 @@ let bodyOverflowBeforeModal = '';
 const NAV_LINKS = [
   { to: '/product', label: 'Product' },
   { to: '/solutions', label: 'Solutions' },
-  { to: '/pricing', label: 'Pricing' },
-  { to: '/demo', label: 'Demo' },
+  { to: '/integrations', label: 'Integrations' },
+  { to: '/deployment-models', label: 'Deployment' },
   { to: '/docs', label: 'Docs' },
+  { to: '/pricing', label: 'Pricing' },
   { to: '/security', label: 'Security' },
-  { to: '/blog', label: 'Blog' }
+  { to: '/demo', label: 'Demo' }
 ] as const;
 
-const CREDIBILITY_SIGNALS = [
-  'Built for cloud security and platform teams',
-  'Open-source core under Apache-2.0',
-  'Public repository, docs, and changelog',
-  'Security policy and responsible disclosure process'
-] as const;
+const HOME_FAQ_PREVIEW = HOME_FAQ_ITEMS.slice(0, 4);
 
 const DIFFERENTIATION_ROWS = [
   {
@@ -667,30 +668,6 @@ function CalendlyEmbed() {
   );
 }
 
-function TrustGraphHeroVisual() {
-  return (
-    <div className="idt-graph-visual" aria-label="Trust path product preview">
-      <div className="idt-graph-grid" />
-      <div className="idt-node idt-node-root">GitHub Actions OIDC</div>
-      <div className="idt-node idt-node-role">AWS Role: billing-prod</div>
-      <div className="idt-node idt-node-k8s">K8s SA: payments-api</div>
-      <div className="idt-node idt-node-repo">RDS: billing-ledger</div>
-      <span className="idt-edge idt-edge-a" />
-      <span className="idt-edge idt-edge-b" />
-      <span className="idt-edge idt-edge-c" />
-      <span className="idt-pulse idt-pulse-a" />
-      <span className="idt-pulse idt-pulse-b" />
-      <aside className="idt-hero-graph-caption">
-        <p className="idt-hero-graph-title">Trust graph preview</p>
-        <p>GitHub Actions OIDC → AWS Role → K8s Service Account → RDS Billing Resource</p>
-        <Link to="/demo" className="idt-inline-link">
-          Open interactive demo
-        </Link>
-      </aside>
-    </div>
-  );
-}
-
 function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' }) {
   const scenarios = [
     {
@@ -720,6 +697,7 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
   ] as const;
 
   const [scenarioId, setScenarioId] = useState<(typeof scenarios)[number]['id']>('cicd');
+  const [viewMode, setViewMode] = useState<'graph' | 'list'>('graph');
   const nodes = [
     {
       id: 'oidc',
@@ -754,39 +732,54 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
 
   return (
     <section className={`idt-demo-surface ${variant === 'full' ? 'is-full' : ''}`}>
-      {variant === 'full' ? (
-        <div className="idt-demo-toolbar" role="group" aria-label="Demo scenarios">
-          <p>Scenario</p>
-          <div className="idt-demo-scenario-row">
-            {scenarios.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={item.id === scenarioId ? 'is-active' : ''}
-                onClick={() => setScenarioId(item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+      <div className="idt-demo-toolbar" role="group" aria-label="Demo scenarios">
+        <p>Scenario</p>
+        <div className="idt-demo-scenario-row">
+          {scenarios.map((item) => (
+            <button key={item.id} type="button" className={item.id === scenarioId ? 'is-active' : ''} onClick={() => setScenarioId(item.id)}>
+              {item.label}
+            </button>
+          ))}
         </div>
-      ) : null}
-      <div className="idt-demo-graph" role="img" aria-label="Interactive trust graph simulation">
-        {nodes.map((node) => (
-          <button
-            key={node.id}
-            type="button"
-            className={`idt-demo-node ${selected.id === node.id ? 'is-active' : ''}`}
-            onClick={() => setSelectedId(node.id)}
-          >
-            <span>{node.title}</span>
-          </button>
-        ))}
-        <span className="idt-demo-connector c1" />
-        <span className="idt-demo-connector c2" />
-        <span className="idt-demo-connector c3" />
-        <span className="idt-demo-connector c4" />
       </div>
+
+      <div className="idt-demo-view-toggle" role="tablist" aria-label="Trust path explorer view">
+        <button type="button" role="tab" aria-selected={viewMode === 'graph'} className={viewMode === 'graph' ? 'is-active' : ''} onClick={() => setViewMode('graph')}>
+          Graph
+        </button>
+        <button type="button" role="tab" aria-selected={viewMode === 'list'} className={viewMode === 'list' ? 'is-active' : ''} onClick={() => setViewMode('list')}>
+          List
+        </button>
+      </div>
+
+      {viewMode === 'graph' ? (
+        <div className="idt-demo-graph" role="img" aria-label="Interactive trust graph simulation">
+          {nodes.map((node) => (
+            <button
+              key={node.id}
+              type="button"
+              className={`idt-demo-node ${selected.id === node.id ? 'is-active' : ''}`}
+              onClick={() => setSelectedId(node.id)}
+            >
+              <span>{node.title}</span>
+            </button>
+          ))}
+          <span className="idt-demo-connector c1" />
+          <span className="idt-demo-connector c2" />
+          <span className="idt-demo-connector c3" />
+          <span className="idt-demo-connector c4" />
+        </div>
+      ) : (
+        <div className="idt-demo-list-view" role="table" aria-label="Trust path nodes">
+          {nodes.map((node) => (
+            <button key={node.id} type="button" className={`idt-demo-list-row ${selected.id === node.id ? 'is-active' : ''}`} onClick={() => setSelectedId(node.id)}>
+              <span>{node.title}</span>
+              <small>{node.detail}</small>
+            </button>
+          ))}
+        </div>
+      )}
+
       <aside className="idt-demo-sidebar" aria-live="polite">
         <h3>{selected.title}</h3>
         <p>{selected.detail}</p>
@@ -811,10 +804,10 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
         ) : null}
         <div className="idt-inline-actions">
           <Link to="/pricing" className="idt-btn idt-btn-primary">
-            Start Free Risk Scan
+            Start Read-Only Risk Scan
           </Link>
-          <Link to="/enterprise" className="idt-btn idt-btn-dark">
-            Book Demo
+          <Link to="/demo" className="idt-btn idt-btn-dark">
+            Book Technical Demo
           </Link>
         </div>
       </aside>
@@ -941,80 +934,6 @@ function RoiCalculator() {
   );
 }
 
-function Header() {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const location = useLocation();
-
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [location.pathname]);
-
-  useEffect(() => {
-    if (!menuOpen) {
-      return;
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setMenuOpen(false);
-      }
-    };
-
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [menuOpen]);
-
-  return (
-    <header className="idt-header">
-      <div className="idt-shell idt-header-row">
-        <Link to="/" className="idt-brand" aria-label="Identrail homepage">
-          <img src="/identrail-logo.png" width="32" height="32" alt="Identrail" />
-          <span>
-            Identrail
-            <small>Machine Identity Security</small>
-          </span>
-        </Link>
-
-        <button
-          className="idt-menu-toggle"
-          type="button"
-          onClick={() => setMenuOpen((prev) => !prev)}
-          aria-expanded={menuOpen}
-          aria-controls="primary-nav"
-          aria-label="Toggle primary navigation"
-        >
-          Menu
-        </button>
-
-        <nav id="primary-nav" className={`idt-nav ${menuOpen ? 'is-open' : ''}`} aria-label="Primary">
-          {NAV_LINKS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) => (isActive ? 'is-active' : '')}
-              onClick={() => setMenuOpen(false)}
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-
-        <div className="idt-header-actions">
-          <Link to="/pricing" className="idt-btn idt-btn-primary" data-ab-slot="header_primary_cta">
-            Start Free Risk Scan
-          </Link>
-          <Link to="/enterprise" className="idt-btn idt-btn-dark">
-            Book Demo
-          </Link>
-          <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
-            GitHub
-          </SafeLink>
-        </div>
-      </div>
-    </header>
-  );
-}
-
 function DeploymentPathBanner() {
   return (
     <section className="idt-section idt-shell idt-deployment-bridge" aria-label="Adoption paths">
@@ -1052,82 +971,16 @@ function DeploymentPathBanner() {
   );
 }
 
-function HomeCredibilityStrip() {
-  return (
-    <section className="idt-trust-strip" aria-label="Credibility and proof">
-      <div className="idt-shell">
-        <p>Transparent by design: open-source core, public docs, and documented security process.</p>
-        <div className="idt-logo-row">
-          {CREDIBILITY_SIGNALS.map((signal) => (
-            <span key={signal}>{signal}</span>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function ProductProofFindingSection() {
-  return (
-    <section className="idt-section idt-shell">
-      <SectionTitle
-        eyebrow="Product Proof"
-        title="See a realistic high-risk trust path before you connect anything"
-        body="Identrail surfaces risky machine identity paths with evidence, impact, and remediation guidance teams can act on immediately."
-      />
-      <div className="idt-finding-proof-grid">
-        <article className="idt-card idt-finding-card">
-          <p className="idt-finding-label">Risk</p>
-          <h3>Kubernetes service account can assume production AWS role</h3>
-          <p>
-            <strong>Severity:</strong> <span className="idt-severity-high">High</span>
-          </p>
-          <p>
-            <strong>Path:</strong> GitHub Actions → OIDC Provider → AWS Role → RDS Billing Resource
-          </p>
-          <p>
-            <strong>Why it matters:</strong> Compromise of CI/CD could reach sensitive production data.
-          </p>
-          <p>
-            <strong>Recommended remediation:</strong> Restrict trust policy conditions and scope role permissions.
-          </p>
-        </article>
-        <article className="idt-card idt-finding-impact">
-          <h3>What teams do next in Identrail</h3>
-          <ul>
-            <li>Inspect every edge in the trust path with source policy evidence.</li>
-            <li>Simulate tighter trust conditions before enforcing policy changes.</li>
-            <li>Roll out in stages to reduce blast radius without breaking production.</li>
-          </ul>
-          <div className="idt-inline-actions">
-            <Link to="/pricing" className="idt-btn idt-btn-primary">
-              Start Free Risk Scan
-            </Link>
-            <Link to="/enterprise" className="idt-btn idt-btn-dark">
-              Book Demo
-            </Link>
-          </div>
-        </article>
-      </div>
-      <div className="idt-card idt-proof-demo-card">
-        <h3>Interactive trust-path preview</h3>
-        <p>Inspect a sample trust path from source identity to sensitive resource before connecting your environment.</p>
-        <TrustGraphDemo />
-      </div>
-    </section>
-  );
-}
-
 function HomeFaqSection() {
   return (
     <section className="idt-section idt-shell">
       <SectionTitle
         eyebrow="FAQ"
-        title="Answers for security and platform teams evaluating adoption"
-        body="Each answer focuses on safe data access, deployment options, and rollout reliability."
+        title="Top evaluation questions"
+        body="Full FAQs live in docs. These are the four questions teams ask first."
       />
       <div className="idt-faq-list">
-        {HOME_FAQ_ITEMS.map((item) => (
+        {HOME_FAQ_PREVIEW.map((item) => (
           <details key={item.question} className="idt-faq-item">
             <summary>{item.question}</summary>
             <p>{item.answer}</p>
@@ -1135,96 +988,6 @@ function HomeFaqSection() {
         ))}
       </div>
     </section>
-  );
-}
-
-function GitHubIcon() {
-  return (
-    <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M12 2C6.48 2 2 6.59 2 12.25c0 4.52 2.87 8.35 6.84 9.7.5.1.68-.22.68-.49 0-.24-.01-.89-.01-1.75-2.78.62-3.37-1.37-3.37-1.37-.46-1.2-1.12-1.51-1.12-1.51-.92-.64.07-.63.07-.63 1.02.08 1.55 1.07 1.55 1.07.9 1.59 2.37 1.13 2.95.87.09-.67.35-1.13.64-1.39-2.22-.26-4.56-1.14-4.56-5.08 0-1.12.39-2.03 1.03-2.74-.1-.26-.45-1.31.1-2.73 0 0 .84-.27 2.75 1.05A9.4 9.4 0 0 1 12 6.8c.85 0 1.7.12 2.5.36 1.9-1.32 2.74-1.05 2.74-1.05.56 1.42.21 2.47.11 2.73.64.71 1.02 1.62 1.02 2.74 0 3.95-2.35 4.82-4.58 5.08.36.32.67.95.67 1.91 0 1.38-.01 2.49-.01 2.83 0 .27.18.6.69.49A10.25 10.25 0 0 0 22 12.25C22 6.59 17.52 2 12 2Z"
-      />
-    </svg>
-  );
-}
-
-function LinkedInIcon() {
-  return (
-    <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003ZM7.119 20.452H3.555V9h3.564v11.452ZM5.337 7.433a2.063 2.063 0 1 1 0-4.126 2.063 2.063 0 0 1 0 4.126ZM20.452 20.452H16.89V14.89c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.94v5.659H9.344V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286Z"
-      />
-    </svg>
-  );
-}
-
-function DiscordIcon() {
-  return (
-    <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M19.79 5.59A15.66 15.66 0 0 0 15.9 4.4l-.19.4a14.54 14.54 0 0 1 3.71 1.19 11.77 11.77 0 0 0-3.62-1.13c-2.39-.26-4.79-.26-7.18 0A11.7 11.7 0 0 0 5 6a14.56 14.56 0 0 1 3.71-1.19l-.19-.4a15.7 15.7 0 0 0-3.88 1.18C2.2 9.24 1.52 12.79 1.86 16.29a15.95 15.95 0 0 0 4.77 2.42l.95-1.58c-.52-.2-1.01-.45-1.49-.73.13.1.27.19.41.28 2.06 1.15 4.35 1.52 6.5 1.52 2.15 0 4.44-.37 6.49-1.52.14-.09.28-.18.41-.28-.47.28-.97.53-1.49.73l.95 1.58a15.92 15.92 0 0 0 4.77-2.42c.4-4.06-.68-7.58-2.53-10.7ZM9.54 14.14c-.76 0-1.39-.72-1.39-1.61s.61-1.6 1.39-1.6c.78 0 1.4.72 1.39 1.6 0 .9-.61 1.61-1.39 1.61Zm4.93 0c-.76 0-1.39-.72-1.39-1.61s.61-1.6 1.39-1.6c.78 0 1.4.72 1.39 1.6 0 .9-.61 1.61-1.39 1.61Z"
-      />
-    </svg>
-  );
-}
-
-function XIcon() {
-  return (
-    <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M18.901 1.153h3.68l-8.04 9.19 9.46 12.504H16.62l-5.778-7.553-6.607 7.553H.552l8.603-9.834L0 1.154h7.57l5.215 6.882 6.116-6.883Zm-1.291 19.496h2.039L6.463 3.237H4.276L17.61 20.649Z"
-      />
-    </svg>
-  );
-}
-
-function Footer() {
-  const footerLinks = [
-    { to: '/product', label: 'Product' },
-    { to: '/solutions', label: 'Solutions' },
-    { to: '/pricing', label: 'Pricing' },
-    { to: '/demo', label: 'Demo' },
-    { to: '/docs', label: 'Docs' },
-    { to: '/blog', label: 'Blog' },
-    { to: '/security', label: 'Security' },
-    { to: '/about', label: 'About' },
-    { to: '/privacy', label: 'Privacy' },
-    { to: '/terms', label: 'Terms' }
-  ] as const;
-
-  return (
-    <footer className="idt-footer">
-      <div className="idt-footer-bar">
-        <div className="idt-shell idt-footer-bar-row">
-          <nav className="idt-footer-links" aria-label="Footer">
-            {footerLinks.map((item) => (
-              <Link key={item.to} to={item.to}>
-                {item.label}
-              </Link>
-            ))}
-          </nav>
-          <small>© {new Date().getFullYear()} Identrail. All rights reserved.</small>
-          <div className="idt-footer-socials">
-            <SafeLink href={X_URL} aria-label="X" className="idt-social-link">
-              <XIcon />
-            </SafeLink>
-            <SafeLink href={LINKEDIN_URL} aria-label="LinkedIn" className="idt-social-link">
-              <LinkedInIcon />
-            </SafeLink>
-            <SafeLink href={GITHUB_REPO} aria-label="GitHub" className="idt-social-link">
-              <GitHubIcon />
-            </SafeLink>
-            <SafeLink href={DISCORD_URL} aria-label="Discord" className="idt-social-link">
-              <DiscordIcon />
-            </SafeLink>
-          </div>
-        </div>
-      </div>
-    </footer>
   );
 }
 
@@ -1246,74 +1009,47 @@ function HomePage() {
         <div className="idt-shell idt-hero-grid">
           <div className="idt-hero-copy">
             <p className="idt-eyebrow">Machine identity security</p>
-            <h1>See risky machine trust paths before attackers do.</h1>
+            <h1>See which machine identities can actually reach production.</h1>
             <p className="idt-lead">
-              Map AWS IAM, Kubernetes, and GitHub identity paths. Prioritize blast radius, then roll out safer access without breaking production.
+              Identrail maps AWS IAM, Kubernetes, GitHub, and OIDC trust paths in read-only mode so teams can prioritize reachable blast radius and roll out safer access.
             </p>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
               <a href="#risk-scan-form" className="idt-btn idt-btn-primary">
-                Start Free Risk Scan
+                Start Read-Only Risk Scan
               </a>
-              <Link to="/enterprise" className="idt-btn idt-btn-dark">
-                Book Demo
+              <Link to="/demo" className="idt-btn idt-btn-dark">
+                Book Technical Demo
               </Link>
             </div>
           </div>
-          <TrustGraphHeroVisual />
+          <HeroProductReveal />
         </div>
       </section>
 
-      <HomeCredibilityStrip />
-
-      <section className="idt-section idt-shell idt-impact-strip" aria-label="Impact snapshot">
-        <div className="idt-kpi-row">
-          <article>
-            <strong>87%</strong>
-            <span>Example reduction target for high-risk trust paths</span>
-          </article>
-          <article>
-            <strong>&lt; 15 min</strong>
-            <span>Typical time to first trust graph in hosted trial</span>
-          </article>
-          <article>
-            <strong>3x faster</strong>
-            <span>Observed triage acceleration in pilot workflows</span>
-          </article>
-        </div>
-      </section>
-
-      <section className="idt-section idt-shell">
-        <SectionTitle
-          eyebrow="Why This Matters"
-          title="Machine identity risk is hard to control when trust data is fragmented"
-          body="Security and platform teams need one view across AWS IAM, Kubernetes RBAC, OIDC relationships, and GitHub/GitOps workflows to understand real exposure."
-        />
-        <div className="idt-card-grid two-col">
-          <article className="idt-card">
-            <h3>What Identrail does</h3>
-            <p>Discovers machine identity trust paths and shows where risky access actually exists.</p>
-          </article>
-          <article className="idt-card">
-            <h3>Why it matters</h3>
-            <p>Hidden trust chains can turn one compromised workload into broad production access.</p>
-          </article>
-        </div>
-      </section>
+      <TrustProofStrip />
 
       <section className="idt-section idt-shell">
         <LeadCaptureForm
           id="risk-scan-form"
           variant="short"
-          title="Start your free risk scan in under one minute"
-          caption="Share your work email and primary environment. Receive a practical 30-day risk reduction plan."
-          ctaLabel="Start Free Risk Scan"
+          title="Start a read-only risk scan in under one minute"
+          caption="Share your work email and primary environment. Receive a prioritized machine identity risk report and remediation sequence."
+          ctaLabel="Start Read-Only Risk Scan"
         />
       </section>
 
-      <ProductProofFindingSection />
+      <RiskInsightSection />
 
       <section className="idt-section idt-shell">
-        <SectionTitle eyebrow="How It Works" title="From data collection to safe control in four steps" />
+        <div className="idt-card idt-proof-demo-card">
+          <h3>Interactive trust-path preview</h3>
+          <p>Inspect a sample trust path from source identity to sensitive resource before connecting your environment.</p>
+          <TrustGraphDemo />
+        </div>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <SectionTitle eyebrow="How It Works" title="Discover, prioritize, simulate, and roll out in four steps" />
         <ol className="idt-steps">
           <li>
             <h3>1. Connect data sources</h3>
@@ -1338,9 +1074,9 @@ function HomePage() {
 
       <section className="idt-section idt-shell">
         <SectionTitle
-          eyebrow="Open-Core Advantage"
-          title="Purpose-built alternative to closed machine identity platforms"
-          body="Open-core transparency, fast time-to-value, and enterprise controls without vendor lock-in."
+          eyebrow="Evaluation Criteria"
+          title="Evaluate machine identity platforms on operational evidence"
+          body="Use criteria that map to real risk reduction, rollout safety, and platform-team execution."
         />
         <div className="idt-table-wrap">
           <table className="idt-compare-table">
@@ -1364,27 +1100,20 @@ function HomePage() {
         </div>
       </section>
 
-      <section className="idt-section idt-shell">
-        <RoiCalculator />
-        <p className="idt-roi-disclaimer">
-          ROI estimate is a model: labor savings = weekly triage hours × 52 × $110; incident exposure reduction uses a 0.87 coefficient; high-risk identity reduction uses 0.32.
-        </p>
-      </section>
-
       <HomeFaqSection />
 
       <section className="idt-section idt-shell idt-final-cta" id="start">
         <SectionTitle
-          eyebrow="Get Started"
-          title="Move from trust-path uncertainty to controlled machine identity risk"
-          body="Start with a free risk scan, then book a technical demo for your environment."
+          eyebrow="Start With Evidence"
+          title="Run a read-only machine identity risk scan"
+          body="Get prioritized trust paths, blast-radius context, and rollout-safe remediation guidance."
         />
         <div className="idt-inline-actions">
           <Link to="/pricing" className="idt-btn idt-btn-primary">
-            Start Free Risk Scan
+            Start Read-Only Risk Scan
           </Link>
-          <Link to="/enterprise" className="idt-btn idt-btn-dark">
-            Book Demo
+          <Link to="/demo" className="idt-btn idt-btn-dark">
+            Book Technical Demo
           </Link>
         </div>
       </section>
@@ -2352,13 +2081,14 @@ export function RoutedSite() {
         Skip to content
       </a>
 
-      <Header />
+      <Header navLinks={NAV_LINKS} />
 
       <main id="main-content">
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/product" element={<ProductPage />} />
           <Route path="/features" element={<FeaturesPage />} />
+          <Route path="/integrations" element={<Navigate to="/features" replace />} />
           {FEATURE_DEEP_PAGES.map((page) => (
             <Route key={page.slug} path={`/features/${page.slug}`} element={<FeatureDetailPage page={page} />} />
           ))}
@@ -2367,6 +2097,7 @@ export function RoutedSite() {
             <Route key={page.slug} path={`/solutions/${page.slug}`} element={<SolutionDetailPage page={page} />} />
           ))}
           <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/deployment-models" element={<Navigate to="/pricing" replace />} />
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />
           <Route path="/blog" element={<BlogPage />} />
@@ -2381,7 +2112,7 @@ export function RoutedSite() {
         </Routes>
       </main>
 
-      <Footer />
+      <Footer xUrl={X_URL} linkedInUrl={LINKEDIN_URL} githubRepo={GITHUB_REPO} discordUrl={DISCORD_URL} />
       <ExitIntentPopup />
     </div>
   );

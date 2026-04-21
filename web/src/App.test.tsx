@@ -10,14 +10,14 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: 'See risky machine trust paths before attackers do.'
+        name: 'See which machine identities can actually reach production.'
       })
     ).toBeInTheDocument();
 
-    expect(screen.getAllByRole('link', { name: 'Start Free Risk Scan' }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('link', { name: 'Book Demo' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: 'Start Read-Only Risk Scan' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: 'Book Technical Demo' }).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Kubernetes service account can assume production AWS role/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
   });
 
   it('renders pricing page routes and key elements', () => {

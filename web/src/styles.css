@@ -1,21 +1,3 @@
-:root {
-  --idt-bg: #030303;
-  --idt-bg-elevated: #0b0b0d;
-  --idt-bg-soft: #141416;
-  --idt-text: #f5f7fb;
-  --idt-text-muted: #9ca3b2;
-  --idt-line: rgba(245, 247, 251, 0.12);
-  --idt-accent: #d7e3ff;
-  --idt-accent-soft: rgba(215, 227, 255, 0.12);
-  --idt-glow: rgba(137, 169, 255, 0.32);
-  --idt-cta: linear-gradient(120deg, #ffffff 0%, #e8edf7 100%);
-  --idt-display: 'Barlow Semi Condensed', 'Space Grotesk', 'Inter', 'Segoe UI', sans-serif;
-  --idt-body: 'Inter', 'Segoe UI', sans-serif;
-  --idt-radius: 14px;
-  --idt-shell: 1200px;
-  --idt-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
-}
-
 * {
   box-sizing: border-box;
 }
@@ -43,7 +25,7 @@ a {
 }
 
 :focus-visible {
-  outline: 2px solid rgba(215, 227, 255, 0.72);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -524,8 +506,57 @@ h3 {
   line-height: 1.45;
 }
 
+.idt-hero-path {
+  margin: 0.45rem 0 0.72rem;
+  color: #e6efff;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.idt-hero-proof-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.72rem;
+}
+
+.idt-hero-proof-meta span:not(.idt-severity-pill) {
+  border: 1px solid rgba(255, 255, 255, 0.17);
+  border-radius: 999px;
+  padding: 0.16rem 0.5rem;
+  color: #d4deef;
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+}
+
+.idt-hero-proof-list {
+  margin: 0 0 0.8rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.idt-hero-proof-list div {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.idt-hero-proof-list dt {
+  color: #a7b3c8;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.idt-hero-proof-list dd {
+  margin: 0;
+  color: #e8f1ff;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
 .idt-severity-high {
-  color: #ffaca7;
+  color: var(--severity-high-fg);
   font-weight: 800;
 }
 
@@ -576,6 +607,33 @@ h3 {
   gap: 0.6rem;
 }
 
+.idt-proof-row {
+  gap: 0.7rem;
+}
+
+.idt-proof-item {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 0.6rem 0.68rem;
+  display: grid;
+  gap: 0.3rem;
+  min-width: 220px;
+  flex: 1 1 220px;
+}
+
+.idt-proof-item p {
+  margin: 0;
+  color: #cbd5e7;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.idt-proof-item small {
+  color: #97a7c3;
+  font-size: 0.68rem;
+}
+
 .idt-logo-row span {
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 999px;
@@ -585,6 +643,28 @@ h3 {
   color: #c7cedd;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.idt-proof-link {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.3rem 0.62rem;
+  font-size: 0.7rem;
+  color: #dfe8fb;
+  letter-spacing: 0.02em;
+  font-weight: 700;
+  text-decoration: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.idt-proof-link:hover,
+.idt-proof-link:focus-visible {
+  border-color: rgba(215, 227, 255, 0.45);
+  background: rgba(215, 227, 255, 0.1);
 }
 
 .idt-section {
@@ -698,6 +778,29 @@ h3 {
   border-color: rgba(137, 169, 255, 0.74);
 }
 
+.idt-demo-view-toggle {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+.idt-demo-view-toggle button {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.03);
+  color: #dee8ff;
+  border-radius: 999px;
+  min-height: 32px;
+  padding: 0 0.72rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.idt-demo-view-toggle button.is-active {
+  border-color: rgba(158, 185, 255, 0.72);
+  background: rgba(158, 185, 255, 0.2);
+}
+
 .idt-demo-graph {
   min-height: 420px;
   padding: 1rem;
@@ -706,6 +809,38 @@ h3 {
   place-items: center;
   overflow: hidden;
   background: linear-gradient(160deg, rgba(10, 10, 12, 0.92), rgba(6, 6, 8, 0.95));
+}
+
+.idt-demo-list-view {
+  min-height: 420px;
+  display: grid;
+  gap: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(10, 10, 12, 0.9), rgba(6, 6, 8, 0.93));
+  padding: 0.8rem;
+}
+
+.idt-demo-list-row {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #e8f1ff;
+  padding: 0.58rem 0.68rem;
+  text-align: left;
+  display: grid;
+  gap: 0.15rem;
+  cursor: pointer;
+}
+
+.idt-demo-list-row small {
+  color: #a6b5cd;
+  font-size: 0.74rem;
+}
+
+.idt-demo-list-row.is-active {
+  border-color: rgba(158, 185, 255, 0.72);
+  background: rgba(158, 185, 255, 0.14);
 }
 
 .idt-demo-node {
@@ -1286,6 +1421,7 @@ h2 {
 .idt-kpi-row span,
 .idt-trust-strip p,
 .idt-logo-row span,
+.idt-proof-link,
 .idt-compare-table th,
 .idt-finding-label {
   text-transform: none;
@@ -1297,6 +1433,10 @@ h2 {
 }
 
 .idt-logo-row span {
+  font-size: 0.8rem;
+}
+
+.idt-proof-link {
   font-size: 0.8rem;
 }
 
@@ -1780,8 +1920,8 @@ h2 {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  background: rgba(255, 125, 125, 0.15);
-  color: #ffb4b1;
+  background: var(--severity-high-pill-bg);
+  color: var(--severity-high-pill-fg);
 }
 
 .idt-hero-preview-card dl {
@@ -1807,11 +1947,6 @@ h2 {
   margin: 0;
   color: #ecf4ff;
   font-size: 0.78rem;
-}
-
-.idt-severity-high {
-  color: #ffaca7;
-  font-weight: 800;
 }
 
 .idt-roi-field > span {
@@ -1946,6 +2081,46 @@ h2 {
   border-top: 1px solid var(--idt-line);
 }
 
+.idt-risk-insight-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.42fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.idt-risk-scenario-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.idt-risk-scenario-item {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #e6ecfb;
+  text-align: left;
+  padding: 0.68rem 0.75rem;
+  display: grid;
+  gap: 0.2rem;
+  cursor: pointer;
+}
+
+.idt-risk-scenario-item small {
+  font-size: 0.74rem;
+  color: #a2b0c7;
+}
+
+.idt-risk-scenario-item.is-active,
+.idt-risk-scenario-item:hover,
+.idt-risk-scenario-item:focus-visible {
+  border-color: rgba(172, 196, 255, 0.46);
+  background: rgba(172, 196, 255, 0.09);
+}
+
+.idt-risk-evidence-card {
+  display: grid;
+  gap: 0.54rem;
+}
+
 @media (max-width: 1080px) {
   .idt-header-row {
     grid-template-columns: auto auto;
@@ -1987,6 +2162,7 @@ h2 {
   .idt-demo-surface,
   .idt-pricing-grid,
   .idt-roi-grid,
+  .idt-risk-insight-grid,
   .idt-finding-proof-grid,
   .idt-adoption-grid,
   .idt-card-grid.two-col,
