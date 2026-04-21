@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
+import { captureAnalyticsEvent } from '../../analytics/events';
 
 type NavLinkItem = {
   to: string;
@@ -65,10 +66,19 @@ export function Header({ navLinks }: { navLinks: readonly NavLinkItem[] }) {
         </nav>
 
         <div className="idt-header-actions">
-          <Link to="/read-only-scan" className="idt-btn idt-btn-primary" data-ab-slot="header_primary_cta">
+          <Link
+            to="/read-only-scan"
+            className="idt-btn idt-btn-primary"
+            data-ab-slot="header_primary_cta"
+            onClick={() => captureAnalyticsEvent('cta_header_read_only_scan_click', { placement: 'header' })}
+          >
             Start Read-Only Risk Scan
           </Link>
-          <Link to="/demo" className="idt-btn idt-btn-dark">
+          <Link
+            to="/demo"
+            className="idt-btn idt-btn-dark"
+            onClick={() => captureAnalyticsEvent('cta_header_technical_demo_click', { placement: 'header' })}
+          >
             Book Technical Demo
           </Link>
         </div>

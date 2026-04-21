@@ -1,6 +1,7 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
+import { captureAnalyticsEvent } from './analytics/events';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
 import { HowItWorksSection } from './components/home/HowItWorksSection';
 import { RiskInsightSection } from './components/home/RiskInsightSection';
@@ -49,6 +50,14 @@ const NAV_LINKS = [
 ] as const;
 
 const HOME_FAQ_PREVIEW = HOME_FAQ_ITEMS.slice(0, 4);
+
+function captureAnalyticsEventSafe(eventName: string, properties: Record<string, unknown>) {
+  try {
+    captureAnalyticsEvent(eventName, properties);
+  } catch {
+    // Analytics failures must never interrupt user flows.
+  }
+}
 
 const DIFFERENTIATION_ROWS = [
   {
@@ -502,6 +511,11 @@ function LeadCaptureForm({
         challenge: challenge || undefined,
         source: title,
         page_path: window.location.pathname
+      });
+      captureAnalyticsEventSafe('lead_capture_submitted', {
+        source: title,
+        page_path: window.location.pathname,
+        environment
       });
       setSubmitted(true);
       form.reset();
@@ -1252,6 +1266,12 @@ function ReadOnlyScanPage() {
         scan_goal: `${environment} trust-path risk reduction`,
         source: 'Read-Only Scan Intake',
         page_path: '/read-only-scan'
+      });
+      captureAnalyticsEventSafe('read_only_scan_intake_submitted', {
+        environment,
+        deployment,
+        urgency,
+        team_size: teamSize
       });
       setSubmitted(true);
     } catch (submissionError) {

@@ -11,7 +11,8 @@
     "test": "vitest",
     "test:ci": "vitest run --coverage",
     "perf:lighthouse": "lhci autorun --config=./lighthouserc.json",
-    "perf:bundle": "vite build --mode production"
+    "perf:bundle": "vite build --mode production",
+    "quality:gate": "npm run test:ci && npm run perf:bundle"
   },
   "dependencies": {
     "react": "^19.2.5",
