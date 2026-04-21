@@ -2,6 +2,8 @@ import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'reac
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
+import { RiskInsightSection } from './components/home/RiskInsightSection';
+import { TrustProofStrip } from './components/home/TrustProofStrip';
 import { Footer } from './components/layout/Footer';
 import { Header } from './components/layout/Header';
 import { apiClient } from './api/client';
@@ -43,14 +45,6 @@ const NAV_LINKS = [
   { to: '/pricing', label: 'Pricing' },
   { to: '/security', label: 'Security' },
   { to: '/demo', label: 'Demo' }
-] as const;
-
-const TRUST_PROOF_LINKS = [
-  { label: 'Architecture Docs', href: DOCS_REPO, external: true },
-  { label: 'Read-Only Scan Model', href: '/security', external: false },
-  { label: 'Sample Risk Report', href: '/demo', external: false },
-  { label: 'Changelog', href: `${GITHUB_REPO}/releases`, external: true },
-  { label: 'Responsible Disclosure', href: '/security', external: false }
 ] as const;
 
 const HOME_FAQ_PREVIEW = HOME_FAQ_ITEMS.slice(0, 4);
@@ -703,6 +697,7 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
   ] as const;
 
   const [scenarioId, setScenarioId] = useState<(typeof scenarios)[number]['id']>('cicd');
+  const [viewMode, setViewMode] = useState<'graph' | 'list'>('graph');
   const nodes = [
     {
       id: 'oidc',
@@ -737,39 +732,54 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
 
   return (
     <section className={`idt-demo-surface ${variant === 'full' ? 'is-full' : ''}`}>
-      {variant === 'full' ? (
-        <div className="idt-demo-toolbar" role="group" aria-label="Demo scenarios">
-          <p>Scenario</p>
-          <div className="idt-demo-scenario-row">
-            {scenarios.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={item.id === scenarioId ? 'is-active' : ''}
-                onClick={() => setScenarioId(item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+      <div className="idt-demo-toolbar" role="group" aria-label="Demo scenarios">
+        <p>Scenario</p>
+        <div className="idt-demo-scenario-row">
+          {scenarios.map((item) => (
+            <button key={item.id} type="button" className={item.id === scenarioId ? 'is-active' : ''} onClick={() => setScenarioId(item.id)}>
+              {item.label}
+            </button>
+          ))}
         </div>
-      ) : null}
-      <div className="idt-demo-graph" role="img" aria-label="Interactive trust graph simulation">
-        {nodes.map((node) => (
-          <button
-            key={node.id}
-            type="button"
-            className={`idt-demo-node ${selected.id === node.id ? 'is-active' : ''}`}
-            onClick={() => setSelectedId(node.id)}
-          >
-            <span>{node.title}</span>
-          </button>
-        ))}
-        <span className="idt-demo-connector c1" />
-        <span className="idt-demo-connector c2" />
-        <span className="idt-demo-connector c3" />
-        <span className="idt-demo-connector c4" />
       </div>
+
+      <div className="idt-demo-view-toggle" role="tablist" aria-label="Trust path explorer view">
+        <button type="button" role="tab" aria-selected={viewMode === 'graph'} className={viewMode === 'graph' ? 'is-active' : ''} onClick={() => setViewMode('graph')}>
+          Graph
+        </button>
+        <button type="button" role="tab" aria-selected={viewMode === 'list'} className={viewMode === 'list' ? 'is-active' : ''} onClick={() => setViewMode('list')}>
+          List
+        </button>
+      </div>
+
+      {viewMode === 'graph' ? (
+        <div className="idt-demo-graph" role="img" aria-label="Interactive trust graph simulation">
+          {nodes.map((node) => (
+            <button
+              key={node.id}
+              type="button"
+              className={`idt-demo-node ${selected.id === node.id ? 'is-active' : ''}`}
+              onClick={() => setSelectedId(node.id)}
+            >
+              <span>{node.title}</span>
+            </button>
+          ))}
+          <span className="idt-demo-connector c1" />
+          <span className="idt-demo-connector c2" />
+          <span className="idt-demo-connector c3" />
+          <span className="idt-demo-connector c4" />
+        </div>
+      ) : (
+        <div className="idt-demo-list-view" role="table" aria-label="Trust path nodes">
+          {nodes.map((node) => (
+            <button key={node.id} type="button" className={`idt-demo-list-row ${selected.id === node.id ? 'is-active' : ''}`} onClick={() => setSelectedId(node.id)}>
+              <span>{node.title}</span>
+              <small>{node.detail}</small>
+            </button>
+          ))}
+        </div>
+      )}
+
       <aside className="idt-demo-sidebar" aria-live="polite">
         <h3>{selected.title}</h3>
         <p>{selected.detail}</p>
@@ -794,10 +804,10 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
         ) : null}
         <div className="idt-inline-actions">
           <Link to="/pricing" className="idt-btn idt-btn-primary">
-            Start Free Risk Scan
+            Start Read-Only Risk Scan
           </Link>
-          <Link to="/enterprise" className="idt-btn idt-btn-dark">
-            Book Demo
+          <Link to="/demo" className="idt-btn idt-btn-dark">
+            Book Technical Demo
           </Link>
         </div>
       </aside>
@@ -961,80 +971,6 @@ function DeploymentPathBanner() {
   );
 }
 
-function HomeCredibilityStrip() {
-  return (
-    <section className="idt-trust-strip" aria-label="Credibility and proof">
-      <div className="idt-shell">
-        <p>Validate the product before you commit: review architecture, security posture, and output artifacts.</p>
-        <div className="idt-logo-row idt-proof-row">
-          {TRUST_PROOF_LINKS.map((entry) => (
-            entry.external ? (
-              <SafeLink key={entry.label} href={entry.href} className="idt-proof-link">
-                {entry.label}
-              </SafeLink>
-            ) : (
-              <Link key={entry.label} to={entry.href} className="idt-proof-link">
-                {entry.label}
-              </Link>
-            )
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function ProductProofFindingSection() {
-  return (
-    <section className="idt-section idt-shell">
-      <SectionTitle
-        eyebrow="Product Proof"
-        title="See a realistic high-risk trust path before you connect anything"
-        body="Identrail surfaces risky machine identity paths with evidence, impact, and remediation guidance teams can act on immediately."
-      />
-      <div className="idt-finding-proof-grid">
-        <article className="idt-card idt-finding-card">
-          <p className="idt-finding-label">Risk</p>
-          <h3>Kubernetes service account can assume production AWS role</h3>
-          <p>
-            <strong>Severity:</strong> <span className="idt-severity-high">High</span>
-          </p>
-          <p>
-            <strong>Path:</strong> GitHub Actions → OIDC Provider → AWS Role → RDS Billing Resource
-          </p>
-          <p>
-            <strong>Why it matters:</strong> Compromise of CI/CD could reach sensitive production data.
-          </p>
-          <p>
-            <strong>Recommended remediation:</strong> Restrict trust policy conditions and scope role permissions.
-          </p>
-        </article>
-        <article className="idt-card idt-finding-impact">
-          <h3>What teams do next in Identrail</h3>
-          <ul>
-            <li>Inspect every edge in the trust path with source policy evidence.</li>
-            <li>Simulate tighter trust conditions before enforcing policy changes.</li>
-            <li>Roll out in stages to reduce blast radius without breaking production.</li>
-          </ul>
-          <div className="idt-inline-actions">
-            <Link to="/pricing" className="idt-btn idt-btn-primary">
-              Start Free Risk Scan
-            </Link>
-            <Link to="/enterprise" className="idt-btn idt-btn-dark">
-              Book Demo
-            </Link>
-          </div>
-        </article>
-      </div>
-      <div className="idt-card idt-proof-demo-card">
-        <h3>Interactive trust-path preview</h3>
-        <p>Inspect a sample trust path from source identity to sensitive resource before connecting your environment.</p>
-        <TrustGraphDemo />
-      </div>
-    </section>
-  );
-}
-
 function HomeFaqSection() {
   return (
     <section className="idt-section idt-shell">
@@ -1090,7 +1026,7 @@ function HomePage() {
         </div>
       </section>
 
-      <HomeCredibilityStrip />
+      <TrustProofStrip />
 
       <section className="idt-section idt-shell">
         <LeadCaptureForm
@@ -1102,7 +1038,15 @@ function HomePage() {
         />
       </section>
 
-      <ProductProofFindingSection />
+      <RiskInsightSection />
+
+      <section className="idt-section idt-shell">
+        <div className="idt-card idt-proof-demo-card">
+          <h3>Interactive trust-path preview</h3>
+          <p>Inspect a sample trust path from source identity to sensitive resource before connecting your environment.</p>
+          <TrustGraphDemo />
+        </div>
+      </section>
 
       <section className="idt-section idt-shell">
         <SectionTitle eyebrow="How It Works" title="Discover, prioritize, simulate, and roll out in four steps" />
