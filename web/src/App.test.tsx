@@ -34,4 +34,19 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /Annual/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Contact Sales' })).toBeInTheDocument();
   });
+
+  it('renders read-only scan intake flow route', () => {
+    window.history.pushState({}, '', '/read-only-scan');
+    render(<App />);
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: /Start a machine identity risk scan with deployment-safe onboarding/i
+      })
+    ).toBeInTheDocument();
+
+    expect(screen.getByText(/Step 1 of 3/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+  });
 });
