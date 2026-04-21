@@ -15,8 +15,11 @@ const ALLOWED_DEPLOYMENT_MODELS = new Set(['Hosted SaaS', 'Self-hosted open-core
 const ALLOWED_URGENCY = new Set(['This quarter', 'This month', 'Immediate']);
 const ALLOWED_TEAM_SIZE = new Set(['1-5', '6-20', '21-50', '50+']);
 
-function trimOptional(value?: string): string | undefined {
-  const trimmed = value?.trim();
+function trimOptional(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
 }
 
