@@ -1,6 +1,7 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
+import { HeroProductReveal } from './components/home/HeroProductReveal';
 import { Footer } from './components/layout/Footer';
 import { Header } from './components/layout/Header';
 import { apiClient } from './api/client';
@@ -673,30 +674,6 @@ function CalendlyEmbed() {
   );
 }
 
-function TrustGraphHeroVisual() {
-  return (
-    <div className="idt-graph-visual" aria-label="Trust path product preview">
-      <div className="idt-graph-grid" />
-      <div className="idt-node idt-node-root">GitHub Actions OIDC</div>
-      <div className="idt-node idt-node-role">AWS Role: billing-prod</div>
-      <div className="idt-node idt-node-k8s">K8s SA: payments-api</div>
-      <div className="idt-node idt-node-repo">RDS: billing-ledger</div>
-      <span className="idt-edge idt-edge-a" />
-      <span className="idt-edge idt-edge-b" />
-      <span className="idt-edge idt-edge-c" />
-      <span className="idt-pulse idt-pulse-a" />
-      <span className="idt-pulse idt-pulse-b" />
-      <aside className="idt-hero-graph-caption">
-        <p className="idt-hero-graph-title">Trust graph preview</p>
-        <p>GitHub Actions OIDC → AWS Role → K8s Service Account → RDS Billing Resource</p>
-        <Link to="/demo" className="idt-inline-link">
-          Open interactive demo
-        </Link>
-      </aside>
-    </div>
-  );
-}
-
 function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' }) {
   const scenarios = [
     {
@@ -1109,7 +1086,7 @@ function HomePage() {
               </Link>
             </div>
           </div>
-          <TrustGraphHeroVisual />
+          <HeroProductReveal />
         </div>
       </section>
 

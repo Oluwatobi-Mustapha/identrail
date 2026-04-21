@@ -506,6 +506,55 @@ h3 {
   line-height: 1.45;
 }
 
+.idt-hero-path {
+  margin: 0.45rem 0 0.72rem;
+  color: #e6efff;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.idt-hero-proof-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.72rem;
+}
+
+.idt-hero-proof-meta span:not(.idt-severity-pill) {
+  border: 1px solid rgba(255, 255, 255, 0.17);
+  border-radius: 999px;
+  padding: 0.16rem 0.5rem;
+  color: #d4deef;
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+}
+
+.idt-hero-proof-list {
+  margin: 0 0 0.8rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.idt-hero-proof-list div {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.idt-hero-proof-list dt {
+  color: #a7b3c8;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.idt-hero-proof-list dd {
+  margin: 0;
+  color: #e8f1ff;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
 .idt-severity-high {
   color: var(--severity-high-fg);
   font-weight: 800;
