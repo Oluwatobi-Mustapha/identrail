@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { BrowserRouter, Link, NavLink, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { apiClient } from './api/client';
 
@@ -2038,11 +2038,51 @@ function BlogPage() {
               </p>
               <h2>{post.title}</h2>
               <p>{post.description}</p>
-              <Link to="/enterprise" className="idt-btn idt-btn-ghost">
+              <Link to={`/blog/${post.slug}`} className="idt-btn idt-btn-ghost">
                 Read article
               </Link>
             </article>
           ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function BlogPostPage() {
+  const { slug = '' } = useParams();
+  const post = BLOG_POSTS.find((item) => item.slug === slug);
+
+  if (!post) {
+    return <NotFoundPage />;
+  }
+
+  useSeo({
+    title: `${post.title} | Identrail Blog`,
+    description: post.description,
+    path: `/blog/${post.slug}`,
+    schemaType: 'Article'
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">{post.category}</p>
+        <h1>{post.title}</h1>
+        <p>{post.description}</p>
+      </section>
+      <section className="idt-section idt-shell">
+        <p>
+          Full article publishing is in progress. In the meantime, book a guided walkthrough to map this topic to your machine
+          identity rollout.
+        </p>
+        <div className="idt-inline-actions">
+          <Link to="/demo" className="idt-btn idt-btn-primary">
+            Book a demo
+          </Link>
+          <Link to="/blog" className="idt-btn idt-btn-ghost">
+            Back to blog
+          </Link>
         </div>
       </section>
     </>
@@ -2264,6 +2304,7 @@ export function RoutedSite() {
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />
           <Route path="/blog" element={<BlogPage />} />
+          <Route path="/blog/:slug" element={<BlogPostPage />} />
           <Route path="/security" element={<SecurityPage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/enterprise" element={<EnterprisePage />} />
