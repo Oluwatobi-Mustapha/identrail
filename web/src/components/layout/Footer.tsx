@@ -55,9 +55,12 @@ type FooterProps = {
 const FOOTER_LINKS = [
   { to: '/product', label: 'Product' },
   { to: '/solutions', label: 'Solutions' },
+  { to: '/integrations', label: 'Integrations' },
+  { to: '/deployment-models', label: 'Deployment' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/demo', label: 'Demo' },
   { to: '/docs', label: 'Docs' },
+  { to: '/faq', label: 'FAQ' },
   { to: '/blog', label: 'Blog' },
   { to: '/security', label: 'Security' },
   { to: '/about', label: 'About' },
@@ -65,7 +68,16 @@ const FOOTER_LINKS = [
   { to: '/terms', label: 'Terms' }
 ] as const;
 
+const FOOTER_TRUST_LINKS = [
+  { label: 'Responsible Disclosure', to: '/responsible-disclosure', external: false },
+  { label: 'Changelog', to: 'https://github.com/identrail/identrail/releases', external: true },
+  { label: 'Docs', to: 'https://github.com/identrail/identrail/tree/main/docs', external: true },
+  { label: 'GitHub', to: 'https://github.com/identrail/identrail', external: true }
+] as const;
+
 export function Footer({ xUrl, linkedInUrl, githubRepo, discordUrl }: FooterProps) {
+  const buildDate = new Date().toISOString().slice(0, 10);
+
   return (
     <footer className="idt-footer">
       <div className="idt-footer-bar">
@@ -92,6 +104,22 @@ export function Footer({ xUrl, linkedInUrl, githubRepo, discordUrl }: FooterProp
               <DiscordIcon />
             </SafeLink>
           </div>
+        </div>
+        <div className="idt-shell idt-footer-maturity-row">
+          <div className="idt-footer-trust-links">
+            {FOOTER_TRUST_LINKS.map((item) =>
+              item.external ? (
+                <SafeLink key={item.label} href={item.to}>
+                  {item.label}
+                </SafeLink>
+              ) : (
+                <Link key={item.label} to={item.to}>
+                  {item.label}
+                </Link>
+              )
+            )}
+          </div>
+          <small>Build metadata updated: {buildDate}</small>
         </div>
       </div>
     </footer>

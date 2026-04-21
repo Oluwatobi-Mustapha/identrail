@@ -1847,6 +1847,34 @@ h2 {
   gap: 0.45rem;
 }
 
+.idt-footer-maturity-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.5rem 0;
+}
+
+.idt-footer-trust-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.idt-footer-trust-links a {
+  color: rgba(235, 241, 255, 0.9);
+  text-decoration: none;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+
+.idt-footer-trust-links a:hover,
+.idt-footer-trust-links a:focus-visible {
+  text-decoration: underline;
+}
+
 .idt-social-link {
   width: 38px;
   height: 38px;
@@ -2279,6 +2307,12 @@ h2 {
     grid-template-columns: 1fr;
     align-items: flex-start;
     padding: 0.9rem 0;
+  }
+
+  .idt-footer-maturity-row {
+    grid-template-columns: 1fr;
+    align-items: flex-start;
+    padding-bottom: 0.8rem;
   }
 
   .idt-form-grid.is-short {
