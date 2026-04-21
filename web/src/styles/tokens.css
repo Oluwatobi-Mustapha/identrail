@@ -1,0 +1,82 @@
+:root {
+  color-scheme: dark;
+
+  /* Primitive colors */
+  --color-neutral-950: #030303;
+  --color-neutral-925: #0b0b0d;
+  --color-neutral-900: #141416;
+  --color-neutral-100: #f5f7fb;
+  --color-neutral-300: #9ca3b2;
+
+  --color-blue-100: #d7e3ff;
+  --color-blue-200: #c4d5fb;
+  --color-blue-300: #a7c0ff;
+  --color-blue-500-a12: rgba(215, 227, 255, 0.12);
+  --color-blue-600-a32: rgba(137, 169, 255, 0.32);
+
+  --color-line: rgba(245, 247, 251, 0.12);
+  --color-white-strong: rgba(255, 255, 255, 0.85);
+  --color-black-shadow: rgba(0, 0, 0, 0.34);
+
+  --color-risk-high-fg: #ffaca7;
+  --color-risk-high-pill-fg: #ffb4b1;
+  --color-risk-high-pill-bg: rgba(255, 125, 125, 0.15);
+
+  /* Typography */
+  --font-display: 'Barlow Semi Condensed', 'Space Grotesk', 'Inter', 'Segoe UI', sans-serif;
+  --font-body: 'Inter', 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SFMono-Regular', 'Menlo', monospace;
+
+  /* Sizing + spacing */
+  --shell-max-width: 1200px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Motion + elevation */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 260ms;
+  --shadow-elevated: 0 10px 28px var(--color-black-shadow);
+
+  /* Semantic tokens */
+  --surface-canvas: var(--color-neutral-950);
+  --surface-elevated: var(--color-neutral-925);
+  --surface-soft: var(--color-neutral-900);
+  --text-primary: var(--color-neutral-100);
+  --text-muted: var(--color-neutral-300);
+  --border-subtle: var(--color-line);
+  --accent-primary: var(--color-blue-100);
+  --accent-soft: var(--color-blue-500-a12);
+  --glow-soft: var(--color-blue-600-a32);
+  --cta-primary: linear-gradient(120deg, #ffffff 0%, #e8edf7 100%);
+  --focus-ring: rgba(215, 227, 255, 0.72);
+  --severity-high-fg: var(--color-risk-high-fg);
+  --severity-high-pill-fg: var(--color-risk-high-pill-fg);
+  --severity-high-pill-bg: var(--color-risk-high-pill-bg);
+
+  /* Legacy aliases for gradual migration */
+  --idt-bg: var(--surface-canvas);
+  --idt-bg-elevated: var(--surface-elevated);
+  --idt-bg-soft: var(--surface-soft);
+  --idt-text: var(--text-primary);
+  --idt-text-muted: var(--text-muted);
+  --idt-line: var(--border-subtle);
+  --idt-accent: var(--accent-primary);
+  --idt-accent-soft: var(--accent-soft);
+  --idt-glow: var(--glow-soft);
+  --idt-cta: var(--cta-primary);
+  --idt-display: var(--font-display);
+  --idt-body: var(--font-body);
+  --idt-radius: var(--radius-md);
+  --idt-shell: var(--shell-max-width);
+  --idt-shadow: var(--shadow-elevated);
+}
