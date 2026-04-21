@@ -1810,6 +1810,105 @@ function PricingPage() {
   );
 }
 
+function DeploymentModelsPage() {
+  useSeo({
+    title: 'Deployment Models | Open-Core, Hosted, and Enterprise',
+    description:
+      'Compare Identrail deployment models for machine identity security: self-hosted open-core, hosted SaaS, and enterprise private deployment.',
+    path: '/deployment-models'
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">Deployment Models</p>
+        <h1>Choose your control boundary without changing operating model</h1>
+        <p>
+          Identrail keeps the same trust-path workflow across open-core, hosted SaaS, and enterprise deployments. Choose based on
+          control, speed, and governance requirements.
+        </p>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <div className="idt-card-grid three-col">
+          <article className="idt-card">
+            <h2>Open-Core</h2>
+            <p>
+              <strong>Best for:</strong> teams that require self-hosted control and deep platform customization.
+            </p>
+            <ul>
+              <li>Run in your infrastructure</li>
+              <li>Community support and docs</li>
+              <li>Transparent architecture and source</li>
+            </ul>
+            <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
+              View Open Source
+            </SafeLink>
+          </article>
+          <article className="idt-card">
+            <h2>Hosted SaaS</h2>
+            <p>
+              <strong>Best for:</strong> fastest time-to-value with managed operations.
+            </p>
+            <ul>
+              <li>Managed platform operations</li>
+              <li>Read-only onboarding for first scan</li>
+              <li>Accelerated query and collaboration workflows</li>
+            </ul>
+            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
+              Start Read-Only Risk Scan
+            </Link>
+          </article>
+          <article className="idt-card">
+            <h2>Enterprise Private</h2>
+            <p>
+              <strong>Best for:</strong> private tenancy, procurement controls, and advanced support programs.
+            </p>
+            <ul>
+              <li>Private deployment options</li>
+              <li>SCIM and advanced governance controls</li>
+              <li>24/7 support and named TAM</li>
+            </ul>
+            <Link to="/enterprise" className="idt-btn idt-btn-dark">
+              Book Technical Demo
+            </Link>
+          </article>
+        </div>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <SectionTitle
+          eyebrow="Capability Matrix"
+          title="Deployment differences by capability"
+          body="Use this matrix to align your deployment choice with security controls, data residency, and support needs."
+        />
+        <div className="idt-table-wrap">
+          <table className="idt-compare-table">
+            <thead>
+              <tr>
+                <th scope="col">Capability</th>
+                <th scope="col">Open-Core</th>
+                <th scope="col">Hosted SaaS</th>
+                <th scope="col">Enterprise</th>
+              </tr>
+            </thead>
+            <tbody>
+              {FEATURE_ROWS.map((row) => (
+                <tr key={row.capability}>
+                  <th scope="row">{row.capability}</th>
+                  <td>{row.openSource}</td>
+                  <td>{row.pro}</td>
+                  <td>{row.enterprise}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  );
+}
+
 function DemoPage() {
   useSeo({
     title: 'Demo | Interactive Trust Graph',
@@ -2273,7 +2372,7 @@ export function RoutedSite() {
           ))}
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/read-only-scan" element={<ReadOnlyScanPage />} />
-          <Route path="/deployment-models" element={<PricingPage />} />
+          <Route path="/deployment-models" element={<DeploymentModelsPage />} />
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />
           <Route path="/blog" element={<BlogPage />} />
