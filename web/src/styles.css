@@ -682,6 +682,8 @@ h3 {
 
 .idt-section {
   padding: clamp(2.6rem, 6vw, 4.3rem) 0;
+  content-visibility: auto;
+  contain-intrinsic-size: 620px;
 }
 
 .idt-section-title {
