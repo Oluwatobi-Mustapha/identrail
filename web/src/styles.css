@@ -778,6 +778,29 @@ h3 {
   border-color: rgba(137, 169, 255, 0.74);
 }
 
+.idt-demo-view-toggle {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+.idt-demo-view-toggle button {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.03);
+  color: #dee8ff;
+  border-radius: 999px;
+  min-height: 32px;
+  padding: 0 0.72rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.idt-demo-view-toggle button.is-active {
+  border-color: rgba(158, 185, 255, 0.72);
+  background: rgba(158, 185, 255, 0.2);
+}
+
 .idt-demo-graph {
   min-height: 420px;
   padding: 1rem;
@@ -786,6 +809,38 @@ h3 {
   place-items: center;
   overflow: hidden;
   background: linear-gradient(160deg, rgba(10, 10, 12, 0.92), rgba(6, 6, 8, 0.95));
+}
+
+.idt-demo-list-view {
+  min-height: 420px;
+  display: grid;
+  gap: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(10, 10, 12, 0.9), rgba(6, 6, 8, 0.93));
+  padding: 0.8rem;
+}
+
+.idt-demo-list-row {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #e8f1ff;
+  padding: 0.58rem 0.68rem;
+  text-align: left;
+  display: grid;
+  gap: 0.15rem;
+  cursor: pointer;
+}
+
+.idt-demo-list-row small {
+  color: #a6b5cd;
+  font-size: 0.74rem;
+}
+
+.idt-demo-list-row.is-active {
+  border-color: rgba(158, 185, 255, 0.72);
+  background: rgba(158, 185, 255, 0.14);
 }
 
 .idt-demo-node {

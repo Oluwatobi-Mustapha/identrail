@@ -697,6 +697,7 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
   ] as const;
 
   const [scenarioId, setScenarioId] = useState<(typeof scenarios)[number]['id']>('cicd');
+  const [viewMode, setViewMode] = useState<'graph' | 'list'>('graph');
   const nodes = [
     {
       id: 'oidc',
@@ -731,39 +732,54 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
 
   return (
     <section className={`idt-demo-surface ${variant === 'full' ? 'is-full' : ''}`}>
-      {variant === 'full' ? (
-        <div className="idt-demo-toolbar" role="group" aria-label="Demo scenarios">
-          <p>Scenario</p>
-          <div className="idt-demo-scenario-row">
-            {scenarios.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={item.id === scenarioId ? 'is-active' : ''}
-                onClick={() => setScenarioId(item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+      <div className="idt-demo-toolbar" role="group" aria-label="Demo scenarios">
+        <p>Scenario</p>
+        <div className="idt-demo-scenario-row">
+          {scenarios.map((item) => (
+            <button key={item.id} type="button" className={item.id === scenarioId ? 'is-active' : ''} onClick={() => setScenarioId(item.id)}>
+              {item.label}
+            </button>
+          ))}
         </div>
-      ) : null}
-      <div className="idt-demo-graph" role="img" aria-label="Interactive trust graph simulation">
-        {nodes.map((node) => (
-          <button
-            key={node.id}
-            type="button"
-            className={`idt-demo-node ${selected.id === node.id ? 'is-active' : ''}`}
-            onClick={() => setSelectedId(node.id)}
-          >
-            <span>{node.title}</span>
-          </button>
-        ))}
-        <span className="idt-demo-connector c1" />
-        <span className="idt-demo-connector c2" />
-        <span className="idt-demo-connector c3" />
-        <span className="idt-demo-connector c4" />
       </div>
+
+      <div className="idt-demo-view-toggle" role="tablist" aria-label="Trust path explorer view">
+        <button type="button" role="tab" aria-selected={viewMode === 'graph'} className={viewMode === 'graph' ? 'is-active' : ''} onClick={() => setViewMode('graph')}>
+          Graph
+        </button>
+        <button type="button" role="tab" aria-selected={viewMode === 'list'} className={viewMode === 'list' ? 'is-active' : ''} onClick={() => setViewMode('list')}>
+          List
+        </button>
+      </div>
+
+      {viewMode === 'graph' ? (
+        <div className="idt-demo-graph" role="img" aria-label="Interactive trust graph simulation">
+          {nodes.map((node) => (
+            <button
+              key={node.id}
+              type="button"
+              className={`idt-demo-node ${selected.id === node.id ? 'is-active' : ''}`}
+              onClick={() => setSelectedId(node.id)}
+            >
+              <span>{node.title}</span>
+            </button>
+          ))}
+          <span className="idt-demo-connector c1" />
+          <span className="idt-demo-connector c2" />
+          <span className="idt-demo-connector c3" />
+          <span className="idt-demo-connector c4" />
+        </div>
+      ) : (
+        <div className="idt-demo-list-view" role="table" aria-label="Trust path nodes">
+          {nodes.map((node) => (
+            <button key={node.id} type="button" className={`idt-demo-list-row ${selected.id === node.id ? 'is-active' : ''}`} onClick={() => setSelectedId(node.id)}>
+              <span>{node.title}</span>
+              <small>{node.detail}</small>
+            </button>
+          ))}
+        </div>
+      )}
+
       <aside className="idt-demo-sidebar" aria-live="polite">
         <h3>{selected.title}</h3>
         <p>{selected.detail}</p>
@@ -788,10 +804,10 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
         ) : null}
         <div className="idt-inline-actions">
           <Link to="/pricing" className="idt-btn idt-btn-primary">
-            Start Free Risk Scan
+            Start Read-Only Risk Scan
           </Link>
-          <Link to="/enterprise" className="idt-btn idt-btn-dark">
-            Book Demo
+          <Link to="/demo" className="idt-btn idt-btn-dark">
+            Book Technical Demo
           </Link>
         </div>
       </aside>
