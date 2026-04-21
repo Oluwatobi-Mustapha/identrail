@@ -587,6 +587,24 @@ h3 {
   text-transform: uppercase;
 }
 
+.idt-proof-link {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.44rem 0.8rem;
+  font-size: 0.74rem;
+  color: #d7dff1;
+  letter-spacing: 0.03em;
+  text-decoration: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.idt-proof-link:hover,
+.idt-proof-link:focus-visible {
+  border-color: rgba(215, 227, 255, 0.45);
+  background: rgba(215, 227, 255, 0.1);
+}
+
 .idt-section {
   padding: clamp(2.6rem, 6vw, 4.3rem) 0;
 }
@@ -1286,6 +1304,7 @@ h2 {
 .idt-kpi-row span,
 .idt-trust-strip p,
 .idt-logo-row span,
+.idt-proof-link,
 .idt-compare-table th,
 .idt-finding-label {
   text-transform: none;
@@ -1297,6 +1316,10 @@ h2 {
 }
 
 .idt-logo-row span {
+  font-size: 0.8rem;
+}
+
+.idt-proof-link {
   font-size: 0.8rem;
 }
 
