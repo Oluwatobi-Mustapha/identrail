@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { BrowserRouter, Link, NavLink, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { apiClient } from './api/client';
 
@@ -59,8 +59,8 @@ const NAV_LINKS = [
 const CREDIBILITY_SIGNALS = [
   'Built for cloud security and platform teams',
   'Open-source core under Apache-2.0',
-  'Public GitHub repository, docs, and changelog',
-  'Security policy and responsible disclosure workflow'
+  'Public repository, docs, and changelog',
+  'Security policy and responsible disclosure process'
 ] as const;
 
 const HOME_FAQ_ITEMS = [
@@ -1077,7 +1077,7 @@ function HomeCredibilityStrip() {
   return (
     <section className="idt-trust-strip" aria-label="Credibility and proof">
       <div className="idt-shell">
-        <p>Built for cloud security and platform teams evaluating machine identity risk.</p>
+        <p>Transparent by design: open-source core, public docs, and documented security process.</p>
         <div className="idt-logo-row">
           {CREDIBILITY_SIGNALS.map((signal) => (
             <span key={signal}>{signal}</span>
@@ -1290,15 +1290,15 @@ function HomePage() {
         <div className="idt-kpi-row">
           <article>
             <strong>87%</strong>
-            <span>Average high-risk trust path reduction</span>
+            <span>Example reduction target for high-risk trust paths</span>
           </article>
           <article>
             <strong>&lt; 15 min</strong>
-            <span>Time to first trust graph in hosted SaaS</span>
+            <span>Typical time to first trust graph in hosted trial</span>
           </article>
           <article>
             <strong>3x faster</strong>
-            <span>Identity triage for cloud security and platform teams</span>
+            <span>Observed triage acceleration in pilot workflows</span>
           </article>
         </div>
       </section>
@@ -1388,7 +1388,7 @@ function HomePage() {
       <section className="idt-section idt-shell">
         <RoiCalculator />
         <p className="idt-roi-disclaimer">
-          ROI assumptions are transparent placeholders based on incident-frequency and triage-time reduction inputs you control.
+          ROI estimate is a model: labor savings = weekly triage hours × 52 × $110; incident exposure reduction uses a 0.87 coefficient; high-risk identity reduction uses 0.32.
         </p>
       </section>
 
@@ -2038,12 +2038,51 @@ function BlogPage() {
               </p>
               <h2>{post.title}</h2>
               <p>{post.description}</p>
-              <p className="idt-muted-strong">Meta description ready for SEO snippets.</p>
-              <Link to="/enterprise" className="idt-btn idt-btn-ghost">
-                Book Demo
+              <Link to={`/blog/${post.slug}`} className="idt-btn idt-btn-ghost">
+                Read article
               </Link>
             </article>
           ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function BlogPostPage() {
+  const { slug = '' } = useParams();
+  const post = BLOG_POSTS.find((item) => item.slug === slug);
+
+  if (!post) {
+    return <NotFoundPage />;
+  }
+
+  useSeo({
+    title: `${post.title} | Identrail Blog`,
+    description: post.description,
+    path: `/blog/${post.slug}`,
+    schemaType: 'Article'
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">{post.category}</p>
+        <h1>{post.title}</h1>
+        <p>{post.description}</p>
+      </section>
+      <section className="idt-section idt-shell">
+        <p>
+          Full article publishing is in progress. In the meantime, book a guided walkthrough to map this topic to your machine
+          identity rollout.
+        </p>
+        <div className="idt-inline-actions">
+          <Link to="/demo" className="idt-btn idt-btn-primary">
+            Book a demo
+          </Link>
+          <Link to="/blog" className="idt-btn idt-btn-ghost">
+            Back to blog
+          </Link>
         </div>
       </section>
     </>
@@ -2265,6 +2304,7 @@ export function RoutedSite() {
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />
           <Route path="/blog" element={<BlogPage />} />
+          <Route path="/blog/:slug" element={<BlogPostPage />} />
           <Route path="/security" element={<SecurityPage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/enterprise" element={<EnterprisePage />} />
