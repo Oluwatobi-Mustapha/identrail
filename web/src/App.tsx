@@ -2,6 +2,7 @@ import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'reac
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
+import { HowItWorksSection } from './components/home/HowItWorksSection';
 import { RiskInsightSection } from './components/home/RiskInsightSection';
 import { TrustProofStrip } from './components/home/TrustProofStrip';
 import { Footer } from './components/layout/Footer';
@@ -51,24 +52,24 @@ const HOME_FAQ_PREVIEW = HOME_FAQ_ITEMS.slice(0, 4);
 
 const DIFFERENTIATION_ROWS = [
   {
-    area: 'Core Platform Access',
-    identrail: 'Open-source core with transparent architecture and self-host option',
-    alternatives: 'Closed source only; limited implementation transparency'
+    area: 'Read-only collection boundaries',
+    verify: 'Connector permission scope, data collected, and storage boundaries',
+    impact: 'Prevents overreach and clarifies deployment risk assumptions before onboarding'
   },
   {
-    area: 'Trust Graph Explainability',
-    identrail: 'Interactive trust-path evidence with policy and resource context',
-    alternatives: 'High-level findings with limited path-level explainability'
+    area: 'Trust-path explainability',
+    verify: 'Can each finding show source identity, chain edges, and affected resources?',
+    impact: 'Allows platform teams to act on evidence instead of opaque risk scores'
   },
   {
-    area: 'Rollout Safety',
-    identrail: 'Policy simulation + staged controls + kill switch in one workflow',
-    alternatives: 'Policy changes often require parallel tooling and manual validation'
+    area: 'Rollout safety workflow',
+    verify: 'Policy simulation, staged rollout controls, and rollback support',
+    impact: 'Reduces authorization outage risk during least-privilege enforcement'
   },
   {
-    area: 'Developer Experience',
-    identrail: 'GitHub-first docs, API-first workflows, contributor-friendly roadmap',
-    alternatives: 'Vendor-led delivery model with slower dev-team iteration'
+    area: 'Integration depth',
+    verify: 'Coverage for AWS IAM, Kubernetes, GitHub, and OIDC trust relationships',
+    impact: 'Avoids fragmented visibility and missed transitive trust exposure'
   }
 ] as const;
 
@@ -120,6 +121,57 @@ const FEATURE_ROWS = [
     openSource: 'Community',
     pro: 'Business-hour support',
     enterprise: '24/7, named TAM, custom SLA'
+  }
+] as const;
+
+const INTEGRATION_ROWS = [
+  {
+    source: 'AWS IAM',
+    signals: 'Roles, trust policies, assumptions, account paths',
+    depth: 'Deep',
+    status: 'GA'
+  },
+  {
+    source: 'Kubernetes',
+    signals: 'Service accounts, RBAC bindings, namespace privilege paths',
+    depth: 'Deep',
+    status: 'GA'
+  },
+  {
+    source: 'GitHub',
+    signals: 'Workflow identities, OIDC trust, repository exposure telemetry',
+    depth: 'Deep',
+    status: 'GA'
+  },
+  {
+    source: 'OIDC Federation',
+    signals: 'Provider trust boundaries and subject claim controls',
+    depth: 'Focused',
+    status: 'GA'
+  },
+  {
+    source: 'Multi-cloud adapters',
+    signals: 'Extended identity graph edges and normalized trust metadata',
+    depth: 'Roadmap',
+    status: 'Beta'
+  }
+] as const;
+
+const READ_ONLY_CONTROL_ROWS = [
+  {
+    area: 'Identity metadata collection',
+    access: 'Read-only API calls for identity, policy, and relationship metadata',
+    excluded: 'No secret material ingestion, no credential writeback'
+  },
+  {
+    area: 'Policy simulation',
+    access: 'Simulation engine evaluates proposed changes against collected graph state',
+    excluded: 'No direct policy mutation during simulation'
+  },
+  {
+    area: 'Remediation workflow',
+    access: 'Action plans and exportable recommendations',
+    excluded: 'No automatic enforcement without explicit operator action'
   }
 ] as const;
 
@@ -522,8 +574,11 @@ function ModalShell({
   children: ReactNode;
 }) {
   const modalRef = useRef<HTMLDivElement | null>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
+    previouslyFocusedRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
     if (activeModalLocks === 0) {
       bodyOverflowBeforeModal = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
@@ -573,6 +628,7 @@ function ModalShell({
         document.body.style.overflow = bodyOverflowBeforeModal;
       }
       document.removeEventListener('keydown', onKeyDown);
+      previouslyFocusedRef.current?.focus();
     };
   }, [onClose]);
 
@@ -729,6 +785,10 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
   const [selectedId, setSelectedId] = useState<string>('role');
   const selected = nodes.find((item) => item.id === selectedId) ?? nodes[1];
   const scenario = scenarios.find((item) => item.id === scenarioId) ?? scenarios[0];
+  const graphTabId = `trust-graph-tab-${variant}`;
+  const listTabId = `trust-list-tab-${variant}`;
+  const graphPanelId = `trust-graph-panel-${variant}`;
+  const listPanelId = `trust-list-panel-${variant}`;
 
   return (
     <section className={`idt-demo-surface ${variant === 'full' ? 'is-full' : ''}`}>
@@ -744,16 +804,32 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
       </div>
 
       <div className="idt-demo-view-toggle" role="tablist" aria-label="Trust path explorer view">
-        <button type="button" role="tab" aria-selected={viewMode === 'graph'} className={viewMode === 'graph' ? 'is-active' : ''} onClick={() => setViewMode('graph')}>
+        <button
+          id={graphTabId}
+          type="button"
+          role="tab"
+          aria-controls={graphPanelId}
+          aria-selected={viewMode === 'graph'}
+          className={viewMode === 'graph' ? 'is-active' : ''}
+          onClick={() => setViewMode('graph')}
+        >
           Graph
         </button>
-        <button type="button" role="tab" aria-selected={viewMode === 'list'} className={viewMode === 'list' ? 'is-active' : ''} onClick={() => setViewMode('list')}>
+        <button
+          id={listTabId}
+          type="button"
+          role="tab"
+          aria-controls={listPanelId}
+          aria-selected={viewMode === 'list'}
+          className={viewMode === 'list' ? 'is-active' : ''}
+          onClick={() => setViewMode('list')}
+        >
           List
         </button>
       </div>
 
       {viewMode === 'graph' ? (
-        <div className="idt-demo-graph" role="img" aria-label="Interactive trust graph simulation">
+        <div id={graphPanelId} role="tabpanel" aria-labelledby={graphTabId} className="idt-demo-graph" aria-label="Interactive trust graph simulation">
           {nodes.map((node) => (
             <button
               key={node.id}
@@ -770,7 +846,7 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
           <span className="idt-demo-connector c4" />
         </div>
       ) : (
-        <div className="idt-demo-list-view" role="table" aria-label="Trust path nodes">
+        <div id={listPanelId} role="tabpanel" aria-labelledby={listTabId} className="idt-demo-list-view" aria-label="Trust path nodes">
           {nodes.map((node) => (
             <button key={node.id} type="button" className={`idt-demo-list-row ${selected.id === node.id ? 'is-active' : ''}`} onClick={() => setSelectedId(node.id)}>
               <span>{node.title}</span>
@@ -803,7 +879,7 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
           </article>
         ) : null}
         <div className="idt-inline-actions">
-          <Link to="/pricing" className="idt-btn idt-btn-primary">
+          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
             Start Read-Only Risk Scan
           </Link>
           <Link to="/demo" className="idt-btn idt-btn-dark">
@@ -953,7 +1029,7 @@ function DeploymentPathBanner() {
             <h3>Hosted SaaS</h3>
             <p className="idt-muted-strong">Best for fast scanning and time-to-value.</p>
             <p>Start quickly with managed infrastructure while your team focuses on machine identity risk reduction.</p>
-            <Link to="/pricing" className="idt-btn idt-btn-primary">
+            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
               Start Free Risk Scan
             </Link>
           </article>
@@ -987,7 +1063,41 @@ function HomeFaqSection() {
           </details>
         ))}
       </div>
+      <div className="idt-inline-actions">
+        <Link to="/faq" className="idt-btn idt-btn-ghost">
+          View Full FAQ
+        </Link>
+      </div>
     </section>
+  );
+}
+
+function FaqPage() {
+  useSeo({
+    title: 'FAQ | Identrail Machine Identity Security',
+    description:
+      'Detailed answers for machine identity security adoption including read-only model, data handling, deployment options, and rollout safety.',
+    path: '/faq'
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">FAQ</p>
+        <h1>Technical and operational questions teams ask before rollout</h1>
+        <p>Answers focus on read-only collection boundaries, deployment models, and safe remediation workflows.</p>
+      </section>
+      <section className="idt-section idt-shell">
+        <div className="idt-faq-list">
+          {HOME_FAQ_ITEMS.map((item) => (
+            <details key={item.question} className="idt-faq-item">
+              <summary>{item.question}</summary>
+              <p>{item.answer}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -1048,27 +1158,7 @@ function HomePage() {
         </div>
       </section>
 
-      <section className="idt-section idt-shell">
-        <SectionTitle eyebrow="How It Works" title="Discover, prioritize, simulate, and roll out in four steps" />
-        <ol className="idt-steps">
-          <li>
-            <h3>1. Connect data sources</h3>
-            <p>Ingest AWS IAM, Kubernetes identities, and repository signals continuously.</p>
-          </li>
-          <li>
-            <h3>2. Build trust paths</h3>
-            <p>Correlate principals, permissions, resources, and transitive assumptions in one graph.</p>
-          </li>
-          <li>
-            <h3>3. Detect high-signal exposures</h3>
-            <p>Prioritize findings based on exploitability, sensitivity, and path reachability.</p>
-          </li>
-          <li>
-            <h3>4. Roll out safer controls</h3>
-            <p>Simulate policy updates, stage changes, and ship with kill-switch safety rails.</p>
-          </li>
-        </ol>
-      </section>
+      <HowItWorksSection />
 
       <DeploymentPathBanner />
 
@@ -1076,23 +1166,23 @@ function HomePage() {
         <SectionTitle
           eyebrow="Evaluation Criteria"
           title="Evaluate machine identity platforms on operational evidence"
-          body="Use criteria that map to real risk reduction, rollout safety, and platform-team execution."
+          body="Use this checklist to compare implementation reality, not marketing claims."
         />
         <div className="idt-table-wrap">
           <table className="idt-compare-table">
             <thead>
               <tr>
-                <th scope="col">Category</th>
-                <th scope="col">Identrail</th>
-                <th scope="col">Typical closed alternatives</th>
+                <th scope="col">Criterion</th>
+                <th scope="col">What to verify</th>
+                <th scope="col">Why it matters</th>
               </tr>
             </thead>
             <tbody>
               {DIFFERENTIATION_ROWS.map((row) => (
                 <tr key={row.area}>
                   <th scope="row">{row.area}</th>
-                  <td>{row.identrail}</td>
-                  <td>{row.alternatives}</td>
+                  <td>{row.verify}</td>
+                  <td>{row.impact}</td>
                 </tr>
               ))}
             </tbody>
@@ -1109,13 +1199,217 @@ function HomePage() {
           body="Get prioritized trust paths, blast-radius context, and rollout-safe remediation guidance."
         />
         <div className="idt-inline-actions">
-          <Link to="/pricing" className="idt-btn idt-btn-primary">
+          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
             Start Read-Only Risk Scan
           </Link>
           <Link to="/demo" className="idt-btn idt-btn-dark">
             Book Technical Demo
           </Link>
         </div>
+      </section>
+    </>
+  );
+}
+
+function ReadOnlyScanPage() {
+  const [step, setStep] = useState(1);
+  const [email, setEmail] = useState('');
+  const [environment, setEnvironment] = useState('AWS IAM + Kubernetes');
+  const [deployment, setDeployment] = useState('Hosted SaaS');
+  const [challenge, setChallenge] = useState('Trust path visibility');
+  const [urgency, setUrgency] = useState('This quarter');
+  const [teamSize, setTeamSize] = useState('6-20');
+  const [company, setCompany] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useSeo({
+    title: 'Start Read-Only Risk Scan | Identrail',
+    description:
+      'Start a read-only machine identity risk scan with Identrail. Share environment context and receive a prioritized trust-path report and rollout-safe remediation plan.',
+    path: '/read-only-scan'
+  });
+
+  const submitIntake = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (submitting) {
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      await apiClient.submitLeadCapture({
+        email: email.trim(),
+        environment,
+        company: company.trim() || undefined,
+        challenge: challenge,
+        deployment_model: deployment,
+        urgency,
+        team_size: teamSize,
+        scan_goal: `${environment} trust-path risk reduction`,
+        source: 'Read-Only Scan Intake',
+        page_path: '/read-only-scan'
+      });
+      setSubmitted(true);
+    } catch (submissionError) {
+      const message = submissionError instanceof Error ? submissionError.message : 'Unable to submit request.';
+      setError(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">Read-Only Scan</p>
+        <h1>Start a machine identity risk scan with deployment-safe onboarding</h1>
+        <p>
+          This intake collects only planning context. No environment credentials are requested in this form. We send your first
+          prioritized trust-path report with rollout-safe recommendations.
+        </p>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <form className="idt-intake-card" onSubmit={submitIntake}>
+          <p className="idt-intake-step">Step {submitted ? 3 : step} of 3</p>
+          {!submitted ? (
+            <>
+              {step === 1 ? (
+                <div className="idt-intake-grid">
+                  <label>
+                    Work email
+                    <input
+                      required
+                      type="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      placeholder="you@company.com"
+                      autoComplete="email"
+                    />
+                  </label>
+                  <label>
+                    Company (optional)
+                    <input
+                      type="text"
+                      value={company}
+                      onChange={(event) => setCompany(event.target.value)}
+                      placeholder="Acme Corp"
+                      autoComplete="organization"
+                    />
+                  </label>
+                </div>
+              ) : null}
+
+              {step === 2 ? (
+                <div className="idt-intake-grid">
+                  <label>
+                    Primary environment
+                    <select value={environment} onChange={(event) => setEnvironment(event.target.value)}>
+                      <option>AWS IAM + Kubernetes</option>
+                      <option>AWS IAM</option>
+                      <option>Kubernetes</option>
+                      <option>GitHub/GitOps pipelines</option>
+                      <option>Hybrid cloud</option>
+                    </select>
+                  </label>
+                  <label>
+                    Preferred deployment
+                    <select value={deployment} onChange={(event) => setDeployment(event.target.value)}>
+                      <option>Hosted SaaS</option>
+                      <option>Self-hosted open-core</option>
+                      <option>Enterprise private tenancy</option>
+                    </select>
+                  </label>
+                </div>
+              ) : null}
+
+              {step === 3 ? (
+                <div className="idt-intake-grid">
+                  <label>
+                    Biggest challenge
+                    <select value={challenge} onChange={(event) => setChallenge(event.target.value)}>
+                      <option>Trust path visibility</option>
+                      <option>Overprivileged service accounts</option>
+                      <option>Credential leak response</option>
+                      <option>Authorization rollout safety</option>
+                    </select>
+                  </label>
+                  <label>
+                    Urgency
+                    <select value={urgency} onChange={(event) => setUrgency(event.target.value)}>
+                      <option>This quarter</option>
+                      <option>This month</option>
+                      <option>Immediate</option>
+                    </select>
+                  </label>
+                  <label>
+                    Team size
+                    <select value={teamSize} onChange={(event) => setTeamSize(event.target.value)}>
+                      <option>1-5</option>
+                      <option>6-20</option>
+                      <option>21-50</option>
+                      <option>50+</option>
+                    </select>
+                  </label>
+                  <article className="idt-intake-summary">
+                    <h2>What you receive</h2>
+                    <ul>
+                      <li>Prioritized trust-path findings with severity and impact context</li>
+                      <li>Reachable blast-radius summary for your selected environment</li>
+                      <li>Rollout-safe remediation sequence for first actions</li>
+                    </ul>
+                  </article>
+                </div>
+              ) : null}
+
+              {error ? <p className="idt-form-error">{error}</p> : null}
+
+              <div className="idt-inline-actions">
+                {step > 1 ? (
+                  <button type="button" className="idt-btn idt-btn-ghost" onClick={() => setStep((value) => Math.max(1, value - 1))}>
+                    Back
+                  </button>
+                ) : null}
+                {step < 3 ? (
+                  <button
+                    type="button"
+                    className="idt-btn idt-btn-primary"
+                    onClick={(event) => {
+                      const form = event.currentTarget.form;
+                      if (step === 1 && form && !form.reportValidity()) {
+                        return;
+                      }
+                      setStep((value) => Math.min(3, value + 1));
+                    }}
+                  >
+                    Continue
+                  </button>
+                ) : (
+                  <button type="submit" className="idt-btn idt-btn-primary" disabled={submitting || !email.trim()}>
+                    {submitting ? 'Submitting...' : 'Start Read-Only Risk Scan'}
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="idt-intake-confirmation">
+              <h2>Intake submitted</h2>
+              <p>Thanks. We will send your first read-only scan onboarding response within one business day.</p>
+              <div className="idt-inline-actions">
+                <Link to="/demo" className="idt-btn idt-btn-dark">
+                  Book Technical Demo
+                </Link>
+                <Link to="/docs" className="idt-btn idt-btn-ghost">
+                  Review Documentation
+                </Link>
+              </div>
+            </div>
+          )}
+        </form>
       </section>
     </>
   );
@@ -1306,7 +1600,7 @@ function FeatureDetailPage({ page }: { page: (typeof FEATURE_DEEP_PAGES)[number]
           <Link to="/demo" className="idt-btn idt-btn-primary">
             Open Interactive Demo
           </Link>
-          <Link to="/pricing" className="idt-btn idt-btn-dark">
+          <Link to="/read-only-scan" className="idt-btn idt-btn-dark">
             Start Free Risk Scan
           </Link>
           <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
@@ -1604,11 +1898,18 @@ function PricingPage() {
 
       <section className="idt-section idt-shell idt-pricing-roi">
         <SectionTitle
-          eyebrow="Plan Fit"
-          title="Project impact before selecting your deployment path"
-          body="Use transparent assumptions to estimate incident-exposure reduction and triage-efficiency gains."
+          eyebrow="Impact Model"
+          title="Need ROI modeling before procurement?"
+          body="Use the dedicated ROI assessment page with transparent assumptions and editable parameters."
         />
-        <RoiCalculator />
+        <div className="idt-inline-actions">
+          <Link to="/roi-assessment" className="idt-btn idt-btn-primary">
+            Open ROI Assessment
+          </Link>
+          <Link to="/read-only-scan" className="idt-btn idt-btn-dark">
+            Start Read-Only Risk Scan
+          </Link>
+        </div>
       </section>
 
       {salesModalOpen ? (
@@ -1631,6 +1932,218 @@ function PricingPage() {
           />
         </ModalShell>
       ) : null}
+    </>
+  );
+}
+
+function RoiAssessmentPage() {
+  useSeo({
+    title: 'ROI Assessment | Machine Identity Security Impact Model',
+    description:
+      'Run a transparent ROI assessment for machine identity security risk reduction with editable assumptions and impact calculations.',
+    path: '/roi-assessment'
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">ROI Assessment</p>
+        <h1>Model risk-reduction impact with transparent assumptions</h1>
+        <p>
+          This tool is a planning model, not a guarantee. Adjust each input to match your environment and validate assumptions with
+          your security and finance stakeholders.
+        </p>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <RoiCalculator />
+        <p className="idt-roi-disclaimer">
+          Assumptions: labor savings = weekly triage hours × 52 × $110; incident exposure reduction coefficient = 0.87; high-risk
+          identity reduction coefficient = 0.32.
+        </p>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <div className="idt-inline-actions">
+          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
+            Start Read-Only Risk Scan
+          </Link>
+          <Link to="/pricing" className="idt-btn idt-btn-dark">
+            Compare Pricing Plans
+          </Link>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function DeploymentModelsPage() {
+  useSeo({
+    title: 'Deployment Models | Open-Core, Hosted, and Enterprise',
+    description:
+      'Compare Identrail deployment models for machine identity security: self-hosted open-core, hosted SaaS, and enterprise private deployment.',
+    path: '/deployment-models'
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">Deployment Models</p>
+        <h1>Choose your control boundary without changing operating model</h1>
+        <p>
+          Identrail keeps the same trust-path workflow across open-core, hosted SaaS, and enterprise deployments. Choose based on
+          control, speed, and governance requirements.
+        </p>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <div className="idt-card-grid three-col">
+          <article className="idt-card">
+            <h2>Open-Core</h2>
+            <p>
+              <strong>Best for:</strong> teams that require self-hosted control and deep platform customization.
+            </p>
+            <ul>
+              <li>Run in your infrastructure</li>
+              <li>Community support and docs</li>
+              <li>Transparent architecture and source</li>
+            </ul>
+            <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
+              View Open Source
+            </SafeLink>
+          </article>
+          <article className="idt-card">
+            <h2>Hosted SaaS</h2>
+            <p>
+              <strong>Best for:</strong> fastest time-to-value with managed operations.
+            </p>
+            <ul>
+              <li>Managed platform operations</li>
+              <li>Read-only onboarding for first scan</li>
+              <li>Accelerated query and collaboration workflows</li>
+            </ul>
+            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
+              Start Read-Only Risk Scan
+            </Link>
+          </article>
+          <article className="idt-card">
+            <h2>Enterprise Private</h2>
+            <p>
+              <strong>Best for:</strong> private tenancy, procurement controls, and advanced support programs.
+            </p>
+            <ul>
+              <li>Private deployment options</li>
+              <li>SCIM and advanced governance controls</li>
+              <li>24/7 support and named TAM</li>
+            </ul>
+            <Link to="/enterprise" className="idt-btn idt-btn-dark">
+              Book Technical Demo
+            </Link>
+          </article>
+        </div>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <SectionTitle
+          eyebrow="Capability Matrix"
+          title="Deployment differences by capability"
+          body="Use this matrix to align your deployment choice with security controls, data residency, and support needs."
+        />
+        <div className="idt-table-wrap">
+          <table className="idt-compare-table">
+            <thead>
+              <tr>
+                <th scope="col">Capability</th>
+                <th scope="col">Open-Core</th>
+                <th scope="col">Hosted SaaS</th>
+                <th scope="col">Enterprise</th>
+              </tr>
+            </thead>
+            <tbody>
+              {FEATURE_ROWS.map((row) => (
+                <tr key={row.capability}>
+                  <th scope="row">{row.capability}</th>
+                  <td>{row.openSource}</td>
+                  <td>{row.pro}</td>
+                  <td>{row.enterprise}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function IntegrationsPage() {
+  useSeo({
+    title: 'Integrations | Machine Identity Signal Coverage',
+    description:
+      'Review Identrail integration coverage across AWS IAM, Kubernetes, GitHub, and OIDC trust paths with depth and signal details.',
+    path: '/integrations'
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">Integrations</p>
+        <h1>Identity signal coverage across cloud, cluster, and code workflows</h1>
+        <p>
+          Identrail unifies machine identity telemetry into one trust-path analysis model. Use this page to verify connector depth
+          before rollout.
+        </p>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <div className="idt-table-wrap">
+          <table className="idt-compare-table">
+            <thead>
+              <tr>
+                <th scope="col">Integration</th>
+                <th scope="col">Signals captured</th>
+                <th scope="col">Depth</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {INTEGRATION_ROWS.map((row) => (
+                <tr key={row.source}>
+                  <th scope="row">{row.source}</th>
+                  <td>{row.signals}</td>
+                  <td>{row.depth}</td>
+                  <td>{row.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <div className="idt-card-grid two-col">
+          <article className="idt-card">
+            <h2>Integration onboarding workflow</h2>
+            <ul>
+              <li>Start with read-only connector setup and source validation</li>
+              <li>Confirm trust-path ingestion and evidence mapping</li>
+              <li>Review first prioritized findings with platform owners</li>
+            </ul>
+          </article>
+          <article className="idt-card">
+            <h2>Technical bridge</h2>
+            <p>Need implementation details first? Review docs, then run your first guided scan intake.</p>
+            <div className="idt-inline-actions">
+              <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-ghost">
+                Open Documentation
+              </SafeLink>
+              <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
+                Start Read-Only Risk Scan
+              </Link>
+            </div>
+          </article>
+        </div>
+      </section>
     </>
   );
 }
@@ -1669,7 +2182,7 @@ function DemoPage() {
             <h2>What to do next</h2>
             <p>Run a free risk scan to map your own trust paths, or book a guided walkthrough with security engineering.</p>
             <div className="idt-inline-actions">
-              <Link to="/pricing" className="idt-btn idt-btn-primary">
+              <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
                 Start Free Risk Scan
               </Link>
               <Link to="/enterprise" className="idt-btn idt-btn-dark">
@@ -1687,7 +2200,7 @@ function DemoPage() {
           body="Start in hosted SaaS or self-host OSS and import your first AWS account or Kubernetes cluster."
         />
         <div className="idt-inline-actions">
-          <Link to="/pricing" className="idt-btn idt-btn-primary">
+          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
             Start Free Risk Scan
           </Link>
           <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
@@ -1871,7 +2384,7 @@ function BlogArticlePage() {
             <li>Record remediation outcomes for audit and executive risk reporting.</li>
           </ul>
           <div className="idt-inline-actions">
-            <Link to="/pricing" className="idt-btn idt-btn-primary">
+            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
               Start Free Risk Scan
             </Link>
             <Link to="/blog" className="idt-btn idt-btn-ghost">
@@ -1898,6 +2411,34 @@ function SecurityPage() {
         <p className="idt-eyebrow">Security & Compliance</p>
         <h1>Security-first architecture with transparent compliance posture</h1>
         <p>Built for teams that need hardening depth, audit evidence, and enterprise trust controls.</p>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <SectionTitle
+          eyebrow="Read-Only Model"
+          title="Collection boundaries and control guarantees"
+          body="Use this matrix to validate how Identrail collects trust data and where write actions are intentionally excluded."
+        />
+        <div className="idt-table-wrap">
+          <table className="idt-compare-table">
+            <thead>
+              <tr>
+                <th scope="col">Control area</th>
+                <th scope="col">What Identrail does</th>
+                <th scope="col">What Identrail does not do</th>
+              </tr>
+            </thead>
+            <tbody>
+              {READ_ONLY_CONTROL_ROWS.map((row) => (
+                <tr key={row.area}>
+                  <th scope="row">{row.area}</th>
+                  <td>{row.access}</td>
+                  <td>{row.excluded}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="idt-section idt-shell">
@@ -1937,11 +2478,63 @@ function SecurityPage() {
         </div>
       </section>
       <section className="idt-section idt-shell">
-        <LeadCaptureForm
-          title="Need vendor security documentation?"
-          caption="Request security package access for procurement and compliance review."
-          ctaLabel="Book Demo"
-        />
+        <div className="idt-inline-actions">
+          <Link to="/responsible-disclosure" className="idt-btn idt-btn-dark">
+            Responsible Disclosure
+          </Link>
+          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
+            Start Read-Only Risk Scan
+          </Link>
+          <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-ghost">
+            Review Security Docs
+          </SafeLink>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function ResponsibleDisclosurePage() {
+  useSeo({
+    title: 'Responsible Disclosure | Identrail Security',
+    description:
+      'Report potential vulnerabilities to Identrail using our responsible disclosure process and coordinated response workflow.',
+    path: '/responsible-disclosure'
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">Responsible Disclosure</p>
+        <h1>Report security issues through a coordinated disclosure process</h1>
+        <p>We investigate security reports promptly and coordinate remediation and communication with reporters.</p>
+      </section>
+      <section className="idt-section idt-shell">
+        <div className="idt-card-grid two-col">
+          <article className="idt-card">
+            <h2>How to report</h2>
+            <ul>
+              <li>
+                Email <a href="mailto:security@identrail.com">security@identrail.com</a> with detailed findings and
+                proof-of-concept steps
+              </li>
+              <li>Include reproduction steps, affected components, and potential impact</li>
+              <li>
+                Reference our security.txt policy at <code>/.well-known/security.txt</code> for reporting scope and expectations
+              </li>
+              <li>Avoid public disclosure until coordinated remediation is completed</li>
+            </ul>
+          </article>
+          <article className="idt-card">
+            <h2>Response expectations</h2>
+            <ul>
+              <li>Initial acknowledgement within one business day</li>
+              <li>Triage and severity classification with engineering review</li>
+              <li>Status updates at least every three business days until remediation is complete</li>
+              <li>Coordinated disclosure timeline after remediation is validated</li>
+            </ul>
+          </article>
+        </div>
       </section>
     </>
   );
@@ -2088,7 +2681,7 @@ export function RoutedSite() {
           <Route path="/" element={<HomePage />} />
           <Route path="/product" element={<ProductPage />} />
           <Route path="/features" element={<FeaturesPage />} />
-          <Route path="/integrations" element={<Navigate to="/features" replace />} />
+          <Route path="/integrations" element={<IntegrationsPage />} />
           {FEATURE_DEEP_PAGES.map((page) => (
             <Route key={page.slug} path={`/features/${page.slug}`} element={<FeatureDetailPage page={page} />} />
           ))}
@@ -2097,12 +2690,16 @@ export function RoutedSite() {
             <Route key={page.slug} path={`/solutions/${page.slug}`} element={<SolutionDetailPage page={page} />} />
           ))}
           <Route path="/pricing" element={<PricingPage />} />
-          <Route path="/deployment-models" element={<Navigate to="/pricing" replace />} />
+          <Route path="/roi-assessment" element={<RoiAssessmentPage />} />
+          <Route path="/read-only-scan" element={<ReadOnlyScanPage />} />
+          <Route path="/deployment-models" element={<DeploymentModelsPage />} />
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />
+          <Route path="/faq" element={<FaqPage />} />
           <Route path="/blog" element={<BlogPage />} />
           <Route path="/blog/:slug" element={<BlogArticlePage />} />
           <Route path="/security" element={<SecurityPage />} />
+          <Route path="/responsible-disclosure" element={<ResponsibleDisclosurePage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/enterprise" element={<EnterprisePage />} />
           <Route path="/terms" element={<LegalPage title="Terms" body="Use of this website and platform is subject to our terms and acceptable use obligations." />} />

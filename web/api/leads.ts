@@ -3,9 +3,25 @@ type LeadCapturePayload = {
   environment?: string;
   company?: string;
   challenge?: string;
+  deployment_model?: string;
+  scan_goal?: string;
+  urgency?: string;
+  team_size?: string;
   source?: string;
   page_path?: string;
 };
+
+const ALLOWED_DEPLOYMENT_MODELS = new Set(['Hosted SaaS', 'Self-hosted open-core', 'Enterprise private tenancy']);
+const ALLOWED_URGENCY = new Set(['This quarter', 'This month', 'Immediate']);
+const ALLOWED_TEAM_SIZE = new Set(['1-5', '6-20', '21-50', '50+']);
+
+function trimOptional(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -16,7 +32,7 @@ function badRequest(res: { status: (code: number) => { json: (payload: unknown) 
 }
 
 export default async function handler(
-  req: { method?: string; body?: LeadCapturePayload },
+  req: { method?: string; body?: unknown },
   res: { status: (code: number) => { json: (payload: unknown) => void } }
 ) {
   if (req.method !== 'POST') {
@@ -24,9 +40,9 @@ export default async function handler(
     return;
   }
 
-  const body = req.body ?? {};
-  const email = (body.email ?? '').trim();
-  const environment = (body.environment ?? '').trim();
+  const body: LeadCapturePayload = req.body && typeof req.body === 'object' ? (req.body as LeadCapturePayload) : {};
+  const email = trimOptional(body.email) ?? '';
+  const environment = trimOptional(body.environment) ?? '';
 
   if (!email || !isValidEmail(email)) {
     badRequest(res, 'Valid work email is required.');
@@ -38,13 +54,21 @@ export default async function handler(
     return;
   }
 
+  const deploymentModel = trimOptional(body.deployment_model);
+  const urgency = trimOptional(body.urgency);
+  const teamSize = trimOptional(body.team_size);
+
   const payload = {
     email,
     environment,
-    company: body.company?.trim() || undefined,
-    challenge: body.challenge?.trim() || undefined,
-    source: body.source?.trim() || 'unknown',
-    page_path: body.page_path?.trim() || '/',
+    company: trimOptional(body.company),
+    challenge: trimOptional(body.challenge),
+    deployment_model: deploymentModel && ALLOWED_DEPLOYMENT_MODELS.has(deploymentModel) ? deploymentModel : undefined,
+    scan_goal: trimOptional(body.scan_goal),
+    urgency: urgency && ALLOWED_URGENCY.has(urgency) ? urgency : undefined,
+    team_size: teamSize && ALLOWED_TEAM_SIZE.has(teamSize) ? teamSize : undefined,
+    source: trimOptional(body.source) || 'unknown',
+    page_path: trimOptional(body.page_path) || '/',
     captured_at: new Date().toISOString()
   };
 

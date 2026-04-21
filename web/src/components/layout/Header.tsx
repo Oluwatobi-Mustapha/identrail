@@ -33,7 +33,7 @@ export function Header({ navLinks }: { navLinks: readonly NavLinkItem[] }) {
     <header className="idt-header">
       <div className="idt-shell idt-header-row">
         <Link to="/" className="idt-brand" aria-label="Identrail homepage">
-          <img src="/identrail-logo.png" width="32" height="32" alt="Identrail" />
+          <img src="/identrail-logo.png" width="32" height="32" alt="Identrail" decoding="async" />
           <span>
             Identrail
             <small>Machine Identity Security</small>
@@ -65,7 +65,7 @@ export function Header({ navLinks }: { navLinks: readonly NavLinkItem[] }) {
         </nav>
 
         <div className="idt-header-actions">
-          <Link to="/pricing" className="idt-btn idt-btn-primary" data-ab-slot="header_primary_cta">
+          <Link to="/read-only-scan" className="idt-btn idt-btn-primary" data-ab-slot="header_primary_cta">
             Start Read-Only Risk Scan
           </Link>
           <Link to="/demo" className="idt-btn idt-btn-dark">

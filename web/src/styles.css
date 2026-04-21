@@ -580,6 +580,19 @@ h3 {
     animation: none;
     opacity: 0.7;
   }
+
+  * {
+    scroll-behavior: auto !important;
+  }
+
+  .idt-btn,
+  .idt-social-link,
+  .idt-proof-link,
+  .idt-risk-scenario-item,
+  .idt-demo-view-toggle button {
+    transition: none !important;
+    transform: none !important;
+  }
 }
 
 .idt-trust-strip {
@@ -669,6 +682,8 @@ h3 {
 
 .idt-section {
   padding: clamp(2.6rem, 6vw, 4.3rem) 0;
+  content-visibility: auto;
+  contain-intrinsic-size: 620px;
 }
 
 .idt-section-title {
@@ -953,6 +968,25 @@ h3 {
   padding: 1rem;
 }
 
+.idt-workflow-steps li {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.idt-workflow-steps li p {
+  margin: 0;
+  color: #d2dcec;
+}
+
+.idt-workflow-output {
+  border: 1px dashed rgba(165, 190, 255, 0.4);
+  border-radius: 10px;
+  background: rgba(165, 190, 255, 0.08);
+  padding: 0.42rem 0.54rem;
+  font-size: 0.84rem;
+  color: #e1ecff;
+}
+
 .idt-steps p {
   margin: 0;
   color: #d7e5ff;
@@ -1179,6 +1213,74 @@ h3 {
   background: transparent;
   padding-inline: 0;
   border: 0;
+}
+
+.idt-intake-card {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 16px;
+  background: rgba(8, 8, 10, 0.82);
+  padding: 1.1rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.idt-intake-step {
+  margin: 0;
+  color: #b6c3da;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.idt-intake-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.idt-intake-grid label {
+  display: grid;
+  gap: 0.35rem;
+  color: #dfe7f6;
+  font-weight: 600;
+}
+
+.idt-intake-grid input,
+.idt-intake-grid select {
+  min-height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #eef4ff;
+  padding: 0 0.72rem;
+}
+
+.idt-intake-summary {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 0.7rem;
+}
+
+.idt-intake-summary h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+}
+
+.idt-intake-summary ul {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.idt-intake-confirmation h2 {
+  margin: 0 0 0.35rem;
+}
+
+.idt-intake-confirmation p {
+  margin: 0 0 0.8rem;
+  color: #d4dff2;
 }
 
 .idt-finding-proof-grid {
@@ -1760,6 +1862,34 @@ h2 {
   gap: 0.45rem;
 }
 
+.idt-footer-maturity-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.5rem 0;
+}
+
+.idt-footer-trust-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.idt-footer-trust-links a {
+  color: rgba(235, 241, 255, 0.9);
+  text-decoration: none;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+
+.idt-footer-trust-links a:hover,
+.idt-footer-trust-links a:focus-visible {
+  text-decoration: underline;
+}
+
 .idt-social-link {
   width: 38px;
   height: 38px;
@@ -2165,6 +2295,7 @@ h2 {
   .idt-risk-insight-grid,
   .idt-finding-proof-grid,
   .idt-adoption-grid,
+  .idt-intake-grid,
   .idt-card-grid.two-col,
   .idt-card-grid.three-col,
   .idt-quote-row {
@@ -2191,6 +2322,12 @@ h2 {
     grid-template-columns: 1fr;
     align-items: flex-start;
     padding: 0.9rem 0;
+  }
+
+  .idt-footer-maturity-row {
+    grid-template-columns: 1fr;
+    align-items: flex-start;
+    padding-bottom: 0.8rem;
   }
 
   .idt-form-grid.is-short {

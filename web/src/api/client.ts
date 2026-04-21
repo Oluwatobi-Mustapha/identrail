@@ -92,6 +92,10 @@ export type LeadCapturePayload = {
   environment: string;
   company?: string;
   challenge?: string;
+  deployment_model?: string;
+  scan_goal?: string;
+  urgency?: string;
+  team_size?: string;
   source: string;
   page_path: string;
 };
