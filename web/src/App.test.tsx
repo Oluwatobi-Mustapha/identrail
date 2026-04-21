@@ -73,4 +73,16 @@ describe('App', () => {
       })
     ).toBeInTheDocument();
   });
+
+  it('renders ROI assessment route', () => {
+    window.history.pushState({}, '', '/roi-assessment');
+    render(<App />);
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: /Model risk-reduction impact with transparent assumptions/i
+      })
+    ).toBeInTheDocument();
+  });
 });
