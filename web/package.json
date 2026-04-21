@@ -9,7 +9,9 @@
     "prerender:routes": "tsx ./scripts/prerender-routes.ts",
     "preview": "vite preview",
     "test": "vitest",
-    "test:ci": "vitest run --coverage"
+    "test:ci": "vitest run --coverage",
+    "perf:lighthouse": "npx --yes @lhci/cli@0.14.x autorun --config=./lighthouserc.json",
+    "perf:bundle": "vite build --mode production"
   },
   "dependencies": {
     "react": "^19.2.5",

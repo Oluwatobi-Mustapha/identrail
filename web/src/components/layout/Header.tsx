@@ -33,7 +33,7 @@ export function Header({ navLinks }: { navLinks: readonly NavLinkItem[] }) {
     <header className="idt-header">
       <div className="idt-shell idt-header-row">
         <Link to="/" className="idt-brand" aria-label="Identrail homepage">
-          <img src="/identrail-logo.png" width="32" height="32" alt="Identrail" />
+          <img src="/identrail-logo.png" width="32" height="32" alt="Identrail" decoding="async" />
           <span>
             Identrail
             <small>Machine Identity Security</small>
