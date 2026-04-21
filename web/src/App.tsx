@@ -574,8 +574,11 @@ function ModalShell({
   children: ReactNode;
 }) {
   const modalRef = useRef<HTMLDivElement | null>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
+    previouslyFocusedRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
     if (activeModalLocks === 0) {
       bodyOverflowBeforeModal = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
@@ -625,6 +628,7 @@ function ModalShell({
         document.body.style.overflow = bodyOverflowBeforeModal;
       }
       document.removeEventListener('keydown', onKeyDown);
+      previouslyFocusedRef.current?.focus();
     };
   }, [onClose]);
 
@@ -781,6 +785,10 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
   const [selectedId, setSelectedId] = useState<string>('role');
   const selected = nodes.find((item) => item.id === selectedId) ?? nodes[1];
   const scenario = scenarios.find((item) => item.id === scenarioId) ?? scenarios[0];
+  const graphTabId = `trust-graph-tab-${variant}`;
+  const listTabId = `trust-list-tab-${variant}`;
+  const graphPanelId = `trust-graph-panel-${variant}`;
+  const listPanelId = `trust-list-panel-${variant}`;
 
   return (
     <section className={`idt-demo-surface ${variant === 'full' ? 'is-full' : ''}`}>
@@ -796,16 +804,32 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
       </div>
 
       <div className="idt-demo-view-toggle" role="tablist" aria-label="Trust path explorer view">
-        <button type="button" role="tab" aria-selected={viewMode === 'graph'} className={viewMode === 'graph' ? 'is-active' : ''} onClick={() => setViewMode('graph')}>
+        <button
+          id={graphTabId}
+          type="button"
+          role="tab"
+          aria-controls={graphPanelId}
+          aria-selected={viewMode === 'graph'}
+          className={viewMode === 'graph' ? 'is-active' : ''}
+          onClick={() => setViewMode('graph')}
+        >
           Graph
         </button>
-        <button type="button" role="tab" aria-selected={viewMode === 'list'} className={viewMode === 'list' ? 'is-active' : ''} onClick={() => setViewMode('list')}>
+        <button
+          id={listTabId}
+          type="button"
+          role="tab"
+          aria-controls={listPanelId}
+          aria-selected={viewMode === 'list'}
+          className={viewMode === 'list' ? 'is-active' : ''}
+          onClick={() => setViewMode('list')}
+        >
           List
         </button>
       </div>
 
       {viewMode === 'graph' ? (
-        <div className="idt-demo-graph" role="img" aria-label="Interactive trust graph simulation">
+        <div id={graphPanelId} role="tabpanel" aria-labelledby={graphTabId} className="idt-demo-graph" aria-label="Interactive trust graph simulation">
           {nodes.map((node) => (
             <button
               key={node.id}
@@ -822,7 +846,7 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
           <span className="idt-demo-connector c4" />
         </div>
       ) : (
-        <div className="idt-demo-list-view" role="table" aria-label="Trust path nodes">
+        <div id={listPanelId} role="tabpanel" aria-labelledby={listTabId} className="idt-demo-list-view" aria-label="Trust path nodes">
           {nodes.map((node) => (
             <button key={node.id} type="button" className={`idt-demo-list-row ${selected.id === node.id ? 'is-active' : ''}`} onClick={() => setSelectedId(node.id)}>
               <span>{node.title}</span>

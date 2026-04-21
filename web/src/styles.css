@@ -580,6 +580,19 @@ h3 {
     animation: none;
     opacity: 0.7;
   }
+
+  * {
+    scroll-behavior: auto !important;
+  }
+
+  .idt-btn,
+  .idt-social-link,
+  .idt-proof-link,
+  .idt-risk-scenario-item,
+  .idt-demo-view-toggle button {
+    transition: none !important;
+    transform: none !important;
+  }
 }
 
 .idt-trust-strip {
