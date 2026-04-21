@@ -17,7 +17,7 @@ describe('App', () => {
     expect(screen.getAllByRole('link', { name: 'Start Read-Only Risk Scan' }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('link', { name: 'Book Technical Demo' }).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Kubernetes service account can assume production AWS role/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
   });
 
   it('renders pricing page routes and key elements', () => {
