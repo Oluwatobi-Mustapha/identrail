@@ -65,7 +65,7 @@ export function Header({ navLinks }: { navLinks: readonly NavLinkItem[] }) {
         </nav>
 
         <div className="idt-header-actions">
-          <Link to="/pricing" className="idt-btn idt-btn-primary" data-ab-slot="header_primary_cta">
+          <Link to="/read-only-scan" className="idt-btn idt-btn-primary" data-ab-slot="header_primary_cta">
             Start Read-Only Risk Scan
           </Link>
           <Link to="/demo" className="idt-btn idt-btn-dark">

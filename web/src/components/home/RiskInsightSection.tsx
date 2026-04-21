@@ -83,7 +83,7 @@ export function RiskInsightSection() {
             <strong>Safe first action:</strong> {activeScenario.firstAction}
           </p>
           <div className="idt-inline-actions">
-            <Link to="/pricing" className="idt-btn idt-btn-primary">
+            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
               Start Read-Only Risk Scan
             </Link>
             <Link to="/demo" className="idt-btn idt-btn-dark">
