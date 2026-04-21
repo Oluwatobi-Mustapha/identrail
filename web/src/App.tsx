@@ -803,7 +803,7 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
           </article>
         ) : null}
         <div className="idt-inline-actions">
-          <Link to="/pricing" className="idt-btn idt-btn-primary">
+          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
             Start Read-Only Risk Scan
           </Link>
           <Link to="/demo" className="idt-btn idt-btn-dark">
@@ -953,7 +953,7 @@ function DeploymentPathBanner() {
             <h3>Hosted SaaS</h3>
             <p className="idt-muted-strong">Best for fast scanning and time-to-value.</p>
             <p>Start quickly with managed infrastructure while your team focuses on machine identity risk reduction.</p>
-            <Link to="/pricing" className="idt-btn idt-btn-primary">
+            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
               Start Free Risk Scan
             </Link>
           </article>
@@ -1109,13 +1109,184 @@ function HomePage() {
           body="Get prioritized trust paths, blast-radius context, and rollout-safe remediation guidance."
         />
         <div className="idt-inline-actions">
-          <Link to="/pricing" className="idt-btn idt-btn-primary">
+          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
             Start Read-Only Risk Scan
           </Link>
           <Link to="/demo" className="idt-btn idt-btn-dark">
             Book Technical Demo
           </Link>
         </div>
+      </section>
+    </>
+  );
+}
+
+function ReadOnlyScanPage() {
+  const [step, setStep] = useState(1);
+  const [email, setEmail] = useState('');
+  const [environment, setEnvironment] = useState('AWS IAM + Kubernetes');
+  const [deployment, setDeployment] = useState('Hosted SaaS');
+  const [challenge, setChallenge] = useState('Trust path visibility');
+  const [company, setCompany] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useSeo({
+    title: 'Start Read-Only Risk Scan | Identrail',
+    description:
+      'Start a read-only machine identity risk scan with Identrail. Share environment context and receive a prioritized trust-path report and rollout-safe remediation plan.',
+    path: '/read-only-scan'
+  });
+
+  const submitIntake = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (submitting) {
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      await apiClient.submitLeadCapture({
+        email: email.trim(),
+        environment,
+        company: company.trim() || undefined,
+        challenge: `${challenge} | ${deployment}`,
+        source: 'Read-Only Scan Intake',
+        page_path: '/read-only-scan'
+      });
+      setSubmitted(true);
+    } catch (submissionError) {
+      const message = submissionError instanceof Error ? submissionError.message : 'Unable to submit request.';
+      setError(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">Read-Only Scan</p>
+        <h1>Start a machine identity risk scan with deployment-safe onboarding</h1>
+        <p>
+          This intake collects only planning context. No environment credentials are requested in this form. We send your first
+          prioritized trust-path report with rollout-safe recommendations.
+        </p>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <form className="idt-intake-card" onSubmit={submitIntake}>
+          <p className="idt-intake-step">Step {submitted ? 3 : step} of 3</p>
+          {!submitted ? (
+            <>
+              {step === 1 ? (
+                <div className="idt-intake-grid">
+                  <label>
+                    Work email
+                    <input
+                      required
+                      type="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      placeholder="you@company.com"
+                      autoComplete="email"
+                    />
+                  </label>
+                  <label>
+                    Company (optional)
+                    <input
+                      type="text"
+                      value={company}
+                      onChange={(event) => setCompany(event.target.value)}
+                      placeholder="Acme Corp"
+                      autoComplete="organization"
+                    />
+                  </label>
+                </div>
+              ) : null}
+
+              {step === 2 ? (
+                <div className="idt-intake-grid">
+                  <label>
+                    Primary environment
+                    <select value={environment} onChange={(event) => setEnvironment(event.target.value)}>
+                      <option>AWS IAM + Kubernetes</option>
+                      <option>AWS IAM</option>
+                      <option>Kubernetes</option>
+                      <option>GitHub/GitOps pipelines</option>
+                      <option>Hybrid cloud</option>
+                    </select>
+                  </label>
+                  <label>
+                    Preferred deployment
+                    <select value={deployment} onChange={(event) => setDeployment(event.target.value)}>
+                      <option>Hosted SaaS</option>
+                      <option>Self-hosted open-core</option>
+                      <option>Enterprise private tenancy</option>
+                    </select>
+                  </label>
+                </div>
+              ) : null}
+
+              {step === 3 ? (
+                <div className="idt-intake-grid">
+                  <label>
+                    Biggest challenge
+                    <select value={challenge} onChange={(event) => setChallenge(event.target.value)}>
+                      <option>Trust path visibility</option>
+                      <option>Overprivileged service accounts</option>
+                      <option>Credential leak response</option>
+                      <option>Authorization rollout safety</option>
+                    </select>
+                  </label>
+                  <article className="idt-intake-summary">
+                    <h2>What you receive</h2>
+                    <ul>
+                      <li>Prioritized trust-path findings with severity and impact context</li>
+                      <li>Reachable blast-radius summary for your selected environment</li>
+                      <li>Rollout-safe remediation sequence for first actions</li>
+                    </ul>
+                  </article>
+                </div>
+              ) : null}
+
+              {error ? <p className="idt-form-error">{error}</p> : null}
+
+              <div className="idt-inline-actions">
+                {step > 1 ? (
+                  <button type="button" className="idt-btn idt-btn-ghost" onClick={() => setStep((value) => Math.max(1, value - 1))}>
+                    Back
+                  </button>
+                ) : null}
+                {step < 3 ? (
+                  <button type="button" className="idt-btn idt-btn-primary" onClick={() => setStep((value) => Math.min(3, value + 1))}>
+                    Continue
+                  </button>
+                ) : (
+                  <button type="submit" className="idt-btn idt-btn-primary" disabled={submitting || !email.trim()}>
+                    {submitting ? 'Submitting...' : 'Start Read-Only Risk Scan'}
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="idt-intake-confirmation">
+              <h2>Intake submitted</h2>
+              <p>Thanks. We will send your first read-only scan onboarding response within one business day.</p>
+              <div className="idt-inline-actions">
+                <Link to="/demo" className="idt-btn idt-btn-dark">
+                  Book Technical Demo
+                </Link>
+                <Link to="/docs" className="idt-btn idt-btn-ghost">
+                  Review Documentation
+                </Link>
+              </div>
+            </div>
+          )}
+        </form>
       </section>
     </>
   );
@@ -1306,7 +1477,7 @@ function FeatureDetailPage({ page }: { page: (typeof FEATURE_DEEP_PAGES)[number]
           <Link to="/demo" className="idt-btn idt-btn-primary">
             Open Interactive Demo
           </Link>
-          <Link to="/pricing" className="idt-btn idt-btn-dark">
+          <Link to="/read-only-scan" className="idt-btn idt-btn-dark">
             Start Free Risk Scan
           </Link>
           <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
@@ -1669,7 +1840,7 @@ function DemoPage() {
             <h2>What to do next</h2>
             <p>Run a free risk scan to map your own trust paths, or book a guided walkthrough with security engineering.</p>
             <div className="idt-inline-actions">
-              <Link to="/pricing" className="idt-btn idt-btn-primary">
+              <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
                 Start Free Risk Scan
               </Link>
               <Link to="/enterprise" className="idt-btn idt-btn-dark">
@@ -1687,7 +1858,7 @@ function DemoPage() {
           body="Start in hosted SaaS or self-host OSS and import your first AWS account or Kubernetes cluster."
         />
         <div className="idt-inline-actions">
-          <Link to="/pricing" className="idt-btn idt-btn-primary">
+          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
             Start Free Risk Scan
           </Link>
           <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
@@ -1871,7 +2042,7 @@ function BlogArticlePage() {
             <li>Record remediation outcomes for audit and executive risk reporting.</li>
           </ul>
           <div className="idt-inline-actions">
-            <Link to="/pricing" className="idt-btn idt-btn-primary">
+            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
               Start Free Risk Scan
             </Link>
             <Link to="/blog" className="idt-btn idt-btn-ghost">
@@ -2097,6 +2268,7 @@ export function RoutedSite() {
             <Route key={page.slug} path={`/solutions/${page.slug}`} element={<SolutionDetailPage page={page} />} />
           ))}
           <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/read-only-scan" element={<ReadOnlyScanPage />} />
           <Route path="/deployment-models" element={<PricingPage />} />
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />

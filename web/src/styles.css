@@ -1181,6 +1181,74 @@ h3 {
   border: 0;
 }
 
+.idt-intake-card {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 16px;
+  background: rgba(8, 8, 10, 0.82);
+  padding: 1.1rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.idt-intake-step {
+  margin: 0;
+  color: #b6c3da;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.idt-intake-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.idt-intake-grid label {
+  display: grid;
+  gap: 0.35rem;
+  color: #dfe7f6;
+  font-weight: 600;
+}
+
+.idt-intake-grid input,
+.idt-intake-grid select {
+  min-height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #eef4ff;
+  padding: 0 0.72rem;
+}
+
+.idt-intake-summary {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 0.7rem;
+}
+
+.idt-intake-summary h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+}
+
+.idt-intake-summary ul {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.idt-intake-confirmation h2 {
+  margin: 0 0 0.35rem;
+}
+
+.idt-intake-confirmation p {
+  margin: 0 0 0.8rem;
+  color: #d4dff2;
+}
+
 .idt-finding-proof-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
@@ -2170,6 +2238,7 @@ h2 {
   .idt-risk-insight-grid,
   .idt-finding-proof-grid,
   .idt-adoption-grid,
+  .idt-intake-grid,
   .idt-card-grid.two-col,
   .idt-card-grid.three-col,
   .idt-quote-row {
