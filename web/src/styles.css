@@ -607,6 +607,33 @@ h3 {
   gap: 0.6rem;
 }
 
+.idt-proof-row {
+  gap: 0.7rem;
+}
+
+.idt-proof-item {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 0.6rem 0.68rem;
+  display: grid;
+  gap: 0.3rem;
+  min-width: 220px;
+  flex: 1 1 220px;
+}
+
+.idt-proof-item p {
+  margin: 0;
+  color: #cbd5e7;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.idt-proof-item small {
+  color: #97a7c3;
+  font-size: 0.68rem;
+}
+
 .idt-logo-row span {
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 999px;
@@ -619,13 +646,17 @@ h3 {
 }
 
 .idt-proof-link {
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.03);
-  padding: 0.44rem 0.8rem;
-  font-size: 0.74rem;
-  color: #d7dff1;
-  letter-spacing: 0.03em;
+  padding: 0.3rem 0.62rem;
+  font-size: 0.7rem;
+  color: #dfe8fb;
+  letter-spacing: 0.02em;
+  font-weight: 700;
   text-decoration: none;
   transition: border-color 0.2s ease, background-color 0.2s ease;
 }

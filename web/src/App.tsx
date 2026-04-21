@@ -2,6 +2,7 @@ import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'reac
 import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
+import { TrustProofStrip } from './components/home/TrustProofStrip';
 import { Footer } from './components/layout/Footer';
 import { Header } from './components/layout/Header';
 import { apiClient } from './api/client';
@@ -43,14 +44,6 @@ const NAV_LINKS = [
   { to: '/pricing', label: 'Pricing' },
   { to: '/security', label: 'Security' },
   { to: '/demo', label: 'Demo' }
-] as const;
-
-const TRUST_PROOF_LINKS = [
-  { label: 'Architecture Docs', href: DOCS_REPO, external: true },
-  { label: 'Read-Only Scan Model', href: '/security', external: false },
-  { label: 'Sample Risk Report', href: '/demo', external: false },
-  { label: 'Changelog', href: `${GITHUB_REPO}/releases`, external: true },
-  { label: 'Responsible Disclosure', href: '/security', external: false }
 ] as const;
 
 const HOME_FAQ_PREVIEW = HOME_FAQ_ITEMS.slice(0, 4);
@@ -961,29 +954,6 @@ function DeploymentPathBanner() {
   );
 }
 
-function HomeCredibilityStrip() {
-  return (
-    <section className="idt-trust-strip" aria-label="Credibility and proof">
-      <div className="idt-shell">
-        <p>Validate the product before you commit: review architecture, security posture, and output artifacts.</p>
-        <div className="idt-logo-row idt-proof-row">
-          {TRUST_PROOF_LINKS.map((entry) => (
-            entry.external ? (
-              <SafeLink key={entry.label} href={entry.href} className="idt-proof-link">
-                {entry.label}
-              </SafeLink>
-            ) : (
-              <Link key={entry.label} to={entry.href} className="idt-proof-link">
-                {entry.label}
-              </Link>
-            )
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function ProductProofFindingSection() {
   return (
     <section className="idt-section idt-shell">
@@ -1090,7 +1060,7 @@ function HomePage() {
         </div>
       </section>
 
-      <HomeCredibilityStrip />
+      <TrustProofStrip />
 
       <section className="idt-section idt-shell">
         <LeadCaptureForm
