@@ -124,6 +124,39 @@ const FEATURE_ROWS = [
   }
 ] as const;
 
+const INTEGRATION_ROWS = [
+  {
+    source: 'AWS IAM',
+    signals: 'Roles, trust policies, assumptions, account paths',
+    depth: 'Deep',
+    status: 'GA'
+  },
+  {
+    source: 'Kubernetes',
+    signals: 'Service accounts, RBAC bindings, namespace privilege paths',
+    depth: 'Deep',
+    status: 'GA'
+  },
+  {
+    source: 'GitHub',
+    signals: 'Workflow identities, OIDC trust, repository exposure telemetry',
+    depth: 'Deep',
+    status: 'GA'
+  },
+  {
+    source: 'OIDC Federation',
+    signals: 'Provider trust boundaries and subject claim controls',
+    depth: 'Focused',
+    status: 'GA'
+  },
+  {
+    source: 'Multi-cloud adapters',
+    signals: 'Extended identity graph edges and normalized trust metadata',
+    depth: 'Roadmap',
+    status: 'Beta'
+  }
+] as const;
+
 const FEATURE_DEEP_PAGES = [
   {
     slug: 'aws',
@@ -1810,6 +1843,177 @@ function PricingPage() {
   );
 }
 
+function DeploymentModelsPage() {
+  useSeo({
+    title: 'Deployment Models | Open-Core, Hosted, and Enterprise',
+    description:
+      'Compare Identrail deployment models for machine identity security: self-hosted open-core, hosted SaaS, and enterprise private deployment.',
+    path: '/deployment-models'
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">Deployment Models</p>
+        <h1>Choose your control boundary without changing operating model</h1>
+        <p>
+          Identrail keeps the same trust-path workflow across open-core, hosted SaaS, and enterprise deployments. Choose based on
+          control, speed, and governance requirements.
+        </p>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <div className="idt-card-grid three-col">
+          <article className="idt-card">
+            <h2>Open-Core</h2>
+            <p>
+              <strong>Best for:</strong> teams that require self-hosted control and deep platform customization.
+            </p>
+            <ul>
+              <li>Run in your infrastructure</li>
+              <li>Community support and docs</li>
+              <li>Transparent architecture and source</li>
+            </ul>
+            <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
+              View Open Source
+            </SafeLink>
+          </article>
+          <article className="idt-card">
+            <h2>Hosted SaaS</h2>
+            <p>
+              <strong>Best for:</strong> fastest time-to-value with managed operations.
+            </p>
+            <ul>
+              <li>Managed platform operations</li>
+              <li>Read-only onboarding for first scan</li>
+              <li>Accelerated query and collaboration workflows</li>
+            </ul>
+            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
+              Start Read-Only Risk Scan
+            </Link>
+          </article>
+          <article className="idt-card">
+            <h2>Enterprise Private</h2>
+            <p>
+              <strong>Best for:</strong> private tenancy, procurement controls, and advanced support programs.
+            </p>
+            <ul>
+              <li>Private deployment options</li>
+              <li>SCIM and advanced governance controls</li>
+              <li>24/7 support and named TAM</li>
+            </ul>
+            <Link to="/enterprise" className="idt-btn idt-btn-dark">
+              Book Technical Demo
+            </Link>
+          </article>
+        </div>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <SectionTitle
+          eyebrow="Capability Matrix"
+          title="Deployment differences by capability"
+          body="Use this matrix to align your deployment choice with security controls, data residency, and support needs."
+        />
+        <div className="idt-table-wrap">
+          <table className="idt-compare-table">
+            <thead>
+              <tr>
+                <th scope="col">Capability</th>
+                <th scope="col">Open-Core</th>
+                <th scope="col">Hosted SaaS</th>
+                <th scope="col">Enterprise</th>
+              </tr>
+            </thead>
+            <tbody>
+              {FEATURE_ROWS.map((row) => (
+                <tr key={row.capability}>
+                  <th scope="row">{row.capability}</th>
+                  <td>{row.openSource}</td>
+                  <td>{row.pro}</td>
+                  <td>{row.enterprise}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function IntegrationsPage() {
+  useSeo({
+    title: 'Integrations | Machine Identity Signal Coverage',
+    description:
+      'Review Identrail integration coverage across AWS IAM, Kubernetes, GitHub, and OIDC trust paths with depth and signal details.',
+    path: '/integrations'
+  });
+
+  return (
+    <>
+      <section className="idt-page-hero idt-shell">
+        <p className="idt-eyebrow">Integrations</p>
+        <h1>Identity signal coverage across cloud, cluster, and code workflows</h1>
+        <p>
+          Identrail unifies machine identity telemetry into one trust-path analysis model. Use this page to verify connector depth
+          before rollout.
+        </p>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <div className="idt-table-wrap">
+          <table className="idt-compare-table">
+            <thead>
+              <tr>
+                <th scope="col">Integration</th>
+                <th scope="col">Signals captured</th>
+                <th scope="col">Depth</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {INTEGRATION_ROWS.map((row) => (
+                <tr key={row.source}>
+                  <th scope="row">{row.source}</th>
+                  <td>{row.signals}</td>
+                  <td>{row.depth}</td>
+                  <td>{row.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="idt-section idt-shell">
+        <div className="idt-card-grid two-col">
+          <article className="idt-card">
+            <h2>Integration onboarding workflow</h2>
+            <ul>
+              <li>Start with read-only connector setup and source validation</li>
+              <li>Confirm trust-path ingestion and evidence mapping</li>
+              <li>Review first prioritized findings with platform owners</li>
+            </ul>
+          </article>
+          <article className="idt-card">
+            <h2>Technical bridge</h2>
+            <p>Need implementation details first? Review docs, then run your first guided scan intake.</p>
+            <div className="idt-inline-actions">
+              <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-ghost">
+                Open Documentation
+              </SafeLink>
+              <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
+                Start Read-Only Risk Scan
+              </Link>
+            </div>
+          </article>
+        </div>
+      </section>
+    </>
+  );
+}
+
 function DemoPage() {
   useSeo({
     title: 'Demo | Interactive Trust Graph',
@@ -2263,7 +2467,7 @@ export function RoutedSite() {
           <Route path="/" element={<HomePage />} />
           <Route path="/product" element={<ProductPage />} />
           <Route path="/features" element={<FeaturesPage />} />
-          <Route path="/integrations" element={<FeaturesPage />} />
+          <Route path="/integrations" element={<IntegrationsPage />} />
           {FEATURE_DEEP_PAGES.map((page) => (
             <Route key={page.slug} path={`/features/${page.slug}`} element={<FeatureDetailPage page={page} />} />
           ))}
@@ -2273,7 +2477,7 @@ export function RoutedSite() {
           ))}
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/read-only-scan" element={<ReadOnlyScanPage />} />
-          <Route path="/deployment-models" element={<PricingPage />} />
+          <Route path="/deployment-models" element={<DeploymentModelsPage />} />
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/docs" element={<DocsPage />} />
           <Route path="/blog" element={<BlogPage />} />

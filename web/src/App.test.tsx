@@ -49,4 +49,28 @@ describe('App', () => {
     expect(screen.getByText(/Step 1 of 3/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
   });
+
+  it('renders deployment models route', () => {
+    window.history.pushState({}, '', '/deployment-models');
+    render(<App />);
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: /Choose your control boundary without changing operating model/i
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('renders integrations route', () => {
+    window.history.pushState({}, '', '/integrations');
+    render(<App />);
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: /Identity signal coverage across cloud, cluster, and code workflows/i
+      })
+    ).toBeInTheDocument();
+  });
 });
