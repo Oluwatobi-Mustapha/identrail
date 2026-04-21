@@ -52,24 +52,24 @@ const HOME_FAQ_PREVIEW = HOME_FAQ_ITEMS.slice(0, 4);
 
 const DIFFERENTIATION_ROWS = [
   {
-    area: 'Core Platform Access',
-    identrail: 'Open-source core with transparent architecture and self-host option',
-    alternatives: 'Closed source only; limited implementation transparency'
+    area: 'Read-only collection boundaries',
+    verify: 'Connector permission scope, data collected, and storage boundaries',
+    impact: 'Prevents overreach and clarifies deployment risk assumptions before onboarding'
   },
   {
-    area: 'Trust Graph Explainability',
-    identrail: 'Interactive trust-path evidence with policy and resource context',
-    alternatives: 'High-level findings with limited path-level explainability'
+    area: 'Trust-path explainability',
+    verify: 'Can each finding show source identity, chain edges, and affected resources?',
+    impact: 'Allows platform teams to act on evidence instead of opaque risk scores'
   },
   {
-    area: 'Rollout Safety',
-    identrail: 'Policy simulation + staged controls + kill switch in one workflow',
-    alternatives: 'Policy changes often require parallel tooling and manual validation'
+    area: 'Rollout safety workflow',
+    verify: 'Policy simulation, staged rollout controls, and rollback support',
+    impact: 'Reduces authorization outage risk during least-privilege enforcement'
   },
   {
-    area: 'Developer Experience',
-    identrail: 'GitHub-first docs, API-first workflows, contributor-friendly roadmap',
-    alternatives: 'Vendor-led delivery model with slower dev-team iteration'
+    area: 'Integration depth',
+    verify: 'Coverage for AWS IAM, Kubernetes, GitHub, and OIDC trust relationships',
+    impact: 'Avoids fragmented visibility and missed transitive trust exposure'
   }
 ] as const;
 
@@ -1090,23 +1090,23 @@ function HomePage() {
         <SectionTitle
           eyebrow="Evaluation Criteria"
           title="Evaluate machine identity platforms on operational evidence"
-          body="Use criteria that map to real risk reduction, rollout safety, and platform-team execution."
+          body="Use this checklist to compare implementation reality, not marketing claims."
         />
         <div className="idt-table-wrap">
           <table className="idt-compare-table">
             <thead>
               <tr>
-                <th scope="col">Category</th>
-                <th scope="col">Identrail</th>
-                <th scope="col">Typical closed alternatives</th>
+                <th scope="col">Criterion</th>
+                <th scope="col">What to verify</th>
+                <th scope="col">Why it matters</th>
               </tr>
             </thead>
             <tbody>
               {DIFFERENTIATION_ROWS.map((row) => (
                 <tr key={row.area}>
                   <th scope="row">{row.area}</th>
-                  <td>{row.identrail}</td>
-                  <td>{row.alternatives}</td>
+                  <td>{row.verify}</td>
+                  <td>{row.impact}</td>
                 </tr>
               ))}
             </tbody>
