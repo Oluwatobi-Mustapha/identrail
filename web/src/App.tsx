@@ -886,14 +886,13 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
             </p>
           </article>
         ) : null}
-        <div className="idt-inline-actions">
-          <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-            Start Free Risk Scan
+        <p className="idt-demo-follow-up">
+          Explore the full investigation workflow on the{' '}
+          <Link to="/demo" className="idt-inline-link">
+            interactive demo page
           </Link>
-          <Link to="/demo" className="idt-btn idt-btn-dark">
-            Book Demo
-          </Link>
-        </div>
+          .
+        </p>
       </aside>
     </section>
   );
@@ -1090,8 +1089,8 @@ function DeploymentPathBanner() {
                 <dd>Community and docs-led</dd>
               </div>
             </dl>
-            <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
-              View Open Source
+            <SafeLink href={GITHUB_REPO} className="idt-inline-link">
+              View open-source setup →
             </SafeLink>
           </article>
           <article className="idt-adoption-card is-featured">
@@ -1111,9 +1110,7 @@ function DeploymentPathBanner() {
                 <dd>Product support and assisted onboarding</dd>
               </div>
             </dl>
-            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-              Start Free Risk Scan
-            </Link>
+            <p className="idt-adoption-note">Recommended for teams that need the fastest first scan.</p>
           </article>
           <article className="idt-adoption-card">
             <h3>Enterprise</h3>
@@ -1132,10 +1129,15 @@ function DeploymentPathBanner() {
                 <dd>Enterprise SLA and named partner team</dd>
               </div>
             </dl>
-            <Link to="/enterprise" className="idt-btn idt-btn-dark">
-              Book Demo
+            <Link to="/enterprise" className="idt-inline-link">
+              Contact enterprise team →
             </Link>
           </article>
+        </div>
+        <div className="idt-inline-actions idt-adoption-actions">
+          <Link to="/pricing" className="idt-btn idt-btn-ghost">
+            Compare plan details
+          </Link>
         </div>
       </div>
     </section>
@@ -1326,8 +1328,8 @@ function HomePage() {
           <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
             Start Free Risk Scan
           </Link>
-          <Link to="/demo" className="idt-btn idt-btn-dark">
-            Book Demo
+          <Link to="/enterprise" className="idt-inline-link">
+            Need enterprise procurement? Contact Sales →
           </Link>
         </div>
       </section>
@@ -1979,14 +1981,6 @@ function PricingPage() {
               Contact Sales
             </button>
           </article>
-        </div>
-        <div className="idt-pricing-inline-cta">
-          <Link to="/enterprise" className="idt-btn idt-btn-primary">
-            Start Free Risk Scan
-          </Link>
-          <button type="button" className="idt-btn idt-btn-dark" onClick={() => setSalesModalOpen(true)}>
-            Book Demo
-          </button>
         </div>
       </section>
 
