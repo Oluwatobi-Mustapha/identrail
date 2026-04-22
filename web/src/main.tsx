@@ -11,7 +11,13 @@ function applyInitialTheme() {
     return;
   }
 
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  const stored = (() => {
+    try {
+      return window.localStorage.getItem(THEME_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  })();
   const preferredBySystem =
     typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: light)').matches
       ? 'light'
