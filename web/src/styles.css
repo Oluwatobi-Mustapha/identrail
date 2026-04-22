@@ -1699,13 +1699,6 @@ h2 {
   font-size: 0.91rem;
 }
 
-.idt-pricing-inline-cta {
-  margin-top: 1.1rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.7rem;
-}
-
 .idt-chip-row {
   display: flex;
   justify-content: space-between;
@@ -2734,6 +2727,27 @@ body {
   color: #b2c1d7;
   font-size: 0.82rem;
   line-height: 1.55;
+}
+
+.idt-risk-follow-up,
+.idt-demo-follow-up {
+  margin: 0.55rem 0 0;
+  color: #adbed7;
+  font-size: 0.84rem;
+}
+
+.idt-adoption-note {
+  margin: 0;
+  color: #b2c3dc;
+  font-size: 0.83rem;
+}
+
+.idt-adoption-actions {
+  margin-top: 0.95rem;
+}
+
+.idt-adoption-actions .idt-btn {
+  min-height: 38px;
 }
 
 .idt-final-cta {

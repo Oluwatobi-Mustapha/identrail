@@ -103,14 +103,13 @@ export function RiskInsightSection() {
           <p>
             <strong>Recommended first fix:</strong> {activeScenario.firstAction}
           </p>
-          <div className="idt-inline-actions">
-            <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-              Start Free Risk Scan
+          <p className="idt-risk-follow-up">
+            Need deeper context?{' '}
+            <Link to="/demo" className="idt-inline-link">
+              Inspect this path in the interactive demo
             </Link>
-            <Link to="/demo" className="idt-btn idt-btn-dark">
-              Book Demo
-            </Link>
-          </div>
+            .
+          </p>
         </article>
       </div>
     </section>
