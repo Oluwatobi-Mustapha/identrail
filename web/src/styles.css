@@ -137,6 +137,36 @@ a {
   align-items: center;
 }
 
+.idt-theme-toggle {
+  border: 1px solid rgba(160, 178, 209, 0.32);
+  background: rgba(14, 19, 31, 0.72);
+  color: #dfe9fb;
+  border-radius: 999px;
+  min-height: 40px;
+  padding: 0 0.74rem 0 0.64rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  font-size: 0.73rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease;
+}
+
+.idt-theme-toggle svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.idt-theme-toggle:hover,
+.idt-theme-toggle:focus-visible {
+  border-color: rgba(205, 218, 239, 0.66);
+  background: rgba(26, 36, 57, 0.82);
+  color: #f2f7ff;
+}
+
 .idt-btn {
   border: 1px solid transparent;
   text-decoration: none;
@@ -2946,6 +2976,119 @@ body {
   letter-spacing: 0;
 }
 
+html[data-theme='light'] body {
+  background:
+    radial-gradient(circle at 78% -18%, rgba(76, 105, 164, 0.16), transparent 40%),
+    radial-gradient(circle at 8% 14%, rgba(90, 122, 183, 0.11), transparent 30%),
+    var(--idt-bg);
+}
+
+html[data-theme='light'] .idt-header {
+  background: rgba(246, 249, 254, 0.92);
+  border-bottom-color: rgba(19, 33, 58, 0.12);
+}
+
+html[data-theme='light'] .idt-nav a {
+  color: #44516a;
+}
+
+html[data-theme='light'] .idt-nav a:hover,
+html[data-theme='light'] .idt-nav a:focus-visible,
+html[data-theme='light'] .idt-nav a.is-active {
+  color: #121e35;
+  background: rgba(35, 55, 94, 0.08);
+  border-color: rgba(26, 44, 78, 0.2);
+}
+
+html[data-theme='light'] .idt-btn-primary {
+  color: #eef3ff;
+  border-color: rgba(9, 20, 38, 0.18);
+  box-shadow: 0 10px 24px rgba(30, 48, 88, 0.2);
+}
+
+html[data-theme='light'] .idt-btn-dark,
+html[data-theme='light'] .idt-btn-ghost {
+  color: #1c2a47;
+  background: rgba(255, 255, 255, 0.86);
+  border-color: rgba(16, 29, 50, 0.18);
+}
+
+html[data-theme='light'] .idt-header-utility {
+  color: #304260;
+}
+
+html[data-theme='light'] .idt-theme-toggle {
+  color: #1a2a46;
+  border-color: rgba(18, 33, 59, 0.22);
+  background: rgba(255, 255, 255, 0.86);
+}
+
+html[data-theme='light'] .idt-theme-toggle:hover,
+html[data-theme='light'] .idt-theme-toggle:focus-visible {
+  background: rgba(232, 238, 249, 0.9);
+}
+
+html[data-theme='light'] .idt-card,
+html[data-theme='light'] .idt-pricing-card,
+html[data-theme='light'] .idt-lead-form,
+html[data-theme='light'] .idt-roi,
+html[data-theme='light'] .idt-demo-sidebar,
+html[data-theme='light'] .idt-demo-graph,
+html[data-theme='light'] .idt-demo-list-view,
+html[data-theme='light'] .idt-graph-visual,
+html[data-theme='light'] .idt-hero-graph-caption {
+  background: rgba(255, 255, 255, 0.86);
+  border-color: rgba(16, 29, 50, 0.14);
+  box-shadow: 0 10px 26px rgba(34, 52, 90, 0.14);
+}
+
+html[data-theme='light'] .idt-trust-strip {
+  background: rgba(245, 248, 253, 0.88);
+  border-top-color: rgba(17, 30, 52, 0.12);
+  border-bottom-color: rgba(17, 30, 52, 0.12);
+}
+
+html[data-theme='light'] .idt-proof-link {
+  color: #21345a;
+}
+
+html[data-theme='light'] .idt-hero-trust-cues li,
+html[data-theme='light'] .idt-risk-path-list li,
+html[data-theme='light'] .idt-hero-proof-meta span:not(.idt-severity-pill),
+html[data-theme='light'] .idt-adoption-card,
+html[data-theme='light'] .idt-workflow-output {
+  background: rgba(243, 247, 255, 0.9);
+  border-color: rgba(19, 33, 58, 0.18);
+  color: #2a3d61;
+}
+
+html[data-theme='light'] .idt-node {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.95), rgba(244, 248, 255, 0.92));
+  color: #1b2e4d;
+}
+
+html[data-theme='light'] .idt-footer-bar {
+  background: #edf2f9;
+  color: #13213b;
+  border-top-color: rgba(19, 33, 58, 0.14);
+}
+
+html[data-theme='light'] .idt-footer-meta small {
+  color: #304260;
+}
+
+html[data-theme='light'] .idt-social-link {
+  color: #13213b;
+  border-color: rgba(20, 34, 59, 0.22);
+  background: rgba(245, 249, 255, 0.86);
+}
+
+html[data-theme='light'] .idt-inline-link,
+html[data-theme='light'] .idt-footer-links a,
+html[data-theme='light'] .idt-footer-trust-links a {
+  color: #1a2b49;
+}
+
 @media (max-width: 1080px) {
   .idt-header-row {
     grid-template-columns: auto auto;
@@ -3074,7 +3217,8 @@ body {
   }
 
   .idt-inline-actions .idt-btn,
-  .idt-header-actions .idt-btn {
+  .idt-header-actions .idt-btn,
+  .idt-theme-toggle {
     width: 100%;
   }
 
@@ -3098,6 +3242,10 @@ body {
     width: 100%;
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .idt-theme-toggle {
+    justify-content: center;
   }
 
   .idt-header-actions .idt-btn-dark {
