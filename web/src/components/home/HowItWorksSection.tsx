@@ -26,11 +26,11 @@ export function HowItWorksSection() {
     <section className="idt-section idt-shell" aria-labelledby="workflow-title">
       <div className="idt-section-title">
         <p className="idt-eyebrow">Operational Workflow</p>
-        <h2 id="workflow-title">Discover, prioritize, simulate, and roll out in four steps</h2>
-        <p>Each stage produces a concrete artifact your security and platform teams can review together.</p>
+        <h2 id="workflow-title">From read-only discovery to safe enforcement</h2>
+        <p>Each stage produces a concrete artifact security and platform teams can review before taking action.</p>
       </div>
 
-      <ol className="idt-steps idt-workflow-steps">
+      <ol className="idt-steps idt-workflow-track">
         {WORKFLOW_STEPS.map((step) => (
           <li key={step.title}>
             <h3>{step.title}</h3>
