@@ -35,8 +35,27 @@ const DISCORD_URL = 'https://discord.gg/7jSUSnQC';
 const LINKEDIN_URL = 'https://www.linkedin.com/company/identrail/';
 const X_URL = 'https://x.com/identrail';
 const CALENDLY_URL = 'https://calendly.com/identrail/15min';
+const THEME_STORAGE_KEY = 'identrail-theme';
 let activeModalLocks = 0;
 let bodyOverflowBeforeModal = '';
+type ThemeMode = 'dark' | 'light';
+
+function resolveInitialTheme(): ThemeMode {
+  if (typeof window === 'undefined') {
+    return 'dark';
+  }
+
+  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (stored === 'dark' || stored === 'light') {
+    return stored;
+  }
+
+  if (typeof window.matchMedia === 'function') {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+
+  return 'dark';
+}
 
 const NAV_LINKS = [
   { to: '/product', label: 'Product' },
@@ -2785,6 +2804,12 @@ function NotFoundPage() {
 
 export function RoutedSite() {
   useAnalytics();
+  const [theme, setTheme] = useState<ThemeMode>(resolveInitialTheme);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
 
   return (
     <div className="idt-site">
@@ -2792,7 +2817,12 @@ export function RoutedSite() {
         Skip to content
       </a>
 
-      <Header navLinks={NAV_LINKS} githubRepo={GITHUB_REPO} />
+      <Header
+        navLinks={NAV_LINKS}
+        githubRepo={GITHUB_REPO}
+        theme={theme}
+        onToggleTheme={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
+      />
 
       <main id="main-content">
         <Routes>
