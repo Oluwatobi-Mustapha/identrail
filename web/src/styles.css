@@ -189,7 +189,8 @@ a {
   margin-left: auto;
   border-radius: 999px;
   border: 1px solid var(--idt-line);
-  min-height: 38px;
+  min-height: 44px;
+  min-width: 44px;
   padding: 0 1rem;
   background: rgba(12, 12, 14, 0.95);
   color: #fff;
@@ -682,8 +683,6 @@ h3 {
 
 .idt-section {
   padding: clamp(2.6rem, 6vw, 4.3rem) 0;
-  content-visibility: auto;
-  contain-intrinsic-size: 620px;
 }
 
 .idt-section-title {
@@ -1869,6 +1868,8 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+  align-items: center;
+  justify-content: center;
 }
 
 .idt-footer-trust-links a {
@@ -2769,26 +2770,23 @@ body {
 
 .idt-footer-bar-row {
   min-height: 78px;
+  grid-template-columns: auto 1fr auto;
+  gap: 1rem;
+  align-items: center;
 }
 
-.idt-footer-links {
-  gap: 0.78rem;
+.idt-footer-meta {
+  min-width: fit-content;
 }
 
-.idt-footer-links a {
-  text-transform: none;
-  font-size: 0.84rem;
-  letter-spacing: 0.01em;
+.idt-footer-meta small {
+  color: rgba(231, 238, 250, 0.88);
+  font-size: 0.9rem;
   font-weight: 600;
-  color: #d2deef;
-}
-
-.idt-footer-maturity-row {
-  border-top-color: rgba(156, 176, 212, 0.16);
 }
 
 .idt-footer-trust-links a {
-  font-size: 0.76rem;
+  font-size: 0.84rem;
   letter-spacing: 0;
 }
 
@@ -2809,12 +2807,15 @@ body {
     grid-area: menu;
     display: inline-flex;
     justify-self: end;
+    min-height: 44px;
   }
 
   .idt-nav {
     grid-area: nav;
     display: none;
     justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 0.45rem 0.8rem;
     border-top: 1px solid var(--idt-line);
     padding-top: 0.8rem;
   }
@@ -2868,14 +2869,13 @@ body {
 
   .idt-footer-bar-row {
     grid-template-columns: 1fr;
-    align-items: flex-start;
+    align-items: center;
     padding: 0.9rem 0;
+    gap: 0.9rem;
   }
 
-  .idt-footer-maturity-row {
-    grid-template-columns: 1fr;
-    align-items: flex-start;
-    padding-bottom: 0.8rem;
+  .idt-footer-trust-links {
+    justify-content: flex-start;
   }
 
   .idt-form-grid.is-short {
@@ -2905,15 +2905,39 @@ body {
     width: min(100% - 1.2rem, var(--idt-shell));
   }
 
+  .idt-section {
+    padding: 2.25rem 0;
+  }
+
   .idt-inline-actions .idt-btn,
   .idt-header-actions .idt-btn {
     width: 100%;
+  }
+
+  .idt-brand small {
+    display: none;
+  }
+
+  .idt-nav {
+    width: 100%;
+  }
+
+  .idt-nav a {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.48rem 0;
+    font-size: 0.95rem;
   }
 
   .idt-header-actions {
     width: 100%;
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .idt-header-actions .idt-btn-dark {
+    display: none;
   }
 
   .idt-header-utility {
@@ -2937,8 +2961,22 @@ body {
   }
 
   .idt-demo-node {
-    font-size: 0.72rem;
-    padding: 0.45rem 0.7rem;
+    font-size: 0.78rem;
+    padding: 0.52rem 0.78rem;
+  }
+
+  .idt-demo-node small,
+  .idt-severity-pill,
+  .idt-finding-label,
+  .idt-demo-list-row small {
+    font-size: 0.76rem;
+  }
+
+  .idt-demo-view-toggle button,
+  .idt-demo-scenario-row button,
+  .idt-risk-scenario-item,
+  .idt-proof-link {
+    min-height: 44px;
   }
 
   .idt-hero-points li {
