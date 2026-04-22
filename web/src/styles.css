@@ -3024,6 +3024,10 @@ html[data-theme='light'] .idt-footer-bar {
   border-top-color: rgba(19, 33, 58, 0.14);
 }
 
+html[data-theme='light'] .idt-footer-meta small {
+  color: #304260;
+}
+
 html[data-theme='light'] .idt-social-link {
   color: #13213b;
   border-color: rgba(20, 34, 59, 0.22);
