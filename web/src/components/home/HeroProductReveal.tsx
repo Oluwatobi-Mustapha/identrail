@@ -2,10 +2,11 @@ import { Link } from 'react-router-dom';
 
 const PATH_SUMMARY = 'GitHub Actions OIDC → AWS Role → K8s Service Account → RDS Billing Resource';
 
-const PROOF_ITEMS = [
-  { label: 'Blast radius', value: '11 production resources reachable' },
-  { label: 'Exposure type', value: 'Federated identity chain with broad role trust' },
-  { label: 'Safe first action', value: 'Constrain role trust subject claims, then simulate rollout' }
+const PATH_STEPS = [
+  'Source: GitHub Actions workflow identity',
+  'Broker: OIDC trust relationship',
+  'Privilege boundary: AWS IAM role assumption',
+  'Target: production billing datastore'
 ] as const;
 
 export function HeroProductReveal() {
@@ -23,23 +24,21 @@ export function HeroProductReveal() {
       <span className="idt-pulse idt-pulse-b" />
 
       <aside className="idt-hero-graph-caption idt-hero-proof-card">
-        <p className="idt-hero-graph-title">Selected risk path</p>
+        <p className="idt-hero-graph-title">Sample finding</p>
+        <h3>High-risk production trust path</h3>
         <p className="idt-hero-path">{PATH_SUMMARY}</p>
         <div className="idt-hero-proof-meta">
-          <span className="idt-severity-pill">High</span>
+          <span className="idt-severity-pill">High severity</span>
           <span>4-hop chain</span>
           <span>Read-only analysis</span>
         </div>
-        <dl className="idt-hero-proof-list">
-          {PROOF_ITEMS.map((item) => (
-            <div key={item.label}>
-              <dt>{item.label}</dt>
-              <dd>{item.value}</dd>
-            </div>
+        <ol className="idt-hero-path-steps">
+          {PATH_STEPS.map((step) => (
+            <li key={step}>{step}</li>
           ))}
-        </dl>
+        </ol>
         <Link to="/demo" className="idt-inline-link">
-          Open technical demo
+          Inspect this path in demo
         </Link>
       </aside>
     </div>

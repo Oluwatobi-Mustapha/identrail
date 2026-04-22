@@ -1,12 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
+import { SafeLink } from '../SafeLink';
 
 type NavLinkItem = {
   to: string;
   label: string;
 };
 
-export function Header({ navLinks }: { navLinks: readonly NavLinkItem[] }) {
+export function Header({
+  navLinks,
+  githubRepo
+}: {
+  navLinks: readonly NavLinkItem[];
+  githubRepo: string;
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
 
@@ -66,11 +73,14 @@ export function Header({ navLinks }: { navLinks: readonly NavLinkItem[] }) {
 
         <div className="idt-header-actions">
           <Link to="/read-only-scan" className="idt-btn idt-btn-primary" data-ab-slot="header_primary_cta">
-            Start Read-Only Risk Scan
+            Start Free Risk Scan
           </Link>
           <Link to="/demo" className="idt-btn idt-btn-dark">
-            Book Technical Demo
+            Book Demo
           </Link>
+          <SafeLink href={githubRepo} className="idt-header-utility">
+            GitHub
+          </SafeLink>
         </div>
       </div>
     </header>

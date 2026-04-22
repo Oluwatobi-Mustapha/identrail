@@ -3,6 +3,7 @@ import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } 
 import { SafeLink } from './components/SafeLink';
 import { HeroProductReveal } from './components/home/HeroProductReveal';
 import { HowItWorksSection } from './components/home/HowItWorksSection';
+import { ProblemFramingSection } from './components/home/ProblemFramingSection';
 import { RiskInsightSection } from './components/home/RiskInsightSection';
 import { TrustProofStrip } from './components/home/TrustProofStrip';
 import { Footer } from './components/layout/Footer';
@@ -40,12 +41,10 @@ let bodyOverflowBeforeModal = '';
 const NAV_LINKS = [
   { to: '/product', label: 'Product' },
   { to: '/solutions', label: 'Solutions' },
-  { to: '/integrations', label: 'Integrations' },
-  { to: '/deployment-models', label: 'Deployment' },
+  { to: '/demo', label: 'Demo' },
   { to: '/docs', label: 'Docs' },
   { to: '/pricing', label: 'Pricing' },
-  { to: '/security', label: 'Security' },
-  { to: '/demo', label: 'Demo' }
+  { to: '/blog', label: 'Blog' }
 ] as const;
 
 const HOME_FAQ_PREVIEW = HOME_FAQ_ITEMS.slice(0, 4);
@@ -1119,18 +1118,24 @@ function HomePage() {
         <div className="idt-shell idt-hero-grid">
           <div className="idt-hero-copy">
             <p className="idt-eyebrow">Machine identity security</p>
-            <h1>See which machine identities can actually reach production.</h1>
+            <h1>Identify risky machine trust paths before they become incidents.</h1>
             <p className="idt-lead">
-              Identrail maps AWS IAM, Kubernetes, GitHub, and OIDC trust paths in read-only mode so teams can prioritize reachable blast radius and roll out safer access.
+              Trace how AWS IAM roles, Kubernetes service accounts, and GitHub/OIDC identities reach sensitive resources. Start read-only, inspect evidence, then roll out safer access with confidence.
             </p>
             <div className="idt-inline-actions" data-ab-slot="hero_primary_cta">
               <a href="#risk-scan-form" className="idt-btn idt-btn-primary">
-                Start Read-Only Risk Scan
+                Start Free Risk Scan
               </a>
               <Link to="/demo" className="idt-btn idt-btn-dark">
-                Book Technical Demo
+                Book Demo
               </Link>
             </div>
+            <ul className="idt-hero-trust-cues" aria-label="Evaluation trust cues">
+              <li>Open-core under Apache-2.0</li>
+              <li>Read-only onboarding model</li>
+              <li>Self-hosted and hosted paths</li>
+              <li>Public docs and release history</li>
+            </ul>
           </div>
           <HeroProductReveal />
         </div>
@@ -1138,13 +1143,15 @@ function HomePage() {
 
       <TrustProofStrip />
 
+      <ProblemFramingSection />
+
       <section className="idt-section idt-shell">
         <LeadCaptureForm
           id="risk-scan-form"
           variant="short"
           title="Start a read-only risk scan in under one minute"
-          caption="Share your work email and primary environment. Receive a prioritized machine identity risk report and remediation sequence."
-          ctaLabel="Start Read-Only Risk Scan"
+          caption="No production writes. You receive a prioritized trust-path report and a practical first-remediation sequence."
+          ctaLabel="Start Free Risk Scan"
         />
       </section>
 
@@ -1200,10 +1207,10 @@ function HomePage() {
         />
         <div className="idt-inline-actions">
           <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-            Start Read-Only Risk Scan
+            Start Free Risk Scan
           </Link>
           <Link to="/demo" className="idt-btn idt-btn-dark">
-            Book Technical Demo
+            Book Demo
           </Link>
         </div>
       </section>
@@ -2674,7 +2681,7 @@ export function RoutedSite() {
         Skip to content
       </a>
 
-      <Header navLinks={NAV_LINKS} />
+      <Header navLinks={NAV_LINKS} githubRepo={GITHUB_REPO} />
 
       <main id="main-content">
         <Routes>

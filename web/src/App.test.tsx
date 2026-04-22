@@ -10,12 +10,12 @@ describe('App', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: 'See which machine identities can actually reach production.'
+        name: 'Identify risky machine trust paths before they become incidents.'
       })
     ).toBeInTheDocument();
 
-    expect(screen.getAllByRole('link', { name: 'Start Read-Only Risk Scan' }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('link', { name: 'Book Technical Demo' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: 'Start Free Risk Scan' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: 'Book Demo' }).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('tab', { name: 'Graph' }).length).toBeGreaterThan(0);
