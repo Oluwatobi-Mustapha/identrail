@@ -736,6 +736,10 @@ h3 {
     stroke-dashoffset: 0;
   }
 
+  .idt-hero-arrow-tracer {
+    display: none;
+  }
+
   .idt-demo-edge-path {
     animation: none;
     stroke-dasharray: none;
