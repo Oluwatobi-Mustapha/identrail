@@ -9,6 +9,7 @@ const SCENARIOS = [
     path: 'GitHub Actions OIDC → AWS Role → K8s SA → RDS billing-ledger',
     impact: 'Compromised CI workflow token can reach production billing data in one chain.',
     signal: '11 reachable resources',
+    blastRadius: 'Cross-account read and write permissions on billing systems',
     firstAction: 'Tighten trust policy subject claims and reduce role action scope.'
   },
   {
@@ -18,6 +19,7 @@ const SCENARIOS = [
     path: 'K8s ServiceAccount → ClusterRoleBinding → IAM role assumption → Artifact bucket',
     impact: 'Overprivileged service account can pivot across namespace boundary into cloud resources.',
     signal: '7 cross-namespace privilege links',
+    blastRadius: 'Build artifact tampering and namespace privilege escalation',
     firstAction: 'Split SA identity by workload and enforce namespace-scoped RBAC.'
   },
   {
@@ -27,6 +29,7 @@ const SCENARIOS = [
     path: 'Repo secret leak → Bot identity replay → AssumeRole → Container registry push',
     impact: 'Leaked token can ship unauthorized container images into production path.',
     signal: '4 privileged registry actions exposed',
+    blastRadius: 'Unauthorized image promotion through production CI path',
     firstAction: 'Rotate credentials and enforce short-lived workload identity tokens.'
   }
 ] as const;
@@ -42,11 +45,11 @@ export function RiskInsightSection() {
   return (
     <section className="idt-section idt-shell" aria-labelledby="risk-insight-title">
       <div className="idt-section-title">
-        <p className="idt-eyebrow">Reachable Risk Paths</p>
-        <h2 id="risk-insight-title">Prioritize machine identity findings by real impact</h2>
+        <p className="idt-eyebrow">Product proof</p>
+        <h2 id="risk-insight-title">See evidence for a high-risk trust path, not just a score</h2>
         <p>
-          Each finding includes path evidence, severity, and a safe first remediation action. Start with what can actually reach
-          production.
+          Identrail explains how a machine identity reaches production resources, why it matters, and what to change first without
+          breaking workloads.
         </p>
       </div>
 
@@ -67,7 +70,8 @@ export function RiskInsightSection() {
                 onClick={() => setActiveScenarioId(scenario.id)}
               >
                 <span>{scenario.name}</span>
-                <small>{scenario.severity}</small>
+                <small>{scenario.severity} severity</small>
+                <p>{scenario.signal}</p>
               </button>
             );
           })}
@@ -81,22 +85,30 @@ export function RiskInsightSection() {
           aria-live="polite"
         >
           <p className="idt-finding-label">Selected path</p>
-          <h3>{activeScenario.path}</h3>
+          <h3>Risk: {activeScenario.name}</h3>
+          <ol className="idt-risk-path-list" aria-label="Trust path sequence">
+            {activeScenario.path.split(' → ').map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
           <p>
             <strong>Impact:</strong> {activeScenario.impact}
+          </p>
+          <p>
+            <strong>Blast radius:</strong> {activeScenario.blastRadius}
           </p>
           <p>
             <strong>Evidence signal:</strong> {activeScenario.signal}
           </p>
           <p>
-            <strong>Safe first action:</strong> {activeScenario.firstAction}
+            <strong>Recommended first fix:</strong> {activeScenario.firstAction}
           </p>
           <div className="idt-inline-actions">
             <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-              Start Read-Only Risk Scan
+              Start Free Risk Scan
             </Link>
             <Link to="/demo" className="idt-btn idt-btn-dark">
-              Open technical demo
+              Book Demo
             </Link>
           </div>
         </article>

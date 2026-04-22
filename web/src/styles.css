@@ -2496,6 +2496,151 @@ body {
   font-size: 0.86rem;
 }
 
+/* PR-B: product proof and workflow clarity */
+.idt-risk-scenario-item {
+  align-content: start;
+  gap: 0.25rem;
+}
+
+.idt-risk-scenario-item span {
+  font-weight: 700;
+}
+
+.idt-risk-scenario-item p {
+  margin: 0;
+  color: #9eb0ca;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.idt-risk-path-list {
+  margin: 0.45rem 0 0.7rem;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+}
+
+.idt-risk-path-list li {
+  border: 1px solid rgba(161, 182, 219, 0.28);
+  border-radius: 999px;
+  background: rgba(12, 18, 29, 0.6);
+  padding: 0.22rem 0.54rem;
+  font-size: 0.76rem;
+  color: #d8e3f6;
+}
+
+.idt-demo-list-row {
+  gap: 0.2rem;
+}
+
+.idt-demo-list-row strong {
+  color: #d8e6ff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.idt-demo-node {
+  border-radius: 11px;
+  padding: 0.4rem 0.62rem;
+  display: grid;
+  text-align: left;
+  gap: 0.1rem;
+}
+
+.idt-demo-node small {
+  color: #9eb2d3;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+}
+
+.idt-demo-node-source {
+  border-color: rgba(143, 191, 255, 0.4);
+}
+
+.idt-demo-node-broker {
+  border-color: rgba(155, 174, 255, 0.42);
+}
+
+.idt-demo-node-workload {
+  border-color: rgba(154, 214, 201, 0.42);
+}
+
+.idt-demo-node-privilege {
+  border-color: rgba(255, 175, 143, 0.42);
+}
+
+.idt-demo-node-resource {
+  border-color: rgba(243, 143, 143, 0.45);
+}
+
+.idt-workflow-track {
+  position: relative;
+  gap: 1rem;
+}
+
+.idt-workflow-track::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - 1px);
+  border-top: 1px solid rgba(161, 181, 216, 0.22);
+  pointer-events: none;
+}
+
+.idt-workflow-track li {
+  position: relative;
+  z-index: 1;
+}
+
+.idt-workflow-output {
+  border-style: solid;
+  border-color: rgba(161, 181, 216, 0.28);
+  background: rgba(12, 17, 26, 0.58);
+}
+
+.idt-adoption-card {
+  gap: 0.72rem;
+}
+
+.idt-adoption-card dl {
+  margin: 0;
+  display: grid;
+  gap: 0.42rem;
+}
+
+.idt-adoption-card dl div {
+  display: grid;
+  gap: 0.08rem;
+}
+
+.idt-adoption-card dt {
+  color: #aebed7;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.idt-adoption-card dd {
+  margin: 0;
+  color: #d9e3f3;
+  font-size: 0.84rem;
+}
+
+.idt-table-wrap {
+  background: rgba(10, 14, 22, 0.64);
+}
+
+.idt-compare-table tbody th {
+  position: sticky;
+  left: 0;
+  background: rgba(12, 18, 28, 0.95);
+  z-index: 1;
+}
+
 @media (max-width: 1080px) {
   .idt-header-row {
     grid-template-columns: auto auto;
@@ -2551,6 +2696,10 @@ body {
 
   .idt-kpi-row {
     grid-template-columns: 1fr;
+  }
+
+  .idt-workflow-track::before {
+    display: none;
   }
 
   .idt-steps {

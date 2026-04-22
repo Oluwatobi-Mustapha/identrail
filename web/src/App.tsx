@@ -51,24 +51,24 @@ const HOME_FAQ_PREVIEW = HOME_FAQ_ITEMS.slice(0, 4);
 
 const DIFFERENTIATION_ROWS = [
   {
-    area: 'Read-only collection boundaries',
-    verify: 'Connector permission scope, data collected, and storage boundaries',
-    impact: 'Prevents overreach and clarifies deployment risk assumptions before onboarding'
-  },
-  {
     area: 'Trust-path explainability',
-    verify: 'Can each finding show source identity, chain edges, and affected resources?',
-    impact: 'Allows platform teams to act on evidence instead of opaque risk scores'
+    identrail: 'Shows full identity chain with policy evidence and affected resources',
+    closed: 'Often returns abstract risk findings without chain-level context'
   },
   {
-    area: 'Rollout safety workflow',
-    verify: 'Policy simulation, staged rollout controls, and rollback support',
-    impact: 'Reduces authorization outage risk during least-privilege enforcement'
+    area: 'Rollout safety',
+    identrail: 'Read-only collection, simulation-first remediation, staged enforcement',
+    closed: 'Policy hardening usually relies on external tooling and manual checks'
   },
   {
-    area: 'Integration depth',
-    verify: 'Coverage for AWS IAM, Kubernetes, GitHub, and OIDC trust relationships',
-    impact: 'Avoids fragmented visibility and missed transitive trust exposure'
+    area: 'Open-core transparency',
+    identrail: 'Public repository, documentation, and release history',
+    closed: 'Limited implementation visibility and slower verification by engineers'
+  },
+  {
+    area: 'Developer and platform fit',
+    identrail: 'Built for security + platform collaboration with inspectable outputs',
+    closed: 'Security-only workflows can be harder for platform teams to operationalize'
   }
 ] as const;
 
@@ -756,26 +756,31 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
   const nodes = [
     {
       id: 'oidc',
+      type: 'Broker',
       title: 'OIDC Provider',
       detail: 'Federated identity provider trusted by CI/CD and cluster workloads.'
     },
     {
       id: 'role',
+      type: 'Privilege',
       title: 'AWS Role: payments-prod',
       detail: 'Role assumed by automation workloads with cross-account permissions.'
     },
     {
       id: 'sa',
+      type: 'Workload',
       title: 'K8s ServiceAccount: api-gateway',
       detail: 'Service account with namespace-level and cloud trust-path reachability.'
     },
     {
       id: 'repo',
+      type: 'Source',
       title: 'Git Repo: infra-live',
       detail: 'Repository contains deployment workflows and secrets exposure history.'
     },
     {
       id: 'db',
+      type: 'Resource',
       title: 'RDS Resource: billing-ledger',
       detail: 'Sensitive resource reachable through chained assumptions in current policy state.'
     }
@@ -833,9 +838,10 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
             <button
               key={node.id}
               type="button"
-              className={`idt-demo-node ${selected.id === node.id ? 'is-active' : ''}`}
+              className={`idt-demo-node idt-demo-node-${node.type.toLowerCase()} ${selected.id === node.id ? 'is-active' : ''}`}
               onClick={() => setSelectedId(node.id)}
             >
+              <small>{node.type}</small>
               <span>{node.title}</span>
             </button>
           ))}
@@ -849,6 +855,7 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
           {nodes.map((node) => (
             <button key={node.id} type="button" className={`idt-demo-list-row ${selected.id === node.id ? 'is-active' : ''}`} onClick={() => setSelectedId(node.id)}>
               <span>{node.title}</span>
+              <strong>{node.type}</strong>
               <small>{node.detail}</small>
             </button>
           ))}
@@ -856,12 +863,13 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
       )}
 
       <aside className="idt-demo-sidebar" aria-live="polite">
+        <p className="idt-finding-label">{selected.type}</p>
         <h3>{selected.title}</h3>
         <p>{selected.detail}</p>
         <ul>
           <li>Risk score impact: {scenario.severity}</li>
-          <li>Reachable resources: 18</li>
-          <li>Recommended control: Staged trust policy tightening</li>
+          <li>Reachable resources: 18 sensitive nodes</li>
+          <li>Policy confidence: 96% edge evidence coverage</li>
         </ul>
         {variant === 'full' ? (
           <article className="idt-demo-evidence">
@@ -879,10 +887,10 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
         ) : null}
         <div className="idt-inline-actions">
           <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-            Start Read-Only Risk Scan
+            Start Free Risk Scan
           </Link>
           <Link to="/demo" className="idt-btn idt-btn-dark">
-            Book Technical Demo
+            Book Demo
           </Link>
         </div>
       </aside>
@@ -1014,28 +1022,67 @@ function DeploymentPathBanner() {
     <section className="idt-section idt-shell idt-deployment-bridge" aria-label="Adoption paths">
       <div className="idt-deployment-panel">
         <p className="idt-eyebrow">Adoption Paths</p>
-        <h2>Choose the rollout model that matches your security and platform maturity.</h2>
+        <h2>Choose the deployment model that fits your operating constraints.</h2>
         <div className="idt-adoption-grid">
           <article className="idt-adoption-card">
             <h3>Open Source</h3>
-            <p className="idt-muted-strong">Best for self-hosted evaluation and internal platform control.</p>
-            <p>Run the open-core platform in your environment and validate trust-path findings before wider rollout.</p>
+            <p className="idt-muted-strong">Best for: self-hosted evaluation and internal control.</p>
+            <dl>
+              <div>
+                <dt>Time to value</dt>
+                <dd>Same day with Docker/Kubernetes setup</dd>
+              </div>
+              <div>
+                <dt>Control level</dt>
+                <dd>Full infrastructure and data ownership</dd>
+              </div>
+              <div>
+                <dt>Support model</dt>
+                <dd>Community and docs-led</dd>
+              </div>
+            </dl>
             <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
               View Open Source
             </SafeLink>
           </article>
           <article className="idt-adoption-card is-featured">
             <h3>Hosted SaaS</h3>
-            <p className="idt-muted-strong">Best for fast scanning and time-to-value.</p>
-            <p>Start quickly with managed infrastructure while your team focuses on machine identity risk reduction.</p>
+            <p className="idt-muted-strong">Best for: fastest onboarding and operational simplicity.</p>
+            <dl>
+              <div>
+                <dt>Time to value</dt>
+                <dd>Minutes to first trust-path scan</dd>
+              </div>
+              <div>
+                <dt>Control level</dt>
+                <dd>Managed platform with guided rollout</dd>
+              </div>
+              <div>
+                <dt>Support model</dt>
+                <dd>Product support and assisted onboarding</dd>
+              </div>
+            </dl>
             <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
               Start Free Risk Scan
             </Link>
           </article>
           <article className="idt-adoption-card">
             <h3>Enterprise</h3>
-            <p className="idt-muted-strong">Best for private deployment, procurement, and advanced controls.</p>
-            <p>Deploy with enterprise governance requirements, support expectations, and security program alignment.</p>
+            <p className="idt-muted-strong">Best for: private tenancy, procurement, and compliance control.</p>
+            <dl>
+              <div>
+                <dt>Time to value</dt>
+                <dd>Planned onboarding with architecture review</dd>
+              </div>
+              <div>
+                <dt>Control level</dt>
+                <dd>Private deployment and regional controls</dd>
+              </div>
+              <div>
+                <dt>Support model</dt>
+                <dd>Enterprise SLA and named partner team</dd>
+              </div>
+            </dl>
             <Link to="/enterprise" className="idt-btn idt-btn-dark">
               Book Demo
             </Link>
@@ -1159,8 +1206,11 @@ function HomePage() {
 
       <section className="idt-section idt-shell">
         <div className="idt-card idt-proof-demo-card">
-          <h3>Interactive trust-path preview</h3>
-          <p>Inspect a sample trust path from source identity to sensitive resource before connecting your environment.</p>
+          <h3>Interactive trust graph explorer</h3>
+          <p>
+            Explore source identity, broker, workload, privilege, and target resource states. Select a node to inspect risk evidence
+            and first remediation actions.
+          </p>
           <TrustGraphDemo />
         </div>
       </section>
@@ -1171,25 +1221,25 @@ function HomePage() {
 
       <section className="idt-section idt-shell">
         <SectionTitle
-          eyebrow="Evaluation Criteria"
-          title="Evaluate machine identity platforms on operational evidence"
-          body="Use this checklist to compare implementation reality, not marketing claims."
+          eyebrow="Comparison"
+          title="Why teams choose Identrail over closed black-box workflows"
+          body="Compare on explainability, rollout safety, and day-two operability."
         />
         <div className="idt-table-wrap">
           <table className="idt-compare-table">
             <thead>
               <tr>
-                <th scope="col">Criterion</th>
-                <th scope="col">What to verify</th>
-                <th scope="col">Why it matters</th>
+                <th scope="col">Category</th>
+                <th scope="col">Identrail</th>
+                <th scope="col">Typical closed alternatives</th>
               </tr>
             </thead>
             <tbody>
               {DIFFERENTIATION_ROWS.map((row) => (
                 <tr key={row.area}>
                   <th scope="row">{row.area}</th>
-                  <td>{row.verify}</td>
-                  <td>{row.impact}</td>
+                  <td>{row.identrail}</td>
+                  <td>{row.closed}</td>
                 </tr>
               ))}
             </tbody>
