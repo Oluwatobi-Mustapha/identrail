@@ -180,8 +180,14 @@ export function HeroProductReveal() {
     () =>
       SCENES.map((scene, index) => {
         const isActive = index === activeSceneIndex;
+        const depth = isActive ? 0 : ((index - activeSceneIndex + SCENES.length) % SCENES.length);
         return (
-          <div key={scene.id} className={`idt-hero-layer ${isActive ? 'is-active' : 'is-dimmed'}`} aria-hidden={!isActive}>
+          <div
+            key={scene.id}
+            className={`idt-hero-layer ${isActive ? 'is-active' : 'is-dimmed'}`}
+            aria-hidden={!isActive}
+            data-depth={depth}
+          >
             <svg className="idt-hero-arrows" viewBox="0 0 100 100" preserveAspectRatio="none">
               <defs>
                 <linearGradient id={`idt-edge-gradient-${scene.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
@@ -212,15 +218,18 @@ export function HeroProductReveal() {
               })}
             </svg>
 
-            {scene.nodes.map((node) => (
-              <div
-                key={`${scene.id}-${node.id}`}
-                className={`idt-node idt-node-${node.tone}`}
-                style={{ left: `${node.x}%`, top: `${node.y}%` }}
-              >
-                {node.label}
-              </div>
-            ))}
+            {isActive &&
+              scene.nodes.map((node) => (
+                <div
+                  key={`${scene.id}-${node.id}`}
+                  className={`idt-node idt-node-${node.tone}`}
+                  style={{ left: `${node.x}%`, top: `${node.y}%` }}
+                >
+                  {node.label}
+                </div>
+              ))}
+
+            {!isActive && <span className="idt-layer-ghost-label">{scene.label}</span>}
           </div>
         );
       }),
@@ -229,50 +238,54 @@ export function HeroProductReveal() {
 
   return (
     <div className="idt-graph-visual idt-graph-visual-live" aria-label="Live trust path product preview">
-      <div className="idt-graph-grid" />
-      {sceneLayers}
+      <div className="idt-hero-live-layout">
+        <div className="idt-hero-graph-canvas" aria-hidden="true">
+          <div className="idt-graph-grid" />
+          {sceneLayers}
+        </div>
 
-      <aside className="idt-hero-graph-caption idt-hero-proof-card">
-        <div className="idt-hero-layer-head">
-          <p className="idt-hero-graph-title">Live finding layer</p>
-          <div className="idt-hero-layer-dots" aria-label="Live scene steps">
-            {SCENES.map((scene, index) => (
-              <button
-                key={scene.id}
-                type="button"
-                className={index === activeSceneIndex ? 'is-active' : ''}
-                onClick={() => setActiveSceneIndex(index)}
-                aria-label={`Show ${scene.label}`}
-              />
-            ))}
+        <aside className="idt-hero-graph-caption idt-hero-proof-card">
+          <div className="idt-hero-layer-head">
+            <p className="idt-hero-graph-title">Live finding layer</p>
+            <div className="idt-hero-layer-dots" aria-label="Live scene steps">
+              {SCENES.map((scene, index) => (
+                <button
+                  key={scene.id}
+                  type="button"
+                  className={index === activeSceneIndex ? 'is-active' : ''}
+                  onClick={() => setActiveSceneIndex(index)}
+                  aria-label={`Show ${scene.label}`}
+                />
+              ))}
+            </div>
           </div>
-        </div>
 
-        <h3>{activeScene.findingTitle}</h3>
-        <p className="idt-hero-path">{activeScene.findingSummary}</p>
+          <h3>{activeScene.findingTitle}</h3>
+          <p className="idt-hero-path">{activeScene.findingSummary}</p>
 
-        <div className="idt-hero-proof-meta">
-          <span className="idt-severity-pill">{activeScene.severity}</span>
-          <span>{activeScene.hopsLabel}</span>
-          <span>{activeScene.modeLabel}</span>
-        </div>
+          <div className="idt-hero-proof-meta">
+            <span className="idt-severity-pill">{activeScene.severity}</span>
+            <span>{activeScene.hopsLabel}</span>
+            <span>{activeScene.modeLabel}</span>
+          </div>
 
-        <ol className="idt-hero-path-steps">
-          {activeScene.steps.map((step) => (
-            <li key={step}>{step}</li>
-          ))}
-        </ol>
+          <ol className="idt-hero-path-steps">
+            {activeScene.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
 
-        <ul className="idt-hero-capability-list">
-          {activeScene.capabilities.map((capability) => (
-            <li key={capability}>{capability}</li>
-          ))}
-        </ul>
+          <ul className="idt-hero-capability-list">
+            {activeScene.capabilities.map((capability) => (
+              <li key={capability}>{capability}</li>
+            ))}
+          </ul>
 
-        <Link to="/demo" className="idt-inline-link">
-          Inspect this path in demo
-        </Link>
-      </aside>
+          <Link to="/demo" className="idt-inline-link">
+            Inspect this path in demo
+          </Link>
+        </aside>
+      </div>
     </div>
   );
 }
