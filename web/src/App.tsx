@@ -2813,7 +2813,11 @@ export function RoutedSite() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // Ignore storage write failures (blocked/disabled storage).
+    }
   }, [theme]);
 
   return (
