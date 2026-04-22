@@ -55,24 +55,20 @@ type FooterProps = {
 const FOOTER_LINKS = [
   { to: '/product', label: 'Product' },
   { to: '/solutions', label: 'Solutions' },
-  { to: '/integrations', label: 'Integrations' },
-  { to: '/deployment-models', label: 'Deployment' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/demo', label: 'Demo' },
   { to: '/docs', label: 'Docs' },
-  { to: '/faq', label: 'FAQ' },
   { to: '/blog', label: 'Blog' },
   { to: '/security', label: 'Security' },
-  { to: '/about', label: 'About' },
-  { to: '/privacy', label: 'Privacy' },
-  { to: '/terms', label: 'Terms' }
+  { to: '/about', label: 'About' }
 ] as const;
 
 const FOOTER_TRUST_LINKS = [
+  { label: 'FAQ', to: '/faq', external: false },
+  { label: 'Privacy', to: '/privacy', external: false },
+  { label: 'Terms', to: '/terms', external: false },
   { label: 'Responsible Disclosure', to: '/responsible-disclosure', external: false },
-  { label: 'Changelog', to: 'https://github.com/identrail/identrail/releases', external: true },
-  { label: 'Docs', to: 'https://github.com/identrail/identrail/tree/main/docs', external: true },
-  { label: 'GitHub', to: 'https://github.com/identrail/identrail', external: true }
+  { label: 'Changelog', to: 'https://github.com/identrail/identrail/releases', external: true }
 ] as const;
 
 export function Footer({ xUrl, linkedInUrl, githubRepo, discordUrl }: FooterProps) {
@@ -119,7 +115,7 @@ export function Footer({ xUrl, linkedInUrl, githubRepo, discordUrl }: FooterProp
               )
             )}
           </div>
-          <small>Build metadata updated: {buildDate}</small>
+          <small>Built in the open · last build {buildDate}</small>
         </div>
       </div>
     </footer>
