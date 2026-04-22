@@ -45,7 +45,12 @@ function resolveInitialTheme(): ThemeMode {
     return 'dark';
   }
 
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  let stored: string | null = null;
+  try {
+    stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  } catch {
+    return 'dark';
+  }
   if (stored === 'dark' || stored === 'light') {
     return stored;
   }
