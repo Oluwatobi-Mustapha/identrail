@@ -2641,6 +2641,143 @@ body {
   z-index: 1;
 }
 
+/* PR-C: conversion polish and bottom-half clarity */
+.idt-lead-form {
+  border-color: rgba(158, 176, 210, 0.26);
+  background: linear-gradient(150deg, rgba(10, 14, 22, 0.9), rgba(8, 12, 18, 0.88));
+}
+
+.idt-form-trust-note {
+  margin: -0.2rem 0 0.65rem;
+  color: #9eb0ca;
+  font-size: 0.8rem;
+}
+
+.idt-form-grid.is-short {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.idt-form-grid.is-short .idt-btn {
+  grid-column: 1 / -1;
+  justify-self: flex-start;
+}
+
+.idt-roi {
+  border-color: rgba(158, 176, 210, 0.26);
+  background: linear-gradient(165deg, rgba(10, 14, 22, 0.9), rgba(8, 12, 18, 0.88));
+}
+
+.idt-roi-profiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.48rem;
+  margin: -0.2rem 0 0.9rem;
+}
+
+.idt-roi-profiles button {
+  border: 1px solid rgba(159, 180, 215, 0.26);
+  background: rgba(13, 18, 29, 0.56);
+  color: #d5e0f3;
+  border-radius: 999px;
+  min-height: 34px;
+  padding: 0 0.72rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.idt-roi-profiles button.is-active {
+  border-color: rgba(201, 214, 237, 0.8);
+  background: rgba(201, 214, 237, 0.16);
+  color: #f1f6ff;
+}
+
+.idt-roi-note {
+  margin-top: 0.65rem;
+  color: #a4b2c9;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.idt-faq-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.idt-faq-group {
+  border: 1px solid rgba(158, 176, 210, 0.22);
+  border-radius: 12px;
+  background: rgba(10, 15, 24, 0.56);
+  padding: 0.95rem;
+}
+
+.idt-faq-group h3 {
+  margin: 0 0 0.68rem;
+  font-size: 1rem;
+}
+
+.idt-faq-group dl {
+  margin: 0;
+  display: grid;
+  gap: 0.62rem;
+}
+
+.idt-faq-group dt {
+  color: #e8eef9;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.idt-faq-group dd {
+  margin: 0.24rem 0 0;
+  color: #b2c1d7;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.idt-final-cta {
+  border-top-color: rgba(161, 181, 216, 0.24);
+}
+
+.idt-final-cta .idt-section-title {
+  max-width: 62ch;
+}
+
+.idt-footer {
+  margin-top: 3rem;
+}
+
+.idt-footer-bar {
+  background: #080f19;
+  border-top: 1px solid rgba(156, 176, 212, 0.2);
+}
+
+.idt-footer-bar-row {
+  min-height: 78px;
+}
+
+.idt-footer-links {
+  gap: 0.78rem;
+}
+
+.idt-footer-links a {
+  text-transform: none;
+  font-size: 0.84rem;
+  letter-spacing: 0.01em;
+  font-weight: 600;
+  color: #d2deef;
+}
+
+.idt-footer-maturity-row {
+  border-top-color: rgba(156, 176, 212, 0.16);
+}
+
+.idt-footer-trust-links a {
+  font-size: 0.76rem;
+  letter-spacing: 0;
+}
+
 @media (max-width: 1080px) {
   .idt-header-row {
     grid-template-columns: auto auto;
@@ -2682,6 +2819,7 @@ body {
   .idt-demo-surface,
   .idt-pricing-grid,
   .idt-roi-grid,
+  .idt-faq-groups,
   .idt-risk-insight-grid,
   .idt-proof-architecture-list,
   .idt-problem-frame-grid,
@@ -2728,6 +2866,11 @@ body {
 
   .idt-form-grid.is-short {
     grid-template-columns: 1fr;
+  }
+
+  .idt-form-grid.is-short .idt-btn {
+    grid-column: auto;
+    width: 100%;
   }
 
   .idt-page-hero {

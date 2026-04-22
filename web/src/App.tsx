@@ -516,6 +516,7 @@ function LeadCaptureForm({
     <section id={id} className={`idt-lead-form ${compact ? 'is-compact' : ''}`} aria-label={title}>
       <h3>{title}</h3>
       <p>{caption}</p>
+      <p className="idt-form-trust-note">Read-only onboarding. No production writes during evaluation.</p>
 
       {!submitted ? (
         <form onSubmit={handleSubmit} className={`idt-form-grid ${variant === 'short' ? 'is-short' : ''}`}>
@@ -947,6 +948,31 @@ function RoiNumberField({ id, label, value, min, step, onChange }: RoiNumberFiel
 }
 
 function RoiCalculator() {
+  const profiles = [
+    {
+      id: 'startup',
+      label: 'Startup cloud-native',
+      identities: 900,
+      incidentCost: 95000,
+      hoursPerWeek: 16
+    },
+    {
+      id: 'midmarket',
+      label: 'Mid-market platform team',
+      identities: 3200,
+      incidentCost: 195000,
+      hoursPerWeek: 44
+    },
+    {
+      id: 'enterprise',
+      label: 'Enterprise multi-account AWS',
+      identities: 9800,
+      incidentCost: 420000,
+      hoursPerWeek: 88
+    }
+  ] as const;
+
+  const [activeProfileId, setActiveProfileId] = useState<(typeof profiles)[number]['id']>('midmarket');
   const [identities, setIdentities] = useState(3200);
   const [incidentCost, setIncidentCost] = useState(195000);
   const [hoursPerWeek, setHoursPerWeek] = useState(44);
@@ -969,9 +995,28 @@ function RoiCalculator() {
     <section className="idt-roi" aria-label="ROI calculator">
       <SectionTitle
         eyebrow="ROI Calculator"
-        title="See your potential risk and cost reduction"
-        body="Estimate impact from reduced machine identity incidents and faster remediation workflows."
+        title="Model impact with conservative assumptions"
+        body="Use a planning model to estimate labor savings and reduced incident exposure from better trust-path visibility."
       />
+      <div className="idt-roi-profiles" role="tablist" aria-label="ROI profiles">
+        {profiles.map((profile) => (
+          <button
+            key={profile.id}
+            type="button"
+            role="tab"
+            aria-selected={activeProfileId === profile.id}
+            className={activeProfileId === profile.id ? 'is-active' : ''}
+            onClick={() => {
+              setActiveProfileId(profile.id);
+              setIdentities(profile.identities);
+              setIncidentCost(profile.incidentCost);
+              setHoursPerWeek(profile.hoursPerWeek);
+            }}
+          >
+            {profile.label}
+          </button>
+        ))}
+      </div>
       <div className="idt-roi-grid">
         <RoiNumberField
           id="roi-identities"
@@ -1010,6 +1055,10 @@ function RoiCalculator() {
           </p>
           <p className="idt-roi-total">
             Estimated annual impact: <strong>${output.estimatedTotal.toLocaleString()}</strong>
+          </p>
+          <p className="idt-roi-note">
+            Model assumptions: labor hour rate $110/hr, incident reduction coefficient 0.87, high-risk identity reduction
+            coefficient 0.32.
           </p>
         </div>
       </div>
@@ -1094,19 +1143,37 @@ function DeploymentPathBanner() {
 }
 
 function HomeFaqSection() {
+  const groups = [
+    {
+      title: 'Security and access',
+      items: HOME_FAQ_PREVIEW.slice(0, 2)
+    },
+    {
+      title: 'Rollout and operations',
+      items: HOME_FAQ_PREVIEW.slice(2, 4)
+    }
+  ] as const;
+
   return (
     <section className="idt-section idt-shell">
       <SectionTitle
         eyebrow="FAQ"
-        title="Top evaluation questions"
-        body="Full FAQs live in docs. These are the four questions teams ask first."
+        title="Answers to the first questions security teams ask"
+        body="Clear answers on read-only access, deployment options, and rollout safety."
       />
-      <div className="idt-faq-list">
-        {HOME_FAQ_PREVIEW.map((item) => (
-          <details key={item.question} className="idt-faq-item">
-            <summary>{item.question}</summary>
-            <p>{item.answer}</p>
-          </details>
+      <div className="idt-faq-groups">
+        {groups.map((group) => (
+          <article key={group.title} className="idt-faq-group">
+            <h3>{group.title}</h3>
+            <dl>
+              {group.items.map((item) => (
+                <div key={item.question}>
+                  <dt>{item.question}</dt>
+                  <dd>{item.answer}</dd>
+                </div>
+              ))}
+            </dl>
+          </article>
         ))}
       </div>
       <div className="idt-inline-actions">
@@ -1251,9 +1318,9 @@ function HomePage() {
 
       <section className="idt-section idt-shell idt-final-cta" id="start">
         <SectionTitle
-          eyebrow="Start With Evidence"
-          title="Run a read-only machine identity risk scan"
-          body="Get prioritized trust paths, blast-radius context, and rollout-safe remediation guidance."
+          eyebrow="Ready to evaluate"
+          title="Map your first production trust path in minutes"
+          body="Start with a read-only scan, review evidence, then decide whether to self-host, use hosted SaaS, or move to enterprise deployment."
         />
         <div className="idt-inline-actions">
           <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
@@ -1282,7 +1349,7 @@ function ReadOnlyScanPage() {
   const [error, setError] = useState<string | null>(null);
 
   useSeo({
-    title: 'Start Read-Only Risk Scan | Identrail',
+    title: 'Start Free Risk Scan | Identrail',
     description:
       'Start a read-only machine identity risk scan with Identrail. Share environment context and receive a prioritized trust-path report and rollout-safe remediation plan.',
     path: '/read-only-scan'
@@ -1447,7 +1514,7 @@ function ReadOnlyScanPage() {
                   </button>
                 ) : (
                   <button type="submit" className="idt-btn idt-btn-primary" disabled={submitting || !email.trim()}>
-                    {submitting ? 'Submitting...' : 'Start Read-Only Risk Scan'}
+                    {submitting ? 'Submitting...' : 'Start Free Risk Scan'}
                   </button>
                 )}
               </div>
@@ -1458,7 +1525,7 @@ function ReadOnlyScanPage() {
               <p>Thanks. We will send your first read-only scan onboarding response within one business day.</p>
               <div className="idt-inline-actions">
                 <Link to="/demo" className="idt-btn idt-btn-dark">
-                  Book Technical Demo
+                  Book Demo
                 </Link>
                 <Link to="/docs" className="idt-btn idt-btn-ghost">
                   Review Documentation
@@ -1964,7 +2031,7 @@ function PricingPage() {
             Open ROI Assessment
           </Link>
           <Link to="/read-only-scan" className="idt-btn idt-btn-dark">
-            Start Read-Only Risk Scan
+            Start Free Risk Scan
           </Link>
         </div>
       </section>
@@ -2023,7 +2090,7 @@ function RoiAssessmentPage() {
       <section className="idt-section idt-shell">
         <div className="idt-inline-actions">
           <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-            Start Read-Only Risk Scan
+            Start Free Risk Scan
           </Link>
           <Link to="/pricing" className="idt-btn idt-btn-dark">
             Compare Pricing Plans
@@ -2080,7 +2147,7 @@ function DeploymentModelsPage() {
               <li>Accelerated query and collaboration workflows</li>
             </ul>
             <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-              Start Read-Only Risk Scan
+              Start Free Risk Scan
             </Link>
           </article>
           <article className="idt-card">
@@ -2094,7 +2161,7 @@ function DeploymentModelsPage() {
               <li>24/7 support and named TAM</li>
             </ul>
             <Link to="/enterprise" className="idt-btn idt-btn-dark">
-              Book Technical Demo
+              Book Demo
             </Link>
           </article>
         </div>
@@ -2195,7 +2262,7 @@ function IntegrationsPage() {
                 Open Documentation
               </SafeLink>
               <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-                Start Read-Only Risk Scan
+                Start Free Risk Scan
               </Link>
             </div>
           </article>
@@ -2540,7 +2607,7 @@ function SecurityPage() {
             Responsible Disclosure
           </Link>
           <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
-            Start Read-Only Risk Scan
+            Start Free Risk Scan
           </Link>
           <SafeLink href={DOCS_REPO} className="idt-btn idt-btn-ghost">
             Review Security Docs
