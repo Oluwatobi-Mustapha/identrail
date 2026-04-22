@@ -441,7 +441,30 @@ h3 {
 }
 
 .idt-graph-visual-live {
+  display: grid;
+  min-height: 380px;
+  padding: 0.85rem;
   isolation: isolate;
+}
+
+.idt-hero-live-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
+  gap: 0.85rem;
+  min-height: 100%;
+}
+
+.idt-hero-graph-canvas {
+  position: relative;
+  min-height: 340px;
+  border: 1px solid rgba(163, 181, 214, 0.24);
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(10, 15, 26, 0.72), rgba(8, 13, 23, 0.64));
+  overflow: hidden;
+}
+
+.idt-hero-graph-canvas .idt-graph-grid {
+  opacity: 0.2;
 }
 
 .idt-hero-layer {
@@ -458,10 +481,38 @@ h3 {
 }
 
 .idt-hero-layer.is-dimmed {
-  opacity: 0.14;
-  filter: blur(1px);
-  transform: scale(0.985);
+  opacity: 0.2;
+  filter: blur(0.9px) saturate(0.72);
+  transform: scale(0.92) translate3d(-10%, -6%, 0);
   z-index: 1;
+}
+
+.idt-hero-layer.is-dimmed[data-depth='2'] {
+  opacity: 0.1;
+  transform: scale(0.84) translate3d(-16%, -12%, 0);
+}
+
+.idt-hero-layer.is-dimmed .idt-hero-arrow {
+  stroke-dasharray: 1.2 2.2;
+}
+
+.idt-layer-ghost-label {
+  position: absolute;
+  left: 0.8rem;
+  top: 0.8rem;
+  border: 1px solid rgba(176, 194, 226, 0.34);
+  border-radius: 999px;
+  background: rgba(11, 18, 29, 0.66);
+  color: rgba(193, 209, 235, 0.86);
+  padding: 0.18rem 0.5rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+.idt-hero-layer[data-depth='2'] .idt-layer-ghost-label {
+  top: 1.45rem;
 }
 
 .idt-node {
@@ -539,11 +590,9 @@ h3 {
 }
 
 .idt-hero-graph-caption {
-  position: absolute;
-  right: 0.85rem;
-  bottom: 0.85rem;
-  z-index: 3;
-  width: min(100% - 1.7rem, 420px);
+  position: relative;
+  z-index: 2;
+  width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 14px;
   background: linear-gradient(165deg, rgba(8, 8, 10, 0.95), rgba(14, 14, 17, 0.96));
@@ -2970,6 +3019,14 @@ body {
     min-height: 380px;
   }
 
+  .idt-hero-live-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-hero-graph-canvas {
+    min-height: 300px;
+  }
+
   .idt-benefits-row {
     grid-template-columns: 1fr;
   }
@@ -3087,7 +3144,13 @@ body {
     padding: 0;
   }
 
+  .idt-hero-live-layout {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
   .idt-graph-grid,
+  .idt-hero-graph-canvas,
   .idt-hero-layer,
   .idt-hero-arrows,
   .idt-node {
