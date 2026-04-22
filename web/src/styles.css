@@ -8,6 +8,13 @@ body,
   min-height: 100%;
 }
 
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
 body {
   margin: 0;
   font-family: var(--idt-body);
@@ -31,6 +38,7 @@ a {
 
 .idt-site {
   min-height: 100vh;
+  overflow-x: clip;
 }
 
 .idt-shell {
@@ -2966,7 +2974,32 @@ body {
 
 @media (max-width: 720px) {
   .idt-shell {
-    width: min(100% - 1.2rem, var(--idt-shell));
+    width: auto;
+    max-width: var(--idt-shell);
+    margin-inline: auto;
+    padding-inline: max(0.75rem, env(safe-area-inset-left)) max(0.75rem, env(safe-area-inset-right));
+  }
+
+  .idt-header-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 0.65rem;
+  }
+
+  .idt-brand {
+    min-width: 0;
+  }
+
+  .idt-brand span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .idt-menu-toggle {
+    justify-self: end;
+    min-width: auto;
+    padding-inline: 0.9rem;
   }
 
   .idt-section {
