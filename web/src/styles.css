@@ -2965,6 +2965,18 @@ body {
     padding: 0.52rem 0.78rem;
   }
 
+  .idt-graph-visual {
+    min-height: auto;
+    padding: 0.85rem;
+  }
+
+  .idt-graph-grid,
+  .idt-node,
+  .idt-edge,
+  .idt-pulse {
+    display: none;
+  }
+
   .idt-demo-node small,
   .idt-severity-pill,
   .idt-finding-label,
@@ -2983,9 +2995,11 @@ body {
     font-size: 0.9rem;
   }
   .idt-hero-graph-caption {
-    position: static;
-    margin: 1rem;
-    width: auto;
+    position: relative;
+    z-index: 1;
+    margin: 0;
+    width: 100%;
+    background: linear-gradient(165deg, rgba(9, 13, 20, 0.97), rgba(12, 18, 28, 0.98));
   }
 
   .idt-footer-super-cta {
