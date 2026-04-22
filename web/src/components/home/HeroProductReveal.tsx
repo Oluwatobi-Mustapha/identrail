@@ -154,8 +154,12 @@ function edgePath(from: HeroNode, to: HeroNode) {
   const startY = from.y;
   const endX = to.x;
   const endY = to.y;
-  const controlX = (startX + endX) / 2;
-  const controlY = Math.min(startY, endY) - 8;
+  const midpointX = (startX + endX) / 2;
+  const midpointY = (startY + endY) / 2;
+  const distanceX = Math.abs(endX - startX);
+  const lift = Math.max(7, Math.min(16, distanceX * 0.2));
+  const controlX = midpointX + (endY - startY) * 0.08;
+  const controlY = midpointY - lift;
   return `M ${startX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}`;
 }
 
@@ -176,72 +180,64 @@ export function HeroProductReveal() {
     return () => window.clearInterval(timer);
   }, [reducedMotion]);
 
-  const sceneLayers = useMemo(
-    () =>
-      SCENES.map((scene, index) => {
-        const isActive = index === activeSceneIndex;
-        const depth = isActive ? 0 : ((index - activeSceneIndex + SCENES.length) % SCENES.length);
-        return (
+  const sceneLayer = useMemo(() => {
+    const scene = activeScene;
+    return (
+      <div key={scene.id} className="idt-hero-layer is-active">
+        <svg className="idt-hero-arrows" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id={`idt-edge-gradient-${scene.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="rgba(168, 196, 255, 0.12)" />
+              <stop offset="44%" stopColor="rgba(160, 193, 255, 0.82)" />
+              <stop offset="100%" stopColor="rgba(138, 172, 238, 0.2)" />
+            </linearGradient>
+          </defs>
+
+          {scene.edges.map((edge, edgeIndex) => {
+            const from = findNode(scene.nodes, edge.from);
+            const to = findNode(scene.nodes, edge.to);
+            if (!from || !to) {
+              return null;
+            }
+
+            const path = edgePath(from, to);
+            const tracerDuration = 4 + edgeIndex * 0.65;
+
+            return (
+              <g key={`${scene.id}-${edge.from}-${edge.to}`} className={edge.emphasis === 'high' ? 'is-high' : ''}>
+                <path className="idt-hero-arrow-glow" d={path} stroke={`url(#idt-edge-gradient-${scene.id})`} />
+                <path className="idt-hero-arrow" d={path} stroke={`url(#idt-edge-gradient-${scene.id})`} />
+                {!reducedMotion ? (
+                  <circle className="idt-hero-arrow-tracer" r="1.2">
+                    <animateMotion dur={`${tracerDuration}s`} repeatCount="indefinite" path={path} />
+                  </circle>
+                ) : null}
+              </g>
+            );
+          })}
+        </svg>
+
+        {scene.nodes.map((node) => (
           <div
-            key={scene.id}
-            className={`idt-hero-layer ${isActive ? 'is-active' : 'is-dimmed'}`}
-            aria-hidden={!isActive}
-            data-depth={depth}
+            key={`${scene.id}-${node.id}`}
+            className={`idt-node idt-node-${node.tone}`}
+            style={{ left: `${node.x}%`, top: `${node.y}%` }}
           >
-            <svg className="idt-hero-arrows" viewBox="0 0 100 100" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id={`idt-edge-gradient-${scene.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="rgba(170, 197, 255, 0.25)" />
-                  <stop offset="45%" stopColor="rgba(152, 186, 255, 0.82)" />
-                  <stop offset="100%" stopColor="rgba(119, 160, 241, 0.24)" />
-                </linearGradient>
-                <marker id={`idt-arrow-head-${scene.id}`} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse">
-                  <path d="M0,0 L8,4 L0,8 Z" fill="rgba(162, 191, 252, 0.88)" />
-                </marker>
-              </defs>
-              {scene.edges.map((edge) => {
-                const from = findNode(scene.nodes, edge.from);
-                const to = findNode(scene.nodes, edge.to);
-                if (!from || !to) {
-                  return null;
-                }
-
-                return (
-                  <path
-                    key={`${scene.id}-${edge.from}-${edge.to}`}
-                    className={`idt-hero-arrow ${edge.emphasis === 'high' ? 'is-high' : ''}`}
-                    d={edgePath(from, to)}
-                    stroke={`url(#idt-edge-gradient-${scene.id})`}
-                    markerEnd={`url(#idt-arrow-head-${scene.id})`}
-                  />
-                );
-              })}
-            </svg>
-
-            {isActive &&
-              scene.nodes.map((node) => (
-                <div
-                  key={`${scene.id}-${node.id}`}
-                  className={`idt-node idt-node-${node.tone}`}
-                  style={{ left: `${node.x}%`, top: `${node.y}%` }}
-                >
-                  {node.label}
-                </div>
-              ))}
-
-            {!isActive && <span className="idt-layer-ghost-label">{scene.label}</span>}
+            {node.label}
           </div>
-        );
-      }),
-    [activeSceneIndex]
-  );
+        ))}
+      </div>
+    );
+  }, [activeScene, reducedMotion]);
 
   return (
     <div className="idt-graph-visual idt-graph-visual-live" aria-label="Live trust path product preview">
       <div className="idt-hero-live-layout">
         <div className="idt-hero-graph-canvas" aria-hidden="true">
           <div className="idt-graph-grid" />
-          {sceneLayers}
+          <div className="idt-hero-graph-plane idt-hero-graph-plane-back" />
+          <div className="idt-hero-graph-plane idt-hero-graph-plane-mid" />
+          {sceneLayer}
         </div>
 
         <aside className="idt-hero-graph-caption idt-hero-proof-card">
