@@ -55,7 +55,8 @@ export function Header({
           aria-controls="primary-nav"
           aria-label={menuOpen ? 'Close primary navigation' : 'Open primary navigation'}
         >
-          {menuOpen ? 'Close' : 'Menu'}
+          <span className="idt-menu-toggle-icon" aria-hidden="true" />
+          <span className="idt-menu-toggle-label">{menuOpen ? 'Close' : 'Menu'}</span>
         </button>
 
         <nav id="primary-nav" className={`idt-nav ${menuOpen ? 'is-open' : ''}`} aria-label="Primary">
