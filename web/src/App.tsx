@@ -49,7 +49,7 @@ function resolveInitialTheme(): ThemeMode {
   try {
     stored = window.localStorage.getItem(THEME_STORAGE_KEY);
   } catch {
-    return 'dark';
+    stored = null;
   }
   if (stored === 'dark' || stored === 'light') {
     return stored;
