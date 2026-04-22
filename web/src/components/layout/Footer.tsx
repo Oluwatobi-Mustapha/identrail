@@ -52,17 +52,6 @@ type FooterProps = {
   discordUrl: string;
 };
 
-const FOOTER_LINKS = [
-  { to: '/product', label: 'Product' },
-  { to: '/solutions', label: 'Solutions' },
-  { to: '/pricing', label: 'Pricing' },
-  { to: '/demo', label: 'Demo' },
-  { to: '/docs', label: 'Docs' },
-  { to: '/blog', label: 'Blog' },
-  { to: '/security', label: 'Security' },
-  { to: '/about', label: 'About' }
-] as const;
-
 const FOOTER_TRUST_LINKS = [
   { label: 'FAQ', to: '/faq', external: false },
   { label: 'Privacy', to: '/privacy', external: false },
@@ -72,20 +61,26 @@ const FOOTER_TRUST_LINKS = [
 ] as const;
 
 export function Footer({ xUrl, linkedInUrl, githubRepo, discordUrl }: FooterProps) {
-  const buildDate = ((import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_BUILD_DATE ?? 'unknown').slice(0, 10);
-
   return (
     <footer className="idt-footer">
       <div className="idt-footer-bar">
         <div className="idt-shell idt-footer-bar-row">
-          <nav className="idt-footer-links" aria-label="Footer">
-            {FOOTER_LINKS.map((item) => (
-              <Link key={item.to} to={item.to}>
-                {item.label}
-              </Link>
-            ))}
-          </nav>
-          <small>© {new Date().getFullYear()} Identrail. All rights reserved.</small>
+          <div className="idt-footer-meta">
+            <small>© {new Date().getFullYear()} Identrail. All rights reserved.</small>
+          </div>
+          <div className="idt-footer-trust-links">
+            {FOOTER_TRUST_LINKS.map((item) =>
+              item.external ? (
+                <SafeLink key={item.label} href={item.to}>
+                  {item.label}
+                </SafeLink>
+              ) : (
+                <Link key={item.label} to={item.to}>
+                  {item.label}
+                </Link>
+              )
+            )}
+          </div>
           <div className="idt-footer-socials">
             <SafeLink href={xUrl} aria-label="X" className="idt-social-link">
               <XIcon />
@@ -100,22 +95,6 @@ export function Footer({ xUrl, linkedInUrl, githubRepo, discordUrl }: FooterProp
               <DiscordIcon />
             </SafeLink>
           </div>
-        </div>
-        <div className="idt-shell idt-footer-maturity-row">
-          <div className="idt-footer-trust-links">
-            {FOOTER_TRUST_LINKS.map((item) =>
-              item.external ? (
-                <SafeLink key={item.label} href={item.to}>
-                  {item.label}
-                </SafeLink>
-              ) : (
-                <Link key={item.label} to={item.to}>
-                  {item.label}
-                </Link>
-              )
-            )}
-          </div>
-          <small>Built in the open · last build {buildDate}</small>
         </div>
       </div>
     </footer>

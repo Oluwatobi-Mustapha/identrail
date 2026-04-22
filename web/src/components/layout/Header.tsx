@@ -53,9 +53,9 @@ export function Header({
           onClick={() => setMenuOpen((prev) => !prev)}
           aria-expanded={menuOpen}
           aria-controls="primary-nav"
-          aria-label="Toggle primary navigation"
+          aria-label={menuOpen ? 'Close primary navigation' : 'Open primary navigation'}
         >
-          Menu
+          {menuOpen ? 'Close' : 'Menu'}
         </button>
 
         <nav id="primary-nav" className={`idt-nav ${menuOpen ? 'is-open' : ''}`} aria-label="Primary">
