@@ -774,14 +774,20 @@ h3 {
     stroke-dashoffset: 0;
   }
 
+  .idt-hero-arrow-tracer {
+    display: none;
+  }
+
   .idt-demo-edge-path {
     animation: none;
     stroke-dasharray: none;
     stroke-dashoffset: 0;
   }
 
-  .idt-demo-edge-tracer {
-    display: none;
+  .idt-demo-edge-flow {
+    animation: none;
+    stroke-dasharray: 0;
+    stroke-dashoffset: 0;
   }
 
   * {
@@ -1091,35 +1097,45 @@ h3 {
   pointer-events: none;
 }
 
-.idt-demo-edge-path {
+.idt-demo-edge-base,
+.idt-demo-edge-flow {
   fill: none;
-  stroke-width: 1.3;
   stroke-linecap: round;
-  stroke-dasharray: 7 8;
-  opacity: 0.56;
-  animation: idtDemoEdgeFlow 2.5s linear infinite;
+  vector-effect: non-scaling-stroke;
 }
 
-.idt-demo-edge-glow {
-  fill: none;
-  stroke-width: 2.8;
-  opacity: 0.17;
-  filter: blur(0.8px);
+.idt-demo-edge-base {
+  stroke-width: 0.96;
+  opacity: 0.42;
 }
 
-.idt-demo-edges g.is-connected .idt-demo-edge-path {
-  stroke-width: 1.7;
+.idt-demo-edge-flow {
+  stroke-width: 1.08;
+  stroke-dasharray: 7 88;
+  stroke-dashoffset: 0;
+  opacity: 0.54;
+  animation: idtDemoEdgeFlow 3.6s linear infinite;
+}
+
+.idt-demo-edges g.is-connected .idt-demo-edge-base {
+  stroke-width: 1.1;
+  opacity: 0.62;
+}
+
+.idt-demo-edges g.is-connected .idt-demo-edge-flow {
+  stroke-width: 1.22;
   opacity: 0.9;
+  stroke-dasharray: 8 74;
 }
 
-.idt-demo-edges g.is-connected .idt-demo-edge-glow {
-  opacity: 0.3;
+.idt-demo-edge-end {
+  fill: rgba(206, 223, 255, 0.66);
+  opacity: 0.62;
 }
 
-.idt-demo-edge-tracer {
-  fill: rgba(221, 233, 255, 0.92);
-  opacity: 0.72;
-  filter: drop-shadow(0 0 4px rgba(143, 184, 255, 0.6));
+.idt-demo-edges g.is-connected .idt-demo-edge-end {
+  fill: rgba(223, 234, 255, 0.9);
+  opacity: 0.92;
 }
 
 @keyframes idtDemoEdgeFlow {
@@ -1127,7 +1143,7 @@ h3 {
     stroke-dashoffset: 0;
   }
   to {
-    stroke-dashoffset: -22;
+    stroke-dashoffset: -95;
   }
 }
 
@@ -3687,6 +3703,30 @@ html[data-theme='light'] .idt-node {
   background: rgba(252, 255, 255, 0.94);
   color: #1b3158;
   box-shadow: 0 8px 18px rgba(35, 55, 92, 0.12);
+}
+
+html[data-theme='light'] .idt-demo-edge-base {
+  opacity: 0.48;
+}
+
+html[data-theme='light'] .idt-demo-edge-flow {
+  opacity: 0.6;
+}
+
+html[data-theme='light'] .idt-demo-edges g.is-connected .idt-demo-edge-base {
+  opacity: 0.7;
+}
+
+html[data-theme='light'] .idt-demo-edges g.is-connected .idt-demo-edge-flow {
+  opacity: 0.94;
+}
+
+html[data-theme='light'] .idt-demo-edge-end {
+  fill: rgba(31, 58, 103, 0.66);
+}
+
+html[data-theme='light'] .idt-demo-edges g.is-connected .idt-demo-edge-end {
+  fill: rgba(18, 45, 88, 0.9);
 }
 
 html[data-theme='light'] .idt-demo-connector {
