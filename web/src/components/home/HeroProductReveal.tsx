@@ -154,13 +154,14 @@ function edgePath(from: HeroNode, to: HeroNode) {
   const startY = from.y;
   const endX = to.x;
   const endY = to.y;
-  const midpointX = (startX + endX) / 2;
-  const midpointY = (startY + endY) / 2;
-  const distanceX = Math.abs(endX - startX);
-  const lift = Math.max(7, Math.min(16, distanceX * 0.2));
-  const controlX = midpointX + (endY - startY) * 0.08;
-  const controlY = midpointY - lift;
-  return `M ${startX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}`;
+  const dx = endX - startX;
+  const dy = endY - startY;
+  const bend = Math.min(14, Math.max(6, Math.abs(dx) * 0.18 + Math.abs(dy) * 0.1));
+  const c1x = startX + dx * 0.32;
+  const c1y = startY + dy * 0.14 - bend;
+  const c2x = endX - dx * 0.26;
+  const c2y = endY - dy * 0.12 + bend * 0.25;
+  return `M ${startX} ${startY} C ${c1x} ${c1y} ${c2x} ${c2y} ${endX} ${endY}`;
 }
 
 export function HeroProductReveal() {
@@ -186,11 +187,13 @@ export function HeroProductReveal() {
       <div key={scene.id} className="idt-hero-layer is-active">
         <svg className="idt-hero-arrows" viewBox="0 0 100 100" preserveAspectRatio="none">
           <defs>
-            <linearGradient id={`idt-edge-gradient-${scene.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="rgba(168, 196, 255, 0.12)" />
-              <stop offset="44%" stopColor="rgba(160, 193, 255, 0.82)" />
-              <stop offset="100%" stopColor="rgba(138, 172, 238, 0.2)" />
-            </linearGradient>
+            <filter id={`idt-edge-glow-${scene.id}`} x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="0.26" result="blurred" />
+              <feMerge>
+                <feMergeNode in="blurred" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
           </defs>
 
           {scene.edges.map((edge, edgeIndex) => {
@@ -201,17 +204,28 @@ export function HeroProductReveal() {
             }
 
             const path = edgePath(from, to);
-            const tracerDuration = 4 + edgeIndex * 0.65;
 
             return (
-              <g key={`${scene.id}-${edge.from}-${edge.to}`} className={edge.emphasis === 'high' ? 'is-high' : ''}>
-                <path className="idt-hero-arrow-glow" d={path} stroke={`url(#idt-edge-gradient-${scene.id})`} />
-                <path className="idt-hero-arrow" d={path} stroke={`url(#idt-edge-gradient-${scene.id})`} />
-                {!reducedMotion ? (
-                  <circle className="idt-hero-arrow-tracer" r="1.2">
-                    <animateMotion dur={`${tracerDuration}s`} repeatCount="indefinite" path={path} />
-                  </circle>
-                ) : null}
+              <g key={`${scene.id}-${edge.from}-${edge.to}`}>
+                <path className={`idt-hero-arrow-base ${edge.emphasis === 'high' ? 'is-high' : ''}`} d={path} />
+                <path
+                  className={`idt-hero-arrow-flow ${edge.emphasis === 'high' ? 'is-high' : ''}`}
+                  d={path}
+                  style={
+                    reducedMotion
+                      ? undefined
+                      : ({
+                          animationDelay: `${edgeIndex * 0.42}s`
+                        } as const)
+                  }
+                  filter={`url(#idt-edge-glow-${scene.id})`}
+                />
+                <circle
+                  className={`idt-hero-arrow-end ${edge.emphasis === 'high' ? 'is-high' : ''}`}
+                  cx={to.x}
+                  cy={to.y}
+                  r={edge.emphasis === 'high' ? 0.9 : 0.7}
+                />
               </g>
             );
           })}
