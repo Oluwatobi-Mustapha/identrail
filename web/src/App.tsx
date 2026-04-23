@@ -783,32 +783,50 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
       id: 'oidc',
       type: 'Broker',
       title: 'OIDC Provider',
-      detail: 'Federated identity provider trusted by CI/CD and cluster workloads.'
+      detail: 'Federated identity provider trusted by CI/CD and cluster workloads.',
+      x: 14,
+      y: 12
     },
     {
       id: 'role',
       type: 'Privilege',
       title: 'AWS Role: payments-prod',
-      detail: 'Role assumed by automation workloads with cross-account permissions.'
+      detail: 'Role assumed by automation workloads with cross-account permissions.',
+      x: 58,
+      y: 32
     },
     {
       id: 'sa',
       type: 'Workload',
       title: 'K8s ServiceAccount: api-gateway',
-      detail: 'Service account with namespace-level and cloud trust-path reachability.'
+      detail: 'Service account with namespace-level and cloud trust-path reachability.',
+      x: 28,
+      y: 58
     },
     {
       id: 'repo',
       type: 'Source',
       title: 'Git Repo: infra-live',
-      detail: 'Repository contains deployment workflows and secrets exposure history.'
+      detail: 'Repository contains deployment workflows and secrets exposure history.',
+      x: 54,
+      y: 80
     },
     {
       id: 'db',
       type: 'Resource',
       title: 'RDS Resource: billing-ledger',
-      detail: 'Sensitive resource reachable through chained assumptions in current policy state.'
+      detail: 'Sensitive resource reachable through chained assumptions in current policy state.',
+      x: 30,
+      y: 92
     }
+  ] as const;
+
+  const edges = [
+    { id: 'e-oidc-role', from: 'oidc', to: 'role' },
+    { id: 'e-oidc-sa', from: 'oidc', to: 'sa' },
+    { id: 'e-sa-role', from: 'sa', to: 'role' },
+    { id: 'e-sa-repo', from: 'sa', to: 'repo' },
+    { id: 'e-repo-db', from: 'repo', to: 'db' }
   ] as const;
 
   const [selectedId, setSelectedId] = useState<string>('role');
@@ -818,6 +836,24 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
   const listTabId = `trust-list-tab-${variant}`;
   const graphPanelId = `trust-graph-panel-${variant}`;
   const listPanelId = `trust-list-panel-${variant}`;
+
+  const getNode = (id: (typeof nodes)[number]['id']) => nodes.find((node) => node.id === id);
+  const edgePath = (fromId: (typeof nodes)[number]['id'], toId: (typeof nodes)[number]['id']) => {
+    const from = getNode(fromId);
+    const to = getNode(toId);
+    if (!from || !to) {
+      return '';
+    }
+
+    const mx = (from.x + to.x) / 2;
+    const my = (from.y + to.y) / 2;
+    const bend = Math.max(6, Math.min(14, Math.abs(to.x - from.x) * 0.18));
+    const cx = mx + (to.y - from.y) * 0.05;
+    const cy = my - bend;
+    return `M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`;
+  };
+
+  const connectedEdges = edges.filter((edge) => edge.from === selected.id || edge.to === selected.id);
 
   return (
     <section className={`idt-demo-surface ${variant === 'full' ? 'is-full' : ''}`}>
@@ -859,21 +895,45 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
 
       {viewMode === 'graph' ? (
         <div id={graphPanelId} role="tabpanel" aria-labelledby={graphTabId} className="idt-demo-graph" aria-label="Interactive trust graph simulation">
+          <svg className="idt-demo-edges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id={`idt-demo-edge-gradient-${variant}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="rgba(162, 188, 245, 0.22)" />
+                <stop offset="50%" stopColor="rgba(160, 192, 255, 0.88)" />
+                <stop offset="100%" stopColor="rgba(138, 170, 231, 0.2)" />
+              </linearGradient>
+            </defs>
+            {edges.map((edge, index) => {
+              const path = edgePath(edge.from, edge.to);
+              if (!path) {
+                return null;
+              }
+
+              const isConnected = connectedEdges.some((item) => item.id === edge.id);
+              const edgeClass = isConnected ? 'is-connected' : '';
+              return (
+                <g key={edge.id} className={edgeClass}>
+                  <path className="idt-demo-edge-glow" d={path} stroke={`url(#idt-demo-edge-gradient-${variant})`} />
+                  <path className="idt-demo-edge-path" d={path} stroke={`url(#idt-demo-edge-gradient-${variant})`} />
+                  <circle className="idt-demo-edge-tracer" r="1.1">
+                    <animateMotion dur={`${4.8 + index * 0.7}s`} repeatCount="indefinite" path={path} />
+                  </circle>
+                </g>
+              );
+            })}
+          </svg>
           {nodes.map((node) => (
             <button
               key={node.id}
               type="button"
               className={`idt-demo-node idt-demo-node-${node.type.toLowerCase()} ${selected.id === node.id ? 'is-active' : ''}`}
               onClick={() => setSelectedId(node.id)}
+              style={{ left: `${node.x}%`, top: `${node.y}%` }}
             >
               <small>{node.type}</small>
               <span>{node.title}</span>
             </button>
           ))}
-          <span className="idt-demo-connector c1" />
-          <span className="idt-demo-connector c2" />
-          <span className="idt-demo-connector c3" />
-          <span className="idt-demo-connector c4" />
         </div>
       ) : (
         <div id={listPanelId} role="tabpanel" aria-labelledby={listTabId} className="idt-demo-list-view" aria-label="Trust path nodes">
@@ -1285,7 +1345,7 @@ function HomePage() {
 
       <ProblemFramingSection />
 
-      <section className="idt-section idt-shell">
+      <section className="idt-section idt-section-tight idt-shell">
         <LeadCaptureForm
           id="risk-scan-form"
           variant="short"
@@ -1297,7 +1357,7 @@ function HomePage() {
 
       <RiskInsightSection />
 
-      <section className="idt-section idt-shell">
+      <section className="idt-section idt-shell idt-section-demo">
         <div className="idt-card idt-proof-demo-card">
           <h3>Interactive trust graph explorer</h3>
           <p>
@@ -1352,7 +1412,7 @@ function HomePage() {
           <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
             Start Free Risk Scan
           </Link>
-          <Link to="/enterprise" className="idt-inline-link">
+          <Link to="/enterprise" className="idt-final-cta-link">
             Need enterprise procurement? Contact Sales →
           </Link>
         </div>
