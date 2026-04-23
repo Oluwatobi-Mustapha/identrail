@@ -4122,3 +4122,42 @@ html[data-theme='light'] .idt-header-utility {
     grid-template-columns: 1fr;
   }
 }
+
+/* Final sweep: make selects theme-aware and smooth focus states */
+.idt-form-grid select,
+.idt-intake-grid select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-repeat: no-repeat;
+  background-position: right 0.82rem center;
+  background-size: 10px 7px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23d2dff6' d='M6 8 0 0h12z'/%3E%3C/svg%3E");
+  padding-right: 2rem;
+}
+
+.idt-roi input:focus-visible,
+.idt-search input:focus-visible,
+.idt-form-grid input:focus-visible,
+.idt-form-grid select:focus-visible,
+.idt-intake-grid input:focus-visible,
+.idt-intake-grid select:focus-visible {
+  outline: none;
+  border-color: rgba(166, 189, 233, 0.6);
+  box-shadow: 0 0 0 2px rgba(142, 167, 214, 0.22);
+}
+
+html[data-theme='light'] .idt-form-grid select,
+html[data-theme='light'] .idt-intake-grid select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23243f69' d='M6 8 0 0h12z'/%3E%3C/svg%3E");
+}
+
+html[data-theme='light'] .idt-roi input:focus-visible,
+html[data-theme='light'] .idt-search input:focus-visible,
+html[data-theme='light'] .idt-form-grid input:focus-visible,
+html[data-theme='light'] .idt-form-grid select:focus-visible,
+html[data-theme='light'] .idt-intake-grid input:focus-visible,
+html[data-theme='light'] .idt-intake-grid select:focus-visible {
+  border-color: rgba(39, 68, 118, 0.42);
+  box-shadow: 0 0 0 2px rgba(74, 108, 165, 0.2);
+}
