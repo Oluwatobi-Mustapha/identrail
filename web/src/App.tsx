@@ -845,12 +845,14 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
       return '';
     }
 
-    const mx = (from.x + to.x) / 2;
-    const my = (from.y + to.y) / 2;
-    const bend = Math.max(6, Math.min(14, Math.abs(to.x - from.x) * 0.18));
-    const cx = mx + (to.y - from.y) * 0.05;
-    const cy = my - bend;
-    return `M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`;
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const bend = Math.min(12, Math.max(4.5, Math.abs(dx) * 0.14 + Math.abs(dy) * 0.06));
+    const c1x = from.x + dx * 0.32;
+    const c1y = from.y + dy * 0.16 - bend;
+    const c2x = to.x - dx * 0.26;
+    const c2y = to.y - dy * 0.12 + bend * 0.16;
+    return `M ${from.x} ${from.y} C ${c1x} ${c1y} ${c2x} ${c2y} ${to.x} ${to.y}`;
   };
 
   const connectedEdges = edges.filter((edge) => edge.from === selected.id || edge.to === selected.id);
@@ -897,15 +899,21 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
         <div id={graphPanelId} role="tabpanel" aria-labelledby={graphTabId} className="idt-demo-graph" aria-label="Interactive trust graph simulation">
           <svg className="idt-demo-edges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
             <defs>
-              <linearGradient id={`idt-demo-edge-gradient-${variant}`} x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="rgba(162, 188, 245, 0.22)" />
-                <stop offset="50%" stopColor="rgba(160, 192, 255, 0.88)" />
-                <stop offset="100%" stopColor="rgba(138, 170, 231, 0.2)" />
+              <linearGradient id={`idt-demo-edge-base-gradient-${variant}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="rgba(124, 153, 212, 0.16)" />
+                <stop offset="55%" stopColor="rgba(141, 172, 228, 0.42)" />
+                <stop offset="100%" stopColor="rgba(119, 151, 210, 0.15)" />
+              </linearGradient>
+              <linearGradient id={`idt-demo-edge-flow-gradient-${variant}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="rgba(170, 197, 255, 0.52)" />
+                <stop offset="55%" stopColor="rgba(203, 222, 255, 0.95)" />
+                <stop offset="100%" stopColor="rgba(154, 184, 238, 0.42)" />
               </linearGradient>
             </defs>
             {edges.map((edge, index) => {
               const path = edgePath(edge.from, edge.to);
-              if (!path) {
+              const toNode = getNode(edge.to);
+              if (!path || !toNode) {
                 return null;
               }
 
@@ -913,11 +921,14 @@ function TrustGraphDemo({ variant = 'compact' }: { variant?: 'compact' | 'full' 
               const edgeClass = isConnected ? 'is-connected' : '';
               return (
                 <g key={edge.id} className={edgeClass}>
-                  <path className="idt-demo-edge-glow" d={path} stroke={`url(#idt-demo-edge-gradient-${variant})`} />
-                  <path className="idt-demo-edge-path" d={path} stroke={`url(#idt-demo-edge-gradient-${variant})`} />
-                  <circle className="idt-demo-edge-tracer" r="1.1">
-                    <animateMotion dur={`${4.8 + index * 0.7}s`} repeatCount="indefinite" path={path} />
-                  </circle>
+                  <path className="idt-demo-edge-base" d={path} stroke={`url(#idt-demo-edge-base-gradient-${variant})`} />
+                  <path
+                    className="idt-demo-edge-flow"
+                    d={path}
+                    stroke={`url(#idt-demo-edge-flow-gradient-${variant})`}
+                    style={{ animationDelay: `${index * 0.35}s` }}
+                  />
+                  <circle className="idt-demo-edge-end" cx={toNode.x} cy={toNode.y} r={isConnected ? 0.72 : 0.56} />
                 </g>
               );
             })}
