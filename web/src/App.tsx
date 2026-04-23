@@ -738,12 +738,45 @@ function CalendlyEmbed() {
         title="Walk through your trust graph in 15 minutes"
         body="Bring one AWS account or Kubernetes namespace, and we will map live trust paths and top risk chains."
       />
-      <iframe
-        title="Identrail demo booking"
-        src={`${CALENDLY_URL}?hide_gdpr_banner=1`}
-        loading="lazy"
-        referrerPolicy="strict-origin-when-cross-origin"
-      />
+      <div className="idt-calendly-shell">
+        <article className="idt-calendly-card">
+          <p className="idt-calendly-note">
+            Choose a slot and we will review trust-path evidence, blast radius, and rollout-safe remediation priorities.
+          </p>
+          <ul className="idt-calendly-checklist">
+            <li>Read-only onboarding review</li>
+            <li>Live trust graph walkthrough</li>
+            <li>First remediation sequence</li>
+          </ul>
+          <div className="idt-inline-actions">
+            <SafeLink href={CALENDLY_URL} className="idt-btn idt-btn-primary">
+              Open Booking Calendar
+            </SafeLink>
+            <Link to="/enterprise" className="idt-btn idt-btn-dark">
+              Talk to Sales
+            </Link>
+          </div>
+          <p className="idt-inline-link-note">
+            Need async scheduling?{' '}
+            <SafeLink href="mailto:sales@identrail.com" className="idt-inline-link">
+              Email sales
+            </SafeLink>
+          </p>
+        </article>
+        <aside className="idt-calendly-preview" aria-label="Demo agenda preview">
+          <p className="idt-eyebrow">Sample agenda</p>
+          <ol>
+            <li>Scope environment and trust boundaries</li>
+            <li>Inspect one high-risk path with evidence</li>
+            <li>Review safe remediation plan and rollout options</li>
+          </ol>
+          <div className="idt-calendly-slot-row" aria-hidden="true">
+            <span>Tue · 10:00</span>
+            <span>Wed · 14:30</span>
+            <span>Fri · 09:00</span>
+          </div>
+        </aside>
+      </div>
     </section>
   );
 }

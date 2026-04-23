@@ -3900,3 +3900,205 @@ html[data-theme='light'] .idt-hero-layer-dots button.is-active {
   border-color: rgba(22, 45, 82, 0.9);
   background: rgba(22, 45, 82, 0.9);
 }
+
+/* PR: light-mode legibility + link clarity + resilient booking panel */
+.idt-calendly {
+  display: grid;
+  gap: 0.95rem;
+}
+
+.idt-calendly-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 0.95rem;
+}
+
+.idt-calendly-card,
+.idt-calendly-preview {
+  border: 1px solid rgba(164, 183, 218, 0.24);
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(9, 14, 22, 0.9), rgba(7, 11, 18, 0.93));
+  padding: 1rem;
+}
+
+.idt-calendly-note {
+  margin: 0;
+  color: #c7d5eb;
+}
+
+.idt-calendly-checklist {
+  margin: 0.8rem 0 0;
+  padding-left: 1.05rem;
+  display: grid;
+  gap: 0.35rem;
+  color: #d9e5f8;
+}
+
+.idt-calendly-preview .idt-eyebrow {
+  margin-bottom: 0.7rem;
+}
+
+.idt-calendly-preview ol {
+  margin: 0;
+  padding-left: 1.05rem;
+  display: grid;
+  gap: 0.42rem;
+  color: #d1def4;
+}
+
+.idt-calendly-slot-row {
+  margin-top: 0.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.idt-calendly-slot-row span {
+  border: 1px solid rgba(161, 181, 217, 0.36);
+  border-radius: 999px;
+  background: rgba(16, 25, 41, 0.64);
+  color: #d8e5fa;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.26rem 0.66rem;
+}
+
+.idt-inline-link,
+.idt-footer-links a,
+.idt-footer-trust-links a,
+.idt-header-utility {
+  text-decoration-line: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.22em;
+  text-decoration-color: rgba(171, 191, 225, 0.85);
+}
+
+.idt-inline-link:hover,
+.idt-inline-link:focus-visible,
+.idt-footer-links a:hover,
+.idt-footer-links a:focus-visible,
+.idt-footer-trust-links a:hover,
+.idt-footer-trust-links a:focus-visible,
+.idt-header-utility:hover,
+.idt-header-utility:focus-visible {
+  text-decoration-color: currentColor;
+}
+
+html[data-theme='light'] .idt-page-hero {
+  border-color: rgba(22, 40, 71, 0.18);
+  background:
+    radial-gradient(circle at 84% -10%, rgba(109, 136, 188, 0.22), transparent 44%),
+    linear-gradient(156deg, rgba(248, 252, 255, 0.98), rgba(237, 245, 255, 0.96));
+  box-shadow: 0 14px 30px rgba(30, 52, 91, 0.13);
+}
+
+html[data-theme='light'] .idt-page-hero::after {
+  opacity: 0.15;
+  background:
+    radial-gradient(1px 1px at 22% 20%, rgba(34, 62, 112, 0.25), transparent 60%),
+    radial-gradient(1px 1px at 78% 64%, rgba(34, 62, 112, 0.2), transparent 60%),
+    radial-gradient(1px 1px at 42% 84%, rgba(34, 62, 112, 0.16), transparent 60%);
+}
+
+html[data-theme='light'] .idt-page-hero h1 {
+  color: #14294c;
+}
+
+html[data-theme='light'] .idt-page-hero p {
+  color: #2f486f;
+}
+
+html[data-theme='light'] .idt-page-hero .idt-eyebrow {
+  color: #5875a3;
+}
+
+html[data-theme='light'] .idt-pricing-note {
+  color: #395173;
+}
+
+html[data-theme='light'] .idt-price span,
+html[data-theme='light'] .idt-plan-fit,
+html[data-theme='light'] .idt-pricing-card ul,
+html[data-theme='light'] .idt-pricing-card li,
+html[data-theme='light'] .idt-doc-tags,
+html[data-theme='light'] .idt-muted-strong {
+  color: #314b73;
+}
+
+html[data-theme='light'] .idt-badge {
+  background: rgba(30, 58, 107, 0.12);
+  color: #16315d;
+}
+
+html[data-theme='light'] .idt-pricing-toggle {
+  border-color: rgba(21, 39, 70, 0.21);
+  background: rgba(234, 242, 254, 0.94);
+}
+
+html[data-theme='light'] .idt-pricing-toggle button {
+  color: #446086;
+}
+
+html[data-theme='light'] .idt-pricing-toggle button.is-active {
+  color: #152e58;
+  background: rgba(255, 255, 255, 0.98);
+}
+
+html[data-theme='light'] .idt-demo-edge-path {
+  stroke-width: 1.02;
+  stroke-dasharray: 5.5 9;
+  opacity: 0.46;
+}
+
+html[data-theme='light'] .idt-demo-edges g.is-connected .idt-demo-edge-path {
+  stroke-width: 1.28;
+  opacity: 0.76;
+}
+
+html[data-theme='light'] .idt-demo-edge-glow {
+  stroke-width: 1.9;
+  opacity: 0.1;
+  filter: none;
+}
+
+html[data-theme='light'] .idt-demo-edges g.is-connected .idt-demo-edge-glow {
+  opacity: 0.2;
+}
+
+html[data-theme='light'] .idt-demo-edge-tracer {
+  fill: rgba(29, 56, 102, 0.8);
+  opacity: 0.58;
+  filter: none;
+}
+
+html[data-theme='light'] .idt-calendly-card,
+html[data-theme='light'] .idt-calendly-preview {
+  background: linear-gradient(160deg, rgba(252, 254, 255, 0.98), rgba(243, 249, 255, 0.96));
+  border-color: rgba(20, 40, 72, 0.16);
+  box-shadow: 0 12px 26px rgba(32, 54, 93, 0.1);
+}
+
+html[data-theme='light'] .idt-calendly-note,
+html[data-theme='light'] .idt-calendly-checklist,
+html[data-theme='light'] .idt-calendly-preview ol {
+  color: #2f486f;
+}
+
+html[data-theme='light'] .idt-calendly-slot-row span {
+  border-color: rgba(30, 56, 102, 0.25);
+  background: rgba(234, 243, 255, 0.92);
+  color: #233d66;
+}
+
+html[data-theme='light'] .idt-inline-link,
+html[data-theme='light'] .idt-footer-links a,
+html[data-theme='light'] .idt-footer-trust-links a,
+html[data-theme='light'] .idt-header-utility {
+  text-decoration-color: rgba(38, 66, 114, 0.75);
+}
+
+@media (max-width: 1080px) {
+  .idt-calendly-shell {
+    grid-template-columns: 1fr;
+  }
+}
