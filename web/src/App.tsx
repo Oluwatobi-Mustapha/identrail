@@ -1060,15 +1060,8 @@ function RoiNumberField({ id, label, value, min, step, onChange }: RoiNumberFiel
             }
             updateValue(parsed);
           }}
+          onBlur={() => updateValue(value)}
         />
-        <div className="idt-roi-stepper" role="group" aria-label={`${label} controls`}>
-          <button type="button" onClick={() => updateValue(value - step)} aria-label={`Decrease ${label}`}>
-            −
-          </button>
-          <button type="button" onClick={() => updateValue(value + step)} aria-label={`Increase ${label}`}>
-            +
-          </button>
-        </div>
       </div>
     </label>
   );
