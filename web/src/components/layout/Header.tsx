@@ -77,40 +77,40 @@ export function Header({
         </nav>
 
         <div className="idt-header-actions">
-          <button
-            type="button"
-            className={`idt-theme-toggle ${theme === 'light' ? 'is-light' : ''}`}
-            onClick={onToggleTheme}
-            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {theme === 'dark' ? (
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  d="M6.76 4.84 5.35 3.43 3.93 4.84l1.42 1.41 1.41-1.41Zm10.49 0 1.41-1.41 1.41 1.41-1.41 1.41-1.41-1.41ZM12 4h1V1h-2v3h1Zm7 9h3v-2h-3v2Zm-7 7h1v3h-2v-3h1ZM2 13h3v-2H2v2Zm3.34 6.57 1.41 1.41 1.41-1.41-1.41-1.41-1.41 1.41Zm13.31 1.41 1.41-1.41-1.41-1.41-1.41 1.41 1.41 1.41ZM12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z"
-                />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  d="M20.74 15.35A9.6 9.6 0 0 1 8.65 3.26a.75.75 0 0 0-.92-.93A10.98 10.98 0 1 0 21.67 16.27a.75.75 0 0 0-.93-.92Z"
-                />
-              </svg>
-            )}
-            <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
-          </button>
-
           <Link to="/read-only-scan" className="idt-btn idt-btn-primary" data-ab-slot="header_primary_cta">
             Start Free Risk Scan
           </Link>
           <Link to="/demo" className="idt-btn idt-btn-dark">
             Book Demo
           </Link>
-          <SafeLink href={githubRepo} className="idt-header-utility">
-            GitHub
-          </SafeLink>
+          <div className="idt-header-utility-group">
+            <SafeLink href={githubRepo} className="idt-header-utility">
+              GitHub
+            </SafeLink>
+            <button
+              type="button"
+              className={`idt-theme-toggle ${theme === 'light' ? 'is-light' : ''}`}
+              onClick={onToggleTheme}
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {theme === 'dark' ? (
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M12 4.5a1 1 0 0 1 1 1V7a1 1 0 1 1-2 0V5.5a1 1 0 0 1 1-1Zm0 12a1 1 0 0 1 1 1v1.5a1 1 0 1 1-2 0V17.5a1 1 0 0 1 1-1ZM6.34 6.34a1 1 0 0 1 1.41 0L8.8 7.39A1 1 0 0 1 7.39 8.8L6.34 7.75a1 1 0 0 1 0-1.41Zm8.86 8.86a1 1 0 0 1 1.41 0l1.05 1.05a1 1 0 0 1-1.41 1.41L15.2 16.6a1 1 0 0 1 0-1.4ZM4.5 12a1 1 0 0 1 1-1H7a1 1 0 0 1 0 2H5.5a1 1 0 0 1-1-1Zm12.5 0a1 1 0 0 1 1-1h1.5a1 1 0 1 1 0 2H18a1 1 0 0 1-1-1ZM7.39 15.2A1 1 0 1 1 8.8 16.6l-1.05 1.06a1 1 0 0 1-1.41-1.42l1.05-1.05Zm8.86-8.86a1 1 0 1 1 1.42 1.41L16.6 8.8a1 1 0 1 1-1.4-1.41l1.05-1.05ZM12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z"
+                  />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M21.2 14.97A8.94 8.94 0 0 1 9.03 2.8a.75.75 0 0 0-.92-.95A10.5 10.5 0 1 0 22.15 15.9a.75.75 0 0 0-.95-.92Z"
+                  />
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </header>
