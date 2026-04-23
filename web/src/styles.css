@@ -3968,8 +3968,10 @@ html[data-theme='light'] .idt-hero-layer-dots button.is-active {
 .idt-footer-trust-links a,
 .idt-header-utility {
   text-decoration-line: underline;
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 0.22em;
+  text-decoration-style: solid;
+  text-decoration-thickness: 1.4px;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 0.2em;
   text-decoration-color: rgba(171, 191, 225, 0.85);
 }
 
@@ -4076,6 +4078,24 @@ html[data-theme='light'] .idt-calendly-preview {
   background: linear-gradient(160deg, rgba(252, 254, 255, 0.98), rgba(243, 249, 255, 0.96));
   border-color: rgba(20, 40, 72, 0.16);
   box-shadow: 0 12px 26px rgba(32, 54, 93, 0.1);
+}
+
+html[data-theme='light'] .idt-calendly {
+  background: linear-gradient(156deg, rgba(248, 252, 255, 0.98), rgba(237, 245, 255, 0.96));
+  border-color: rgba(22, 40, 71, 0.16);
+  box-shadow: 0 14px 28px rgba(30, 52, 91, 0.12);
+}
+
+html[data-theme='light'] .idt-calendly .idt-section-title .idt-eyebrow {
+  color: #5d79a4;
+}
+
+html[data-theme='light'] .idt-calendly .idt-section-title h2 {
+  color: #183056;
+}
+
+html[data-theme='light'] .idt-calendly .idt-section-title p {
+  color: #2f486f;
 }
 
 html[data-theme='light'] .idt-calendly-note,
