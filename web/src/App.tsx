@@ -2601,26 +2601,41 @@ function BlogArticlePage() {
       <section className="idt-page-hero idt-shell">
         <p className="idt-eyebrow">{post.category}</p>
         <h1>{post.title}</h1>
-        <p>{post.description}</p>
+        <p>{post.summary}</p>
       </section>
 
       <section className="idt-section idt-shell">
         <article className="idt-card idt-blog-article">
-          <p>
-            Machine identity security failures are rarely one bad permission in isolation. They are usually trust chains that span
-            cloud IAM, Kubernetes, OIDC federation, and CI workflows.
-          </p>
-          <h2>What this means for operating teams</h2>
-          <p>
-            Treat identity relationships as a graph, not disconnected policy files. This reveals which non-human identities can
-            actually reach sensitive systems and where blast radius expands.
-          </p>
-          <h2>What to implement next</h2>
+          {post.sections.map((section) => (
+            <div key={section.heading}>
+              <h2>{section.heading}</h2>
+              {section.paragraphs.map((paragraph, index) => (
+                <p key={`${section.heading}-p-${index}`}>{paragraph}</p>
+              ))}
+              {section.bullets && section.bullets.length > 0 ? (
+                <ul>
+                  {section.bullets.map((bullet) => (
+                    <li key={bullet}>{bullet}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ))}
+
+          <h2>How Identrail comes in</h2>
           <ul>
-            <li>Continuously map trust paths from machine principals to critical resources.</li>
-            <li>Prioritize high-severity paths with reachable production impact.</li>
-            <li>Simulate trust-policy hardening before enforcement in production.</li>
-            <li>Record remediation outcomes for audit and executive risk reporting.</li>
+            {post.identrailFit.map((point) => (
+              <li key={point}>{point}</li>
+            ))}
+          </ul>
+
+          <h2>References</h2>
+          <ul>
+            {post.references.map((reference) => (
+              <li key={reference.href}>
+                <SafeLink href={reference.href}>{reference.label}</SafeLink>
+              </li>
+            ))}
           </ul>
           <div className="idt-inline-actions">
             <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
