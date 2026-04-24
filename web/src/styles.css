@@ -1297,36 +1297,13 @@ h3 {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 12px;
-  min-height: 46px;
-  padding: 0.62rem 0.75rem;
+  min-height: 50px;
+  padding: 0 0.82rem;
   background: rgba(7, 7, 9, 0.9);
   color: #fff;
   font-family: inherit;
   font-size: 1rem;
   line-height: 1.35;
-}
-
-.idt-form-grid select {
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  min-height: 50px;
-  padding-right: 2.8rem;
-  border-radius: 12px;
-  background-repeat: no-repeat;
-  background-image:
-    linear-gradient(45deg, transparent 50%, currentColor 50%),
-    linear-gradient(135deg, currentColor 50%, transparent 50%),
-    linear-gradient(to right, rgba(142, 167, 214, 0.36), rgba(142, 167, 214, 0.36));
-  background-position:
-    calc(100% - 1.08rem) calc(50% - 0.12rem),
-    calc(100% - 0.74rem) calc(50% - 0.12rem),
-    calc(100% - 2.3rem) 50%;
-  background-size:
-    0.44rem 0.44rem,
-    0.44rem 0.44rem,
-    1px 58%;
-  cursor: pointer;
 }
 
 .idt-roi-number-input {
@@ -1478,23 +1455,24 @@ h3 {
   line-height: 1.35;
 }
 
+.idt-form-grid select,
 .idt-intake-grid select {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
   padding-right: 2.8rem;
+  font-size: 1.02rem;
+  font-weight: 560;
+  letter-spacing: 0.004em;
   background-repeat: no-repeat;
   background-image:
-    linear-gradient(45deg, transparent 50%, currentColor 50%),
-    linear-gradient(135deg, currentColor 50%, transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M3.25 5.5 7 9.25 10.75 5.5' fill='none' stroke='%23d2dff6' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"),
     linear-gradient(to right, rgba(142, 167, 214, 0.36), rgba(142, 167, 214, 0.36));
   background-position:
-    calc(100% - 1.08rem) calc(50% - 0.12rem),
-    calc(100% - 0.74rem) calc(50% - 0.12rem),
+    right 0.9rem center,
     calc(100% - 2.3rem) 50%;
   background-size:
-    0.44rem 0.44rem,
-    0.44rem 0.44rem,
+    0.92rem 0.92rem,
     1px 58%;
   cursor: pointer;
 }
@@ -3766,6 +3744,13 @@ html[data-theme='light'] .idt-intake-grid select {
   background-color: rgba(253, 255, 255, 0.96);
   border-color: rgba(20, 39, 70, 0.24);
   color: #162a4d;
+}
+
+html[data-theme='light'] .idt-form-grid select,
+html[data-theme='light'] .idt-intake-grid select {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M3.25 5.5 7 9.25 10.75 5.5' fill='none' stroke='%23243f69' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"),
+    linear-gradient(to right, rgba(64, 92, 145, 0.35), rgba(64, 92, 145, 0.35));
 }
 
 html[data-theme='light'] .idt-roi-output,
