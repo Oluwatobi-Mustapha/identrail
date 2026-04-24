@@ -29,7 +29,7 @@ errors=[]
 for f in files:
     txt=f.read_text(errors='ignore')
     for m in re.finditer(r'\[[^\]]+\]\(([^)]+)\)', txt):
-        t=m.group(1).strip().split('#',1)[0]
+        t=m.group(1).strip().split(None, 1)[0].strip('<>').split('#',1)[0]
         if not t or t.startswith(('http://','https://','mailto:','#')):
             continue
         if not (f.parent/t).resolve().exists():
