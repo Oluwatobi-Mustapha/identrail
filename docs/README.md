@@ -28,6 +28,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 ## Authorization and policy operations
 
 - AuthZ operations runbook: `authz-operator-runbook.md`
+- Auth scope and OIDC claims mapping: `auth-scope-and-claims.md`
 - AuthZ rollout lifecycle: `authz-policy-rollout-runbook.md`
 - Security hardening guidance: `security-hardening.md`
 
