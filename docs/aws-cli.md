@@ -1,46 +1,36 @@
-# AWS CLI UX (Phase 1)
+# CLI UX
 
 ## Commands
 
 - `identrail scan`
 - `identrail findings`
+- `identrail repo-scan`
+- `identrail authz rollback`
 
 ## What `scan` does
 
-`scan` executes the full AWS phase-1 pipeline:
+`scan` executes the provider pipeline:
 
-1. collect raw IAM role assets (fixture-backed collector)
+1. collect raw assets
 2. normalize identities and policies
-3. resolve permissions and graph relationships
+3. resolve permissions and relationships
 4. evaluate typed risk findings
-5. print findings summary and save local state
+5. print summary and optionally persist local state
 
-## Default Fixture Mode
+Provider behavior is selected by `IDENTRAIL_PROVIDER`:
+- `aws`
+- `kubernetes`
 
-By default, `scan` uses local fixtures in `testdata/aws/` for deterministic development and testing.
-
-You can override fixture paths:
-
-```bash
-identrail scan --fixture testdata/aws/role_with_policies.json --fixture testdata/aws/role_with_urlencoded_trust.json
-```
-
-You can also pass a directory of JSON fixtures:
-
-```bash
-identrail scan --fixture testdata/aws
-```
+Default fixture paths are provider-aware and can be overridden with `--fixture`.
 
 ## Output
 
-- `--output table` (default): human-friendly summary
-- `--output json`: machine-friendly result payload
+- `--output table` (default)
+- `--output json`
 
 ## Local State
 
-After scan, findings are saved locally (default):
-
-- `.identrail/last-findings.json`
+By default, `scan` writes findings state to `.identrail/last-findings.json`.
 
 `findings` reads this file:
 
@@ -49,9 +39,31 @@ identrail findings
 identrail findings --output json
 ```
 
-Override state location with `--state-file`.
+Use `--state-file` to override location.
 
-## Notes
+## Repository Exposure Scan
 
-- Phase 1 supports AWS only.
-- Phase 1 CLI uses fixture-backed ingestion by design; live AWS API adapter wiring is a follow-on hardening step.
+```bash
+identrail repo-scan --repo owner/repo
+identrail repo-scan --repo https://github.com/owner/repo.git
+identrail repo-scan --repo /path/to/local/repo
+```
+
+Useful flags:
+- `--history-limit`
+- `--max-findings`
+- `--output table|json`
+
+## AuthZ Rollback
+
+```bash
+identrail authz rollback \
+  --api-url http://127.0.0.1:8080 \
+  --api-key "$IDENTRAIL_API_KEY" \
+  --tenant-id default \
+  --workspace-id default \
+  --policy-set-id central_authorization \
+  --target-version 1
+```
+
+`--api-url` defaults from `IDENTRAIL_API_URL` (or `http://127.0.0.1:8080`).
