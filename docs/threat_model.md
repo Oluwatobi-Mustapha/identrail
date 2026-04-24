@@ -18,8 +18,8 @@ Simple threat list for current system.
 - Status: Implemented.
 
 ## 4) API Trigger Abuse
-- Threat: Repeated scan trigger calls can overload service.
-- Fix: Single-flight lock and API conflict response for in-flight run.
+- Threat: Repeated scan trigger calls can overload service and starve worker throughput.
+- Fix: Queue-backed async trigger (`202` accepted), bounded queue limits, and worker batch drain controls.
 - Status: Implemented.
 
 ## 5) Unbounded List Queries
