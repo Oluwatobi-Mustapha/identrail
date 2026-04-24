@@ -36,6 +36,43 @@ paths:
                     type: string
                   service:
                     type: string
+  /readyz:
+    get:
+      tags: [Health]
+      summary: Readiness check
+      operationId: readinessCheck
+      security: []
+      responses:
+        "200":
+          description: Service ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  service:
+                    type: string
+        "503":
+          description: Service not ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /metrics:
+    get:
+      tags: [Health]
+      summary: Prometheus metrics endpoint
+      operationId: metrics
+      security: []
+      responses:
+        "200":
+          description: Prometheus text exposition format
+          content:
+            text/plain:
+              schema:
+                type: string
   /v1/authz/policies/simulate:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
