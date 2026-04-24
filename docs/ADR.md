@@ -32,11 +32,11 @@ This file tracks major decisions in simple terms.
 - Why: Safe reruns, no duplicate data growth.
 - Tradeoff: More careful key design.
 
-## ADR-006: Single-Flight Scan Lock
+## ADR-006: Single-Flight Scan Execution Lock
 - Date: 2026-03-16
-- Decision: Reject overlapping scans for same provider.
-- Why: Prevent race conditions and duplicate writes.
-- Tradeoff: Concurrent trigger requests can return conflict (`409`).
+- Decision: Enqueue scan triggers and enforce single-flight execution per provider in worker/service execution path.
+- Why: Prevent race conditions and duplicate writes while preserving async API responsiveness.
+- Tradeoff: Queue sizing and worker throughput tuning become operational requirements.
 
 ## ADR-007: Memory Store + Postgres Store
 - Date: 2026-03-16
@@ -234,13 +234,13 @@ This file tracks major decisions in simple terms.
 - Date: 2026-03-17
 - Decision: Add `repo-scan` as a dedicated, read-only CLI workflow separate from cloud identity scan pipelines.
 - Why: Detect public-repo secret leaks and misconfigurations without coupling repository scanning to AWS/Kubernetes domain models.
-- Tradeoff: Results are currently CLI-driven and not yet persisted through API scan lifecycle endpoints.
+- Tradeoff: Dedicated repo-scan persistence and queue lifecycle adds additional storage and operational surface area.
 
 ## ADR-040: Expose Repo Scan Through Write-Protected API Endpoint
 - Date: 2026-03-17
 - Decision: Add `POST /v1/repo-scans` with write authorization and configurable safety bounds/allowlist.
 - Why: Enable dashboard/backend integrations to trigger repository exposure scans without shell access.
-- Tradeoff: Endpoint is synchronous and currently returns findings directly (no persistence lifecycle yet).
+- Tradeoff: API now returns queued repo-scan records; operators depend on worker queue drain for execution latency.
 
 ## ADR-041: Persist Repo Scan Lifecycle in Dedicated Tables
 - Date: 2026-03-17
