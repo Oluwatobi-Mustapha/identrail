@@ -1301,10 +1301,32 @@ h3 {
   padding: 0.62rem 0.75rem;
   background: rgba(7, 7, 9, 0.9);
   color: #fff;
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.35;
 }
 
 .idt-form-grid select {
-  line-height: 1.25;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  min-height: 50px;
+  padding-right: 2.8rem;
+  border-radius: 12px;
+  background-repeat: no-repeat;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%),
+    linear-gradient(to right, rgba(142, 167, 214, 0.36), rgba(142, 167, 214, 0.36));
+  background-position:
+    calc(100% - 1.08rem) calc(50% - 0.12rem),
+    calc(100% - 0.74rem) calc(50% - 0.12rem),
+    calc(100% - 2.3rem) 50%;
+  background-size:
+    0.44rem 0.44rem,
+    0.44rem 0.44rem,
+    1px 58%;
+  cursor: pointer;
 }
 
 .idt-roi-number-input {
@@ -1327,35 +1349,6 @@ h3 {
 
 .idt-roi-number-input[type='number'] {
   -moz-appearance: textfield;
-}
-
-.idt-roi-stepper {
-  position: absolute;
-  top: 50%;
-  right: 7px;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.idt-roi-stepper button {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.26);
-  background: rgba(12, 18, 28, 0.95);
-  color: #f8fafc;
-  font-size: 0.9rem;
-  font-weight: 800;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.idt-roi-stepper button:hover,
-.idt-roi-stepper button:focus-visible {
-  border-color: rgba(255, 255, 255, 0.64);
-  box-shadow: 0 0 0 2px rgba(245, 247, 251, 0.12);
 }
 
 .idt-roi-output {
@@ -1474,12 +1467,36 @@ h3 {
 
 .idt-intake-grid input,
 .idt-intake-grid select {
-  min-height: 44px;
+  min-height: 50px;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 10px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.03);
   color: #eef4ff;
-  padding: 0 0.72rem;
+  padding: 0 0.82rem;
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.idt-intake-grid select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 2.8rem;
+  background-repeat: no-repeat;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%),
+    linear-gradient(to right, rgba(142, 167, 214, 0.36), rgba(142, 167, 214, 0.36));
+  background-position:
+    calc(100% - 1.08rem) calc(50% - 0.12rem),
+    calc(100% - 0.74rem) calc(50% - 0.12rem),
+    calc(100% - 2.3rem) 50%;
+  background-size:
+    0.44rem 0.44rem,
+    0.44rem 0.44rem,
+    1px 58%;
+  cursor: pointer;
 }
 
 .idt-intake-summary {
@@ -1830,12 +1847,6 @@ h2 {
 .idt-roi-number-input {
   min-height: 56px;
   font-size: clamp(1.08rem, 1.2vw, 1.24rem);
-}
-
-.idt-roi-stepper button {
-  width: 34px;
-  height: 34px;
-  font-size: 1rem;
 }
 
 .idt-roi-output p {
@@ -2368,35 +2379,6 @@ h2 {
 
 .idt-roi-number-input[type='number'] {
   -moz-appearance: textfield;
-}
-
-.idt-roi-stepper {
-  position: absolute;
-  top: 50%;
-  right: 7px;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.idt-roi-stepper button {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.26);
-  background: rgba(12, 18, 28, 0.95);
-  color: #f8fafc;
-  font-size: 0.9rem;
-  font-weight: 800;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.idt-roi-stepper button:hover,
-.idt-roi-stepper button:focus-visible {
-  border-color: rgba(255, 255, 255, 0.64);
-  box-shadow: 0 0 0 2px rgba(245, 247, 251, 0.12);
 }
 
 .idt-form-grid.is-short {
@@ -3784,12 +3766,6 @@ html[data-theme='light'] .idt-intake-grid select {
   background-color: rgba(253, 255, 255, 0.96);
   border-color: rgba(20, 39, 70, 0.24);
   color: #162a4d;
-}
-
-html[data-theme='light'] .idt-roi-stepper button {
-  background: rgba(233, 241, 254, 0.94);
-  color: #1b345d;
-  border-color: rgba(25, 45, 80, 0.3);
 }
 
 html[data-theme='light'] .idt-roi-output,
