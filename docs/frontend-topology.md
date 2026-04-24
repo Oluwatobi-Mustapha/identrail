@@ -1,6 +1,6 @@
 # Frontend Topology
 
-Identrail currently has two frontend surfaces with different purposes.
+Identrail uses a product dashboard today and may include a separate marketing site surface depending on branch/release packaging.
 
 ## `web/` (product dashboard)
 
@@ -9,7 +9,7 @@ Identrail currently has two frontend surfaces with different purposes.
 - Typical runtime: containerized deployment (`deploy/docker/Dockerfile.web`, optional Helm `web.enabled`)
 - API URL input: `VITE_IDENTRAIL_API_URL`
 
-## `site/` (marketing site)
+## `site/` (marketing site, optional in this repo snapshot)
 
 - Stack: Next.js
 - Purpose: public marketing/documentation landing pages
