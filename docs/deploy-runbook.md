@@ -28,6 +28,16 @@ Portable deployment profiles:
 - Confirm API auth is configured:
   - legacy: `IDENTRAIL_API_KEYS` (+ `IDENTRAIL_WRITE_API_KEYS`)
   - scoped: `IDENTRAIL_API_KEY_SCOPES`
+- Confirm default request scope values for non-claim/non-header contexts:
+  - `IDENTRAIL_DEFAULT_TENANT_ID`
+  - `IDENTRAIL_DEFAULT_WORKSPACE_ID`
+- Confirm OIDC claim mapping when OIDC is enabled:
+  - `IDENTRAIL_OIDC_TENANT_CLAIM`
+  - `IDENTRAIL_OIDC_WORKSPACE_CLAIM`
+  - `IDENTRAIL_OIDC_GROUPS_CLAIM`
+  - `IDENTRAIL_OIDC_ROLES_CLAIM`
+- Confirm Postgres RLS enforcement mode for scoped read paths:
+  - `IDENTRAIL_POSTGRES_RLS_ENFORCED`
 - Confirm alert config:
   - `IDENTRAIL_ALERT_WEBHOOK_URL`
   - `IDENTRAIL_ALERT_MIN_SEVERITY`
