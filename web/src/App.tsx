@@ -2601,42 +2601,47 @@ function BlogArticlePage() {
       <section className="idt-page-hero idt-shell">
         <p className="idt-eyebrow">{post.category}</p>
         <h1>{post.title}</h1>
-        <p>{post.summary}</p>
+        <p>{post.description}</p>
       </section>
 
       <section className="idt-section idt-shell">
         <article className="idt-card idt-blog-article">
+          <p className="idt-chip-row">
+            <span>{post.category}</span>
+            <span>{post.readTime}</span>
+          </p>
+          {post.intro.map((paragraph) => (
+            <p key={paragraph} className="idt-blog-lead">
+              {paragraph}
+            </p>
+          ))}
           {post.sections.map((section) => (
-            <div key={section.heading}>
+            <section key={section.heading} className="idt-blog-section">
               <h2>{section.heading}</h2>
-              {section.paragraphs.map((paragraph, index) => (
-                <p key={`${section.heading}-p-${index}`}>{paragraph}</p>
+              {section.paragraphs.map((paragraph) => (
+                <p key={paragraph}>{paragraph}</p>
               ))}
-              {section.bullets && section.bullets.length > 0 ? (
+              {section.bullets ? (
                 <ul>
                   {section.bullets.map((bullet) => (
                     <li key={bullet}>{bullet}</li>
                   ))}
                 </ul>
               ) : null}
-            </div>
+            </section>
           ))}
-
-          <h2>How Identrail comes in</h2>
-          <ul>
-            {post.identrailFit.map((point) => (
-              <li key={point}>{point}</li>
-            ))}
-          </ul>
-
-          <h2>References</h2>
-          <ul>
-            {post.references.map((reference) => (
-              <li key={reference.href}>
-                <SafeLink href={reference.href}>{reference.label}</SafeLink>
-              </li>
-            ))}
-          </ul>
+          <section className="idt-blog-section">
+            <h2>References and further reading</h2>
+            <ul className="idt-blog-reference-list">
+              {post.references.map((reference) => (
+                <li key={reference.href}>
+                  <SafeLink href={reference.href} className="idt-inline-link">
+                    {reference.label}
+                  </SafeLink>
+                </li>
+              ))}
+            </ul>
+          </section>
           <div className="idt-inline-actions">
             <Link to="/read-only-scan" className="idt-btn idt-btn-primary">
               Start Free Risk Scan
