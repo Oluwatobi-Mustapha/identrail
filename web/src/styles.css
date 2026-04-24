@@ -1954,8 +1954,34 @@ h2 {
   max-width: 860px;
 }
 
+.idt-blog-lead {
+  font-size: 1.06rem;
+  line-height: 1.78;
+  color: #dfe8f9;
+}
+
+.idt-blog-section + .idt-blog-section {
+  margin-top: 1.6rem;
+}
+
 .idt-blog-article h2 {
   margin-top: 1.6rem;
+}
+
+.idt-blog-article ul {
+  margin: 0.9rem 0 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.idt-blog-reference-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.idt-blog-reference-list li {
+  display: flex;
 }
 
 .idt-search {
@@ -3758,6 +3784,10 @@ html[data-theme='light'] .idt-form-success {
   background: rgba(38, 71, 127, 0.1);
   border-color: rgba(31, 57, 100, 0.24);
   color: #19315a;
+}
+
+html[data-theme='light'] .idt-blog-lead {
+  color: #294267;
 }
 
 html[data-theme='light'] .idt-footer-bar {
