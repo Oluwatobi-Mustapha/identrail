@@ -35,6 +35,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 
 - API contract (OpenAPI): `openapi-v1.yaml`
 - Development workflow: `development-workflow.md`
+- CLI reference: `cli-reference.md`
 - Testing strategy: `testing.md`
 - Migrations strategy: `migrations.md`
 - Artifact persistence notes: `persistence-artifacts.md`
