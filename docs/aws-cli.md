@@ -2,4 +2,4 @@
 
 This page is retained for phase-history context.
 
-For current CLI behavior and commands, see `docs/cli-reference.md`.
+For current CLI behavior and commands, see [CLI reference](cli-reference.md).
