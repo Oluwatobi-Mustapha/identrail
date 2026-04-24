@@ -15,13 +15,19 @@ Checks:
 2. Check provider rate limits and transient API failures.
 3. Confirm collector retry/backoff settings are active.
 
-## API `409 scan already in progress`
+## API scan trigger rejected (`429 scan queue is full`)
 
 Checks:
-1. Confirm long-running scan status in `/v1/scans`.
-2. Validate lock backend:
-   - multi-instance should use `IDENTRAIL_LOCK_BACKEND=postgres`.
-3. Verify same namespace for lock keys (`IDENTRAIL_LOCK_NAMESPACE`).
+1. Confirm worker is running and draining queued jobs.
+2. Check queue settings:
+   - `IDENTRAIL_SCAN_QUEUE_MAX_PENDING`
+   - `IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED`
+   - `IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL`
+   - `IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE`
+3. Confirm no prolonged downstream scanner failures are stalling queue drain.
+
+Note:
+- `POST /v1/scans` is asynchronous and returns `202` when accepted into queue.
 
 ## No Findings Returned
 
