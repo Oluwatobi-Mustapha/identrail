@@ -39,6 +39,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 - Migrations strategy: `migrations.md`
 - Artifact persistence notes: `persistence-artifacts.md`
 - Repository exposure scanner: `repo-exposure.md`
+- Configuration reference: `configuration-reference.md`
 
 ## Release and supply chain track
 
