@@ -34,6 +34,7 @@ This index maps Identrail docs by operator, developer, security/compliance, and 
 ## API and developer track
 
 - API contract (OpenAPI): `openapi-v1.yaml`
+- Frontend topology (`web/` vs `site/`): `frontend-topology.md`
 - Development workflow: `development-workflow.md`
 - Testing strategy: `testing.md`
 - Migrations strategy: `migrations.md`
