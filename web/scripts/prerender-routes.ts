@@ -108,6 +108,46 @@ const ROUTE_META: Record<string, RouteMeta> = {
     description:
       'Learn practical machine identity security tactics for AWS IAM, Kubernetes service accounts, OIDC trust paths, and blast-radius reduction.'
   },
+  '/blog/machine-identity-security-operating-model-2026': {
+    title: 'Machine Identity Security in 2026: A Practical Operating Model | Identrail',
+    description:
+      'A practical operating model for discovering, prioritizing, and controlling machine trust paths in production.'
+  },
+  '/blog/aws-nhi-security-misconfigurations': {
+    title: 'AWS NHI Security: 14 Misconfigurations That Expand Blast Radius | Identrail',
+    description:
+      'A field guide to high-impact IAM role-chain misconfigurations and practical remediation sequencing.'
+  },
+  '/blog/kubernetes-machine-identity-rbac-risk-paths': {
+    title: 'Kubernetes Machine Identity: RBAC Risk Paths You Can Actually Fix | Identrail',
+    description:
+      'How to map Kubernetes service-account escalation paths and tighten RBAC safely in production.'
+  },
+  '/blog/repo-exposure-program-machine-identities': {
+    title: 'From Secrets Sprawl to Signal: Building a Repo Exposure Program | Identrail',
+    description:
+      'Build a repo exposure program that prioritizes real credential risk and speeds containment.'
+  },
+  '/blog/open-core-vs-closed-machine-identity-security': {
+    title: 'Open-Core vs Closed Platforms in Machine Identity Security | Identrail',
+    description:
+      'A practical buyer guide for evaluating architecture control, portability, and TCO tradeoffs.'
+  },
+  '/blog/least-privilege-evidence-for-non-human-identities': {
+    title: 'How to Prove Least Privilege for Non-Human Identities to Auditors | Identrail',
+    description:
+      'Generate audit-ready least-privilege evidence for SOC 2 and ISO 27001 using trust-path data.'
+  },
+  '/blog/rollout-safe-authorization-controls': {
+    title: 'Designing Rollout-Safe Authorization Controls for Platform Teams | Identrail',
+    description:
+      'Use simulation, canary gates, and rollback controls to harden authorization without outages.'
+  },
+  '/blog/trust-graph-metrics-for-security-leaders': {
+    title: 'Trust Graphs for Security Leaders: What to Measure and Why | Identrail',
+    description:
+      'Metrics that connect machine identity posture improvements to incident reduction and business risk.'
+  },
   '/security': {
     title: 'Security and Compliance | Identrail',
     description:
