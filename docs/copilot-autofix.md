@@ -11,7 +11,7 @@ Workflow file:
 2. Requests an autofix for each alert.
 3. Waits for autofix generation to complete.
 4. Creates a commit on `autofix/code-scanning-alert-<alert_number>`.
-5. Opens a draft PR to `main`.
+5. Opens a draft PR to `dev`.
 
 ## Triggers
 

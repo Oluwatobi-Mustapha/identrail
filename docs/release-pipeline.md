@@ -35,7 +35,7 @@ Identrail release automation is defined in:
 
 ## Recommended Usage
 
-1. Merge all release-ready PRs into `main`.
+1. Merge all release-ready PRs into `dev`.
 2. Create and push a SemVer tag:
    - `git tag v1.2.3`
    - `git push origin v1.2.3`

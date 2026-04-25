@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - dev
-      - main
   workflow_dispatch:
 
 permissions:
@@ -17,7 +16,7 @@ concurrency:
 jobs:
   deploy:
     name: Deploy to Vercel Production
-    if: github.repository == 'identrail/identrail' && (github.event_name != 'workflow_dispatch' || github.ref_name == 'dev' || github.ref_name == 'main')
+    if: github.repository == 'identrail/identrail' && (github.event_name != 'workflow_dispatch' || github.ref_name == 'dev')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:

@@ -201,7 +201,7 @@ jobs:
                 repo,
                 title,
                 head: branchName,
-                base: "main",
+                base: "dev",
                 body,
                 draft: true,
               });
