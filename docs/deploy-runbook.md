@@ -63,7 +63,7 @@ Portable deployment profiles:
 
 ## 2) Deploy Sequence
 
-1. Ensure CI is green on `main` (`Go Quality`, `Go Tests`, `Go Integration (Postgres)`, `Web Build`).
+1. Ensure CI is green on `dev` (`Go Quality`, `Go Tests`, `Go Integration (Postgres)`, `Web Build`).
 2. Run migrations once using the dedicated migration job:
    - Kubernetes manifests: apply `deploy/kubernetes/migration-job.yaml` and wait for job completion.
    - Helm: pre-install/pre-upgrade hook job runs automatically when `migrations.enabled=true`.

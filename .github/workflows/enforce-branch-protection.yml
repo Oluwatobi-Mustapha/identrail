@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   enforce:
-    name: Enforce main branch protection
+    name: Enforce dev branch protection
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -26,13 +26,13 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Validate config JSON
-        run: jq empty .github/branch-protection/main.json
+        run: jq empty .github/branch-protection/dev.json
 
       - name: Print protection plan (dry-run)
         if: inputs.mode == 'dry-run'
         run: |
-          echo "Branch protection payload for main:"
-          cat .github/branch-protection/main.json
+          echo "Branch protection payload for dev:"
+          cat .github/branch-protection/dev.json
 
       - name: Apply protection via GitHub API
         if: inputs.mode == 'apply'
@@ -49,15 +49,15 @@ jobs:
             }
 
             const payload = JSON.parse(
-              fs.readFileSync('.github/branch-protection/main.json', 'utf8')
+              fs.readFileSync('.github/branch-protection/dev.json', 'utf8')
             );
 
             const octokit = github.getOctokit(token);
             await octokit.rest.repos.updateBranchProtection({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              branch: 'main',
+              branch: 'dev',
               ...payload,
             });
 
-            core.info('Branch protection updated for main.');
+            core.info('Branch protection updated for dev.');

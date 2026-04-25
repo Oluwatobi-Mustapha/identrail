@@ -8,7 +8,7 @@
 <p align="center">
   Open-source machine identity security platform for AWS and Kubernetes workloads.
   <br />
-  <a href="https://github.com/identrail/identrail/blob/main/docs/enterprise-quickstart.md"><strong>Get Started »</strong></a>
+  <a href="https://github.com/identrail/identrail/blob/dev/docs/enterprise-quickstart.md"><strong>Get Started »</strong></a>
   <br />
   <br />
   <a href="https://discord.gg/7jSUSnQC">Discord</a>
@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/identrail/identrail/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/identrail/identrail/ci.yml?branch=main&style=flat&label=ci&colorA=000000&colorB=000000" alt="CI" /></a>
+  <a href="https://github.com/identrail/identrail/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/identrail/identrail/ci.yml?branch=dev&style=flat&label=ci&colorA=000000&colorB=000000" alt="CI" /></a>
   <a href="https://github.com/identrail/identrail/tags"><img src="https://img.shields.io/github/v/tag/identrail/identrail?sort=semver&style=flat&label=version&colorA=000000&colorB=000000" alt="Latest version" /></a>
   <a href="https://github.com/identrail/identrail/stargazers"><img src="https://img.shields.io/github/stars/identrail/identrail?style=flat&colorA=000000&colorB=000000" alt="GitHub stars" /></a>
 </p>

@@ -28,7 +28,7 @@ This is the release gate for priorities 21-22.
 
 ## Tagging Flow
 
-1. Ensure CI for `main` is green.
+1. Ensure CI for `dev` is green.
 2. Create release candidate tag:
    - `git tag -a v1.0.0-rc.1 -m "Identrail v1.0.0 release candidate 1"`
    - `git push origin v1.0.0-rc.1`
