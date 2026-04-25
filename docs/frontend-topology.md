@@ -8,6 +8,7 @@ Identrail uses a product dashboard today and may include a separate marketing si
 - Purpose: operator-facing app experience tied to API workflows
 - Typical runtime: containerized deployment (`deploy/docker/Dockerfile.web`, optional Helm `web.enabled`)
 - API URL input: `VITE_IDENTRAIL_API_URL`
+- Vercel (marketing/demo deploy): set `VITE_IDENTRAIL_API_URL` in Vercel project environment variables (or set GitHub Actions variable `VITE_IDENTRAIL_API_URL` so the deploy workflow upserts it).
 
 ## `site/` (marketing site, optional in this repo snapshot)
 
