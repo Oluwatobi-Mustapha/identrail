@@ -1,0 +1,6 @@
+Contact: mailto:security@identrail.com
+Policy: https://www.identrail.com/responsible-disclosure
+Acknowledgments: https://www.identrail.com/security
+Preferred-Languages: en
+Canonical: https://www.identrail.com/.well-known/security.txt
+Expires: 2027-04-26T00:00:00Z
