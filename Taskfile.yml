@@ -46,6 +46,11 @@ tasks:
     cmds:
       - make web-build
 
+  vercel-prod-deploy:
+    desc: Trigger Vercel production deploy (always uses origin/dev)
+    cmds:
+      - make vercel-prod-deploy
+
   ci:
     desc: Run core local CI checks
     cmds:
