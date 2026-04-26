@@ -1,7 +1,7 @@
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
-.PHONY: help bootstrap quickstart quickstart-down fmt fmt-check vet test test-integration web-install web-test web-build helm-lint tfmt-check ci pre-commit
+.PHONY: help bootstrap quickstart quickstart-down fmt fmt-check vet test test-integration web-install web-test web-build vercel-prod-deploy helm-lint tfmt-check ci pre-commit
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "%-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -51,6 +51,9 @@ web-test: ## Run web test suite in CI mode
 
 web-build: ## Build web frontend
 	npm run build --prefix web
+
+vercel-prod-deploy: ## Trigger Vercel production deploy (always uses origin/dev)
+	./scripts/vercel_prod_deploy.sh
 
 helm-lint: ## Lint Helm chart
 	helm lint deploy/helm/identrail
