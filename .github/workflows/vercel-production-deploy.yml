@@ -66,12 +66,9 @@ jobs:
           echo "Token verified for Vercel user:"
           jq -r '.user.username // .username // "unknown"' /tmp/vercel-user.json
 
-      - name: Ensure Vercel env has VITE_IDENTRAIL_API_URL
+      - name: Require VITE_IDENTRAIL_API_URL variable
         if: steps.normalize-token.outputs.has_token == 'true'
         env:
-          VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VITE_IDENTRAIL_API_URL: ${{ vars.VITE_IDENTRAIL_API_URL }}
         run: |
           set -euo pipefail
@@ -81,6 +78,16 @@ jobs:
             exit 1
           fi
 
+      - name: Upsert Vercel env VITE_IDENTRAIL_API_URL
+        if: steps.normalize-token.outputs.has_token == 'true'
+        continue-on-error: true
+        env:
+          VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VITE_IDENTRAIL_API_URL: ${{ vars.VITE_IDENTRAIL_API_URL }}
+        run: |
+          set -euo pipefail
           payload="$(jq -n --arg value "${VITE_IDENTRAIL_API_URL}" '{
             key: "VITE_IDENTRAIL_API_URL",
             value: $value,
