@@ -128,18 +128,20 @@ export type FindingTriageRequest = {
   comment?: string;
 };
 
-const viteEnv = ((import.meta as ImportMeta & { env?: Record<string, string> }).env ?? {}) as Record<string, string>;
-const configuredURL = viteEnv.VITE_IDENTRAIL_API_URL;
-if (viteEnv.PROD === 'true') {
-  if (!configuredURL) {
-    throw new Error('VITE_IDENTRAIL_API_URL must be set in production builds');
-  }
+const viteEnv = ((import.meta as unknown as { env?: Record<string, unknown> }).env ?? {}) as Record<string, unknown>;
+const isProd = viteEnv.PROD === true || viteEnv.PROD === 'true';
+const configuredURL = typeof viteEnv.VITE_IDENTRAIL_API_URL === 'string' ? viteEnv.VITE_IDENTRAIL_API_URL : undefined;
+
+// Never silently fall back to localhost in production builds (for example on Vercel).
+// If the API URL is not configured, requests should fail loudly when invoked.
+if (isProd && configuredURL) {
   const parsed = new URL(configuredURL);
   if (parsed.protocol === 'http:' && parsed.hostname !== 'localhost') {
     throw new Error('VITE_IDENTRAIL_API_URL must use HTTPS in production (HTTP only allowed for localhost)');
   }
 }
-const baseURL = configuredURL ?? 'http://localhost:8080';
+
+const baseURL = configuredURL ?? (isProd ? '' : 'http://localhost:8080');
 
 function trimOrUndefined(value?: string): string | undefined {
   const trimmed = value?.trim();
@@ -180,6 +182,11 @@ export function mergeRequestHeaders(auth?: RequestAuthContext, initHeaders?: Hea
 }
 
 async function request<T>(path: string, auth?: RequestAuthContext, init: RequestInit = {}): Promise<T> {
+  if (isProd && !configuredURL) {
+    throw new Error(
+      'Identrail API URL is not configured. Set VITE_IDENTRAIL_API_URL in Vercel project environment variables.'
+    );
+  }
   const headers = mergeRequestHeaders(auth, init.headers);
   const res = await fetch(`${baseURL}${path}`, { ...init, headers });
   if (!res.ok) {

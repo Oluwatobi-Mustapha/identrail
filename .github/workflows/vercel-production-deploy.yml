@@ -65,6 +65,44 @@ jobs:
           echo "Token verified for Vercel user:"
           jq -r '.user.username // .username // "unknown"' /tmp/vercel-user.json
 
+      - name: Require VITE_IDENTRAIL_API_URL variable
+        if: steps.normalize-token.outputs.has_token == 'true'
+        env:
+          VITE_IDENTRAIL_API_URL: ${{ vars.VITE_IDENTRAIL_API_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VITE_IDENTRAIL_API_URL}" ]; then
+            echo "Missing vars.VITE_IDENTRAIL_API_URL."
+            echo "Set this GitHub Actions variable and it will be upserted into the Vercel project env vars."
+            exit 1
+          fi
+
+      - name: Upsert Vercel env VITE_IDENTRAIL_API_URL
+        if: steps.normalize-token.outputs.has_token == 'true'
+        continue-on-error: true
+        env:
+          VERCEL_TOKEN: ${{ steps.normalize-token.outputs.token }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VITE_IDENTRAIL_API_URL: ${{ vars.VITE_IDENTRAIL_API_URL }}
+        run: |
+          set -euo pipefail
+          payload="$(jq -n --arg value "${VITE_IDENTRAIL_API_URL}" '{
+            key: "VITE_IDENTRAIL_API_URL",
+            value: $value,
+            type: "plain",
+            target: ["production", "preview"],
+            comment: "Identrail web -> API base URL (required for production builds)"
+          }')"
+
+          curl -fsS -X POST \
+            "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?upsert=true&teamId=${VERCEL_ORG_ID}" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "${payload}" \
+            > /tmp/vercel-env-upsert.json
+          jq -r '.created.key // "Vercel env upserted."' /tmp/vercel-env-upsert.json
+
       - name: Deploy to Vercel
         id: deploy-action
         if: steps.normalize-token.outputs.has_token == 'true'
