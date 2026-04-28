@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import handler from './leads';
 
 type MockResponse = {
@@ -23,6 +23,11 @@ function createMockResponse(): MockResponse {
 }
 
 describe('web/api/leads handler', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.LEAD_WEBHOOK_URL;
+  });
+
   it('rejects invalid email payloads', async () => {
     const res = createMockResponse();
     await handler(
@@ -40,7 +45,34 @@ describe('web/api/leads handler', () => {
     expect(res.body).toEqual({ error: 'Valid work email is required.' });
   });
 
-  it('accepts read-only scan metadata payloads', async () => {
+  it('returns 503 when lead webhook is not configured', async () => {
+    const res = createMockResponse();
+    await handler(
+      {
+        method: 'POST',
+        body: {
+          email: 'security@company.com',
+          environment: 'AWS IAM + Kubernetes',
+          deployment_model: 'Hosted SaaS',
+          urgency: 'This quarter',
+          team_size: '6-20',
+          scan_goal: 'AWS IAM + Kubernetes trust-path risk reduction',
+          source: 'Read-Only Scan Intake',
+          page_path: '/read-only-scan'
+        }
+      },
+      res
+    );
+
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toEqual({ error: 'Lead capture is not configured.' });
+  });
+
+  it('accepts payloads when webhook forwarding succeeds', async () => {
+    process.env.LEAD_WEBHOOK_URL = 'https://example.test/webhook';
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+
     const res = createMockResponse();
     await handler(
       {
@@ -61,5 +93,6 @@ describe('web/api/leads handler', () => {
 
     expect(res.statusCode).toBe(202);
     expect(res.body).toEqual({ status: 'accepted' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

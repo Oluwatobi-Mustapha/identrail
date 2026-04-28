@@ -74,21 +74,24 @@ export default async function handler(
 
   const webhook = process.env.LEAD_WEBHOOK_URL?.trim();
 
-  if (webhook) {
-    try {
-      const forward = await fetch(webhook, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!forward.ok) {
-        res.status(502).json({ error: 'Lead forwarding failed.' });
-        return;
-      }
-    } catch {
+  if (!webhook) {
+    res.status(503).json({ error: 'Lead capture is not configured.' });
+    return;
+  }
+
+  try {
+    const forward = await fetch(webhook, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!forward.ok) {
       res.status(502).json({ error: 'Lead forwarding failed.' });
       return;
     }
+  } catch {
+    res.status(502).json({ error: 'Lead forwarding failed.' });
+    return;
   }
 
   res.status(202).json({ status: 'accepted' });
