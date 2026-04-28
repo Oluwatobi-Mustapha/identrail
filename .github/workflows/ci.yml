@@ -161,6 +161,9 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      - name: Validate API Example Contract
+        run: ./scripts/check_api_example_contract.sh
+
       - name: Install Web Dependencies
         run: npm ci --prefix web
 

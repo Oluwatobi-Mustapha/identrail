@@ -46,6 +46,11 @@ tasks:
     cmds:
       - make web-build
 
+  api-example-contract-check:
+    desc: Validate docs/web API snippets against current v1 contract
+    cmds:
+      - make api-example-contract-check
+
   vercel-prod-deploy:
     desc: Trigger Vercel production deploy (always uses origin/dev)
     cmds:
