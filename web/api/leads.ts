@@ -72,7 +72,7 @@ export default async function handler(
     captured_at: new Date().toISOString()
   };
 
-  const webhook = process.env.LEAD_WEBHOOK_URL?.trim();
+  const webhook = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.LEAD_WEBHOOK_URL?.trim();
 
   if (webhook) {
     try {
