@@ -123,7 +123,7 @@ Demo video: _coming soon_.
 
 If you discover a vulnerability, use private reporting only:
 
-- GitHub private advisories: <https://github.com/Oluwatobi-Mustapha/identrail/security/advisories/new>
+- GitHub private advisories: <https://github.com/identrail/identrail/security/advisories/new>
 - Email: [security@identrail.com](mailto:security@identrail.com)
 
 Maintainer targets for supported versions:
