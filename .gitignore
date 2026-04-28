@@ -68,3 +68,6 @@ build/
 
 # Cache
 .cache/
+
+# Legacy/optional frontend worktree snapshots (not part of active dev branch)
+site/

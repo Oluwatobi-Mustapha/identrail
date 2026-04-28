@@ -1,6 +1,6 @@
 # Frontend Topology
 
-Identrail uses a product dashboard today and may include a separate marketing site surface depending on branch/release packaging.
+Identrail uses `web/` as the active tracked frontend on `dev`.
 
 ## `web/` (product dashboard)
 
@@ -11,15 +11,16 @@ Identrail uses a product dashboard today and may include a separate marketing si
 - Vercel (marketing/demo deploy): set `VITE_IDENTRAIL_API_URL` in Vercel project environment variables (or set GitHub Actions variable `VITE_IDENTRAIL_API_URL` so the deploy workflow upserts it).
 - Production deploys should be triggered from `dev` (example: `make vercel-prod-deploy` / `task vercel-prod-deploy`) to avoid accidentally deploying from a stale local branch.
 
-## `site/` (marketing site, optional in this repo snapshot)
+## `site/` (legacy Next.js marketing surface)
 
 - Stack: Next.js
 - Purpose: public marketing/documentation landing pages
 - Typical runtime: Vercel-hosted static/dynamic site
 - Not part of the core API/worker runtime path
+- Not tracked in this branch snapshot; local leftovers can drift from API contract and should not be treated as source of truth.
 
 ## Operational Guidance
 
 - Treat `web/` as product UI release surface coupled to API compatibility.
-- Treat `site/` as marketing/content release surface with independent cadence.
+- Treat `site/` as legacy/branch-specific surface unless explicitly restored and reviewed.
 - Validate both in CI where relevant, but keep deployment ownership boundaries explicit.
