@@ -3,7 +3,7 @@ export const siteLinks = {
   platform: '/product',
   useCases: '/use-cases',
   solutions: '/solutions',
-  resources: '/resources',
+  resources: '/docs',
   company: '/company',
   pricing: '/pricing',
   docs: '/docs',
