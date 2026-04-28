@@ -95,7 +95,7 @@ Choose the rollout path that matches your environment maturity:
 
 See [Deployment Anywhere](./docs/deployment-anywhere.md) for exact commands.
 
-## Project Status and Roadmap
+## Project Status
 
 Status: **Active** (v1 line in active support).
 
@@ -149,7 +149,3 @@ Full policy: [docs/versioning-support-policy.md](./docs/versioning-support-polic
 - [Contributing Guide](./CONTRIBUTING.md)
 - [Code of Conduct](./CODE_OF_CONDUCT.md)
 - [Issues](https://github.com/identrail/identrail/issues)
-
-## License
-
-Licensed under [Apache-2.0](./LICENSE).
