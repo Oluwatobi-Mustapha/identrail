@@ -36,6 +36,10 @@ yarn-error.log*
 pnpm-debug.log*
 web/dist/
 web/build/
+web/coverage/
+web/.vercel/
+site/.next/
+site/.vercel/
 *.tsbuildinfo
 
 # Testing
