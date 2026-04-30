@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
 	"github.com/gin-gonic/gin"
@@ -751,7 +752,7 @@ func newPolicyTestRouterWithResolver(scopes scopeSet, setPrincipal bool, resolve
 		}
 		c.Next()
 	})
-	r.Use(requireCentralPolicyMiddleware(resolver, nil, nil, nil, metrics))
+	r.Use(requireCentralPolicyMiddleware(resolver, nil, nil, nil, metrics, nil))
 	r.POST("/v1/scans", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
@@ -772,14 +773,14 @@ func newPolicyTriageRouter(scopes scopeSet, setPrincipal bool, store db.Store) *
 		}
 		c.Next()
 	})
-	r.Use(requireCentralPolicyMiddleware(newCentralPolicyRuntimeResolver(store), nil, nil, store, telemetry.NewMetrics()))
+	r.Use(requireCentralPolicyMiddleware(newCentralPolicyRuntimeResolver(store), nil, nil, store, telemetry.NewMetrics(), nil))
 	r.PATCH("/v1/findings/:finding_id/triage", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
 	return r
 }
 
-func newPolicyAuditTestRouter(scopes scopeSet, setPrincipal bool, resolver centralPolicyRuntimeResolver, metrics *telemetry.Metrics, sink AuditSink) *gin.Engine {
+func newPolicyAuditTestRouter(scopes scopeSet, setPrincipal bool, resolver centralPolicyRuntimeResolver, metrics *telemetry.Metrics, sink audit.AuditSink) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -793,8 +794,8 @@ func newPolicyAuditTestRouter(scopes scopeSet, setPrincipal bool, resolver centr
 		}
 		c.Next()
 	})
-	r.Use(auditLogMiddleware(zap.NewNop(), sink))
-	r.Use(requireCentralPolicyMiddleware(resolver, nil, nil, nil, metrics))
+	r.Use(auditLogMiddleware(zap.NewNop(), sink, nil))
+	r.Use(requireCentralPolicyMiddleware(resolver, nil, nil, nil, metrics, nil))
 	r.POST("/v1/scans", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
@@ -820,10 +821,10 @@ type staticPolicyRuntimeResolver struct {
 
 type middlewareRecordingAuditSink struct {
 	mu     sync.Mutex
-	events []AuditEvent
+	events []audit.AuditEvent
 }
 
-func (s *middlewareRecordingAuditSink) Write(_ context.Context, event AuditEvent) error {
+func (s *middlewareRecordingAuditSink) Write(_ context.Context, event audit.AuditEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, event)

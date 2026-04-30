@@ -5,23 +5,35 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
 )
 
 // UpsertOrganization persists or updates one tenant organization record.
 func (m *MemoryStore) UpsertOrganization(ctx context.Context, organization TenancyOrganization) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	scope, err := RequireScope(ctx)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	organization.TenantID = scope.TenantID
 	normalized, err := NormalizeTenancyOrganizationForWrite(organization)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	m.organizations[normalized.TenantID] = normalized
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.organization.upsert",
+		TenantID:     normalized.TenantID,
+		ResourceType: "tenancy_organization",
+		ResourceID:   normalized.TenantID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
@@ -44,13 +56,14 @@ func (m *MemoryStore) GetOrganization(ctx context.Context) (TenancyOrganization,
 // DeleteOrganization removes the active scoped tenant organization record.
 func (m *MemoryStore) DeleteOrganization(ctx context.Context) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	scope, err := RequireScope(ctx)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	if _, exists := m.organizations[scope.TenantID]; !exists {
+		m.mu.Unlock()
 		return ErrNotFound
 	}
 	delete(m.organizations, scope.TenantID)
@@ -69,32 +82,54 @@ func (m *MemoryStore) DeleteOrganization(ctx context.Context) error {
 			delete(m.projects, key)
 		}
 	}
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.organization.delete",
+		TenantID:     scope.TenantID,
+		ResourceType: "tenancy_organization",
+		ResourceID:   scope.TenantID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
 // UpsertWorkspace persists or updates one scoped workspace record.
 func (m *MemoryStore) UpsertWorkspace(ctx context.Context, workspace TenancyWorkspace) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	scope, err := RequireScope(ctx)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	workspace.TenantID = scope.TenantID
 	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspace.WorkspaceID)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	workspace.WorkspaceID = resolvedWorkspaceID
 	normalized, err := NormalizeTenancyWorkspaceForWrite(workspace)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	if _, exists := m.organizations[normalized.TenantID]; !exists {
+		m.mu.Unlock()
 		return ErrNotFound
 	}
 	m.workspaces[tenancyWorkspaceKey(normalized.TenantID, normalized.WorkspaceID)] = normalized
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace.upsert",
+		TenantID:     normalized.TenantID,
+		WorkspaceID:  normalized.WorkspaceID,
+		ResourceType: "tenancy_workspace",
+		ResourceID:   normalized.WorkspaceID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
@@ -148,18 +183,20 @@ func (m *MemoryStore) ListWorkspaces(ctx context.Context, limit int) ([]TenancyW
 // DeleteWorkspace removes one scoped workspace and all child records.
 func (m *MemoryStore) DeleteWorkspace(ctx context.Context, workspaceID string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	scope, err := RequireScope(ctx)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	normalizedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	key := tenancyWorkspaceKey(scope.TenantID, normalizedWorkspaceID)
 	if _, exists := m.workspaces[key]; !exists {
+		m.mu.Unlock()
 		return ErrNotFound
 	}
 	delete(m.workspaces, key)
@@ -173,32 +210,55 @@ func (m *MemoryStore) DeleteWorkspace(ctx context.Context, workspaceID string) e
 			delete(m.projects, projectKey)
 		}
 	}
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace.delete",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  normalizedWorkspaceID,
+		ResourceType: "tenancy_workspace",
+		ResourceID:   normalizedWorkspaceID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
 // UpsertWorkspaceMember persists one workspace member assignment.
 func (m *MemoryStore) UpsertWorkspaceMember(ctx context.Context, member TenancyWorkspaceMember) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	scope, err := RequireScope(ctx)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	member.TenantID = scope.TenantID
 	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, member.WorkspaceID)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	member.WorkspaceID = resolvedWorkspaceID
 	normalized, err := NormalizeTenancyWorkspaceMemberForWrite(member)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	if _, exists := m.workspaces[tenancyWorkspaceKey(normalized.TenantID, normalized.WorkspaceID)]; !exists {
+		m.mu.Unlock()
 		return ErrNotFound
 	}
 	m.members[tenancyMemberKey(normalized.TenantID, normalized.WorkspaceID, normalized.MemberID)] = normalized
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace_member.upsert",
+		TenantID:     normalized.TenantID,
+		WorkspaceID:  normalized.WorkspaceID,
+		ResourceType: "tenancy_workspace_member",
+		ResourceID:   normalized.MemberID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
@@ -255,47 +315,72 @@ func (m *MemoryStore) ListWorkspaceMembers(ctx context.Context, workspaceID stri
 // DeleteWorkspaceMember removes one scoped workspace member.
 func (m *MemoryStore) DeleteWorkspaceMember(ctx context.Context, workspaceID string, memberID string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	scope, err := RequireScope(ctx)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	key := tenancyMemberKey(scope.TenantID, resolvedWorkspaceID, memberID)
 	if _, exists := m.members[key]; !exists {
+		m.mu.Unlock()
 		return ErrNotFound
 	}
 	delete(m.members, key)
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace_member.delete",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_workspace_member",
+		ResourceID:   memberID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
 // UpsertProject persists one scoped project record.
 func (m *MemoryStore) UpsertProject(ctx context.Context, project TenancyProject) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	scope, err := RequireScope(ctx)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	project.TenantID = scope.TenantID
 	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, project.WorkspaceID)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	project.WorkspaceID = resolvedWorkspaceID
 	normalized, err := NormalizeTenancyProjectForWrite(project)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	if _, exists := m.workspaces[tenancyWorkspaceKey(normalized.TenantID, normalized.WorkspaceID)]; !exists {
+		m.mu.Unlock()
 		return ErrNotFound
 	}
 	m.projects[tenancyProjectKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID)] = normalized
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.project.upsert",
+		TenantID:     normalized.TenantID,
+		WorkspaceID:  normalized.WorkspaceID,
+		ResourceType: "tenancy_project",
+		ResourceID:   normalized.ProjectID,
+		Outcome:      "success",
+	})
 	return nil
 }
 
@@ -363,21 +448,33 @@ func (m *MemoryStore) ListProjects(ctx context.Context, workspaceID string, incl
 // DeleteProject removes one scoped project.
 func (m *MemoryStore) DeleteProject(ctx context.Context, workspaceID string, projectID string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	scope, err := RequireScope(ctx)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
 	if err != nil {
+		m.mu.Unlock()
 		return err
 	}
 	key := tenancyProjectKey(scope.TenantID, resolvedWorkspaceID, projectID)
 	if _, exists := m.projects[key]; !exists {
+		m.mu.Unlock()
 		return ErrNotFound
 	}
 	delete(m.projects, key)
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.project.delete",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_project",
+		ResourceID:   projectID,
+		Outcome:      "success",
+	})
 	return nil
 }
 

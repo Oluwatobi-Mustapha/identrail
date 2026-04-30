@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Oluwatobi-Mustapha/identrail/internal/audit"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/db"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/domain"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/telemetry"
@@ -50,7 +51,8 @@ type RouterOptions struct {
 	OIDCWriteScopes    []string
 	RateLimitRPM       int
 	RateLimitBurst     int
-	AuditSink          AuditSink
+	AuditSink          audit.AuditSink
+	AuditFingerprinter *audit.Fingerprinter
 	TrustedProxies     []string
 	CORSAllowedOrigins []string
 	DefaultTenantID    string
@@ -146,12 +148,12 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	v1 := r.Group("/v1")
 	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes))
 	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID))
-	v1.Use(auditLogMiddleware(logger, opts.AuditSink))
+	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
 	centralPolicyResolver := newCentralPolicyRuntimeResolver(authzStore)
-	v1.Use(requireCentralPolicyMiddleware(centralPolicyResolver, opts.WriteAPIKeys, opts.APIKeyScopes, authzStore, metrics))
+	v1.Use(requireCentralPolicyMiddleware(centralPolicyResolver, opts.WriteAPIKeys, opts.APIKeyScopes, authzStore, metrics, opts.AuditFingerprinter))
 	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
-	v1.POST("/authz/policies/simulate", authzPolicySimulationHandler(logger, authzStore, centralPolicyResolver, opts.AuditSink))
-	v1.POST("/authz/policies/rollback", authzPolicyRollbackHandler(logger, authzStore, metrics))
+	v1.POST("/authz/policies/simulate", authzPolicySimulationHandler(logger, authzStore, centralPolicyResolver, opts.AuditSink, opts.AuditFingerprinter))
+	v1.POST("/authz/policies/rollback", authzPolicyRollbackHandler(logger, authzStore, metrics, opts.AuditFingerprinter))
 
 	if svc == nil {
 		v1.GET("/findings", func(c *gin.Context) {
@@ -338,7 +340,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 			strings.TrimSpace(c.Param("finding_id")),
 			strings.TrimSpace(c.Query("scan_id")),
 			request,
-			triageActorFromContext(c),
+			triageActorFromContext(c, opts.AuditFingerprinter),
 		)
 		if err != nil {
 			if errors.Is(err, db.ErrNotFound) {
@@ -1362,33 +1364,49 @@ func rateLimitMiddleware(rpm int, burst int) gin.HandlerFunc {
 	}
 }
 
-func auditLogMiddleware(logger *zap.Logger, sink AuditSink) gin.HandlerFunc {
+func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter *audit.Fingerprinter) gin.HandlerFunc {
 	if sink == nil {
-		sink = NopAuditSink{}
+		sink = audit.NopAuditSink{}
 	}
 	return func(c *gin.Context) {
+		actor := triageActorFromContext(c, fingerprinter)
+		ctx := audit.WithSink(c.Request.Context(), sink)
+		ctx = audit.WithActor(ctx, actor)
+
+		// Prefer upstream request IDs when present, otherwise generate a new ID.
+		if headerID := strings.TrimSpace(c.GetHeader("X-Request-Id")); headerID != "" {
+			ctx = audit.WithCorrelationID(ctx, headerID)
+		}
+		ctx, correlationID := audit.EnsureCorrelationID(ctx)
+		c.Request = c.Request.WithContext(ctx)
+		c.Writer.Header().Set("X-Request-Id", correlationID)
+
 		start := time.Now()
 		c.Next()
-		event := AuditEvent{
+		event := audit.AuditEvent{
 			Timestamp:  time.Now().UTC(),
+			Kind:       "api_request",
 			Method:     c.Request.Method,
 			Path:       c.Request.URL.Path,
 			Status:     c.Writer.Status(),
 			ClientIP:   c.ClientIP(),
 			DurationMS: time.Since(start).Milliseconds(),
 			UserAgent:  c.Request.UserAgent(),
+			Actor:      actor,
+			// CorrelationID is used by action-level audit events as well.
+			CorrelationID: correlationID,
 		}
 		if apiKeyValue, exists := c.Get("auth.api_key"); exists {
 			if apiKey, ok := apiKeyValue.(string); ok {
-				event.APIKeyID = fingerprintAPIKey(apiKey)
+				event.APIKeyID = fingerprintAPIKeyWith(fingerprinter, apiKey)
 			}
 		}
 		if authzDecision, exists := c.Get("authz.audit_decision"); exists {
 			switch typed := authzDecision.(type) {
-			case AuditAuthzDecision:
+			case audit.AuditAuthzDecision:
 				decision := typed
 				event.Authz = &decision
-			case *AuditAuthzDecision:
+			case *audit.AuditAuthzDecision:
 				if typed != nil {
 					decision := *typed
 					event.Authz = &decision
@@ -1429,7 +1447,7 @@ func authContextString(c *gin.Context, key string) string {
 	return strings.TrimSpace(text)
 }
 
-func triageActorFromContext(c *gin.Context) string {
+func triageActorFromContext(c *gin.Context, fingerprinter *audit.Fingerprinter) string {
 	if c == nil {
 		return "unknown"
 	}
@@ -1445,11 +1463,25 @@ func triageActorFromContext(c *gin.Context) string {
 		if apiKey, ok := apiKeyValue.(string); ok {
 			normalizedKey := strings.TrimSpace(apiKey)
 			if normalizedKey != "" {
-				return "api_key:" + fingerprintAPIKey(normalizedKey)
+				return "api_key:" + fingerprintAPIKeyWith(fingerprinter, normalizedKey)
 			}
 		}
 	}
 	return "unknown"
+}
+
+func fingerprintAPIKeyWith(fingerprinter *audit.Fingerprinter, raw string) string {
+	if fingerprinter != nil {
+		return fingerprinter.APIKey(raw)
+	}
+	return audit.FingerprintAPIKey(raw)
+}
+
+func fingerprintIdentifierWith(fingerprinter *audit.Fingerprinter, raw string) string {
+	if fingerprinter != nil {
+		return fingerprinter.Identifier(raw)
+	}
+	return audit.FingerprintIdentifier(raw)
 }
 
 func readBearerToken(c *gin.Context) string {

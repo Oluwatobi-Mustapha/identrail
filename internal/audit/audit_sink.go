@@ -1,8 +1,11 @@
-package api
+package audit
 
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -15,15 +18,46 @@ import (
 	"time"
 )
 
-// AuditEvent captures one API request for external audit export.
+// AuditEvent captures one structured audit record for external export.
+//
+// The existing API request audit log is represented as Kind=api_request with the
+// HTTP fields populated. Control-plane action audit records use Kind=action and
+// populate Action/Resource/Scope fields.
 type AuditEvent struct {
-	Timestamp  time.Time           `json:"timestamp"`
-	Method     string              `json:"method"`
-	Path       string              `json:"path"`
-	Status     int                 `json:"status"`
-	ClientIP   string              `json:"client_ip"`
-	DurationMS int64               `json:"duration_ms"`
-	UserAgent  string              `json:"user_agent"`
+	Timestamp time.Time `json:"timestamp"`
+
+	// Kind distinguishes API request envelopes from action-level control-plane events.
+	// Examples: "api_request", "action".
+	Kind string `json:"kind,omitempty"`
+
+	// CorrelationID ties multiple records back to the same request/workflow.
+	CorrelationID string `json:"correlation_id,omitempty"`
+
+	// Actor is a stable, non-secret identifier for the principal that triggered the action.
+	Actor string `json:"actor,omitempty"`
+
+	// Action is an operation name for action audit records.
+	Action string `json:"action,omitempty"`
+
+	// Scope context.
+	TenantID    string `json:"tenant_id,omitempty"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+
+	// Resource context.
+	ResourceType string `json:"resource_type,omitempty"`
+	ResourceID   string `json:"resource_id,omitempty"`
+
+	// Outcome is a coarse result indicator such as "success", "denied", "not_found", "error".
+	Outcome string `json:"outcome,omitempty"`
+	Error   string `json:"error,omitempty"`
+
+	// API request fields (Kind=api_request).
+	Method     string              `json:"method,omitempty"`
+	Path       string              `json:"path,omitempty"`
+	Status     int                 `json:"status,omitempty"`
+	ClientIP   string              `json:"client_ip,omitempty"`
+	DurationMS int64               `json:"duration_ms,omitempty"`
+	UserAgent  string              `json:"user_agent,omitempty"`
 	APIKeyID   string              `json:"api_key_id,omitempty"`
 	Authz      *AuditAuthzDecision `json:"authz,omitempty"`
 }
@@ -51,7 +85,7 @@ type AuditAuthzDecision struct {
 	Input         AuditAuthzInputSummary `json:"input"`
 }
 
-// AuditSink defines the export target for API audit events.
+// AuditSink defines the export target for audit events.
 type AuditSink interface {
 	Write(ctx context.Context, event AuditEvent) error
 	Close() error
@@ -203,19 +237,68 @@ func (m *MultiAuditSink) Close() error {
 	return firstErr
 }
 
-func fingerprintAPIKey(raw string) string {
-	return fingerprintAuditIdentifier(raw)
+// Fingerprinter produces keyed HMAC-SHA256 fingerprints for audit identifiers.
+type Fingerprinter struct {
+	key []byte
 }
 
-func fingerprintAuditIdentifier(raw string) string {
+// NewFingerprinter creates a Fingerprinter that uses the given secret as the
+// HMAC-SHA256 key. The secret must be non-empty in production; an empty value
+// causes a panic to prevent accidental use of weak fingerprints.
+func NewFingerprinter(secret string) *Fingerprinter {
+	trimmed := strings.TrimSpace(secret)
+	if trimmed == "" {
+		panic("audit.NewFingerprinter: secret must not be empty; set IDENTRAIL_AUDIT_FINGERPRINT_SECRET")
+	}
+	return &Fingerprinter{key: []byte(trimmed)}
+}
+
+func (f *Fingerprinter) hmacFingerprint(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	mac := hmac.New(sha256.New, f.key)
+	mac.Write([]byte(trimmed))
+	return "hmac256:" + hex.EncodeToString(mac.Sum(nil))[:24]
+}
+
+// Identifier returns a stable, keyed fingerprint suitable for correlating
+// principals/resources in audit logs without exposing raw IDs.
+func (f *Fingerprinter) Identifier(raw string) string {
+	return f.hmacFingerprint(raw)
+}
+
+// APIKey returns a stable, keyed fingerprint for API keys in audit logs.
+func (f *Fingerprinter) APIKey(raw string) string {
+	return f.hmacFingerprint(raw)
+}
+
+func fingerprintAPIKey(raw string) string {
+	return legacyFingerprintAuditIdentifier(raw)
+}
+
+// FingerprintAPIKey returns a stable, non-secret identifier suitable for audit logs.
+// Deprecated: Use Fingerprinter.APIKey for keyed HMAC-SHA256 fingerprints.
+func FingerprintAPIKey(raw string) string {
+	return fingerprintAPIKey(raw)
+}
+
+func legacyFingerprintAuditIdentifier(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return ""
 	}
 	hasher := fnv.New64a()
 	_, _ = hasher.Write([]byte(trimmed))
-	// Deterministic correlation identifier; truncated for compact audit payloads.
 	return fmt.Sprintf("fnv64a:%012x", hasher.Sum64()&0xFFFFFFFFFFFF)
+}
+
+// FingerprintIdentifier returns a stable, non-secret identifier suitable for
+// correlating principals/resources without logging raw IDs.
+// Deprecated: Use Fingerprinter.Identifier for keyed HMAC-SHA256 fingerprints.
+func FingerprintIdentifier(raw string) string {
+	return legacyFingerprintAuditIdentifier(raw)
 }
 
 func validateAuditForwardURL(raw string) error {
@@ -235,6 +318,23 @@ func validateAuditForwardURL(raw string) error {
 	default:
 		return fmt.Errorf("unsupported audit forward url scheme %q", parsed.Scheme)
 	}
+}
+
+func computeHMAC(body []byte, secret string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func backoffDuration(base time.Duration, attempt int) time.Duration {
+	wait := base
+	for i := 0; i < attempt; i++ {
+		wait *= 2
+	}
+	if wait > 10*time.Second {
+		return 10 * time.Second
+	}
+	return wait
 }
 
 func (s *HTTPAuditSink) send(ctx context.Context, payload []byte) (bool, error) {
