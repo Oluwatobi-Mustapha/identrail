@@ -17,11 +17,21 @@ Good contributions include:
 
 ## Ways to Contribute
 
-- Report bugs with clear reproduction steps.
-- Propose enhancements with a concrete problem statement.
-- Submit focused pull requests with tests and docs updates when relevant.
-- Improve docs and runbooks when behavior or operations change.
+- **Open an issue** to report a bug, request a feature, or suggest an improvement.
+  
+- **Pick up an existing issue** if you want to contribute code, documentation, tests, or cleanup work.
 
+- **Report bugs clearly** by including reproduction steps, expected behavior, actual behavior, environment details, and any relevant logs or screenshots.
+  
+- **Link pull requests to issues** by starting your PR description with a closing keyword and issue number, such as `Fixes #500`, `Closes #500`, or `Resolves #500`. This automatically connects the PR to the related issue and helps keep project tracking clean.
+  
+- **Propose enhancements** with a clear problem statement, why it matters, and a suggested approach if you have one.
+  
+- **Submit focused pull requests** that address one issue or improvement at a time. Include tests and documentation updates when relevant.
+  
+- **Improve documentation and runbooks** whenever behavior, setup steps, operations, or troubleshooting guidance changes.
+
+  
 ## Before You Start
 
 Prerequisites:
@@ -154,6 +164,7 @@ Maintainers may request revision or rejection when:
 - security posture is weakened
 - code quality is below project standards
 - contributor cannot explain critical logic
+- Contributor has refused to sign DCO - this is a must.
 
 ## Security Issues
 
