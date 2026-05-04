@@ -98,6 +98,13 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 	}
 
 	svc := api.NewService(store, scanner, cfg.Provider)
+	svc.KubernetesPreflightFactory = func(contextName string) api.KubernetesConnectorPreflightRunner {
+		effectiveContext := strings.TrimSpace(contextName)
+		if effectiveContext == "" {
+			effectiveContext = cfg.KubeContext
+		}
+		return k8sprovider.NewKubectlPreflightDriver(cfg.KubectlPath, effectiveContext, nil)
+	}
 	svc.AWSConnectorValidator = awsprovider.NewConnectionValidator(cfg.AWSRegion, cfg.AWSProfile)
 	svc.AWSScannerFactory = func(ctx context.Context, connection api.AWSConnectionStatus) (api.ScannerRunner, error) {
 		iamAPI, iamErr := awsprovider.NewSDKIAMAPIFromAssumeRole(ctx, connection.Region, cfg.AWSProfile, connection.RoleARN, connection.ExternalID, "identrail-recurring-scan")
