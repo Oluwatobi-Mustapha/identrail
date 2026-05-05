@@ -16,6 +16,7 @@ import (
 	"github.com/Oluwatobi-Mustapha/identrail/internal/providers"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/repoexposure"
 	"github.com/Oluwatobi-Mustapha/identrail/internal/scheduler"
+	"github.com/Oluwatobi-Mustapha/identrail/internal/secretstore"
 )
 
 const (
@@ -74,6 +75,7 @@ type Service struct {
 	ScanQueueMaxPending         int
 	RepoQueueMaxPending         int
 	RepoScannerFactory          RepoScannerFactory
+	ConnectorSecretManager      *secretstore.Manager
 	KubernetesPreflightFactory  KubernetesConnectorPreflightFactory
 	AWSConnectorValidator       AWSConnectorValidator
 	AWSScannerFactory           AWSScannerFactory
@@ -275,6 +277,7 @@ func NewService(store db.Store, scanner ScannerRunner, provider string) *Service
 		RepoScanMaxFindingsLimit:    defaultRepoScanFindingsMax,
 		ScanQueueMaxPending:         defaultScanQueueMaxPending,
 		RepoQueueMaxPending:         defaultRepoQueueMaxPending,
+		ConnectorSecretManager:      secretstore.NewEphemeralManager(),
 		githubConnections:           make(map[string]githubProjectConnection),
 		githubConnectStates:         make(map[string]githubConnectState),
 		kubernetesConnections:       make(map[string]kubernetesProjectConnection),

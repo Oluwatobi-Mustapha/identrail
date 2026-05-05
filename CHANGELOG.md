@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Hardened connector secret storage and rotation:
+  - encrypted GitHub webhook secrets with versioned AES-256-GCM envelopes instead of retaining plaintext service state
+  - added a webhook-secret rotation endpoint with audit events and status metadata for key version, algorithm, and rotation due date
+  - documented `IDENTRAIL_CONNECTOR_SECRET_KEYS` and added database envelope schema for durable connector secret storage
 - Added project-scoped Kubernetes onboarding preflight:
   - new project connection API to validate kubectl context, cluster identity, and scanner-critical RBAC read access
   - runtime wiring for live kubectl preflight checks before marking Kubernetes connectors active or degraded
