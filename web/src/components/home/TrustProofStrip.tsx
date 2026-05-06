@@ -2,10 +2,7 @@ const TRUST_LOGOS = [
   'AWS IAM',
   'Kubernetes',
   'GitHub',
-  'OpenID',
-  'Terraform',
-  'Docker',
-  'PostgreSQL',
+  'OpenID Connect',
   'Prometheus'
 ] as const;
 
