@@ -49,19 +49,20 @@ const (
 
 // RouterOptions controls API middleware behavior.
 type RouterOptions struct {
-	APIKeys            []string
-	WriteAPIKeys       []string
-	APIKeyScopes       map[string][]string
-	OIDCTokenVerifier  TokenVerifier
-	OIDCWriteScopes    []string
-	RateLimitRPM       int
-	RateLimitBurst     int
-	AuditSink          audit.AuditSink
-	AuditFingerprinter *audit.Fingerprinter
-	TrustedProxies     []string
-	CORSAllowedOrigins []string
-	DefaultTenantID    string
-	DefaultWorkspaceID string
+	APIKeys              []string
+	WriteAPIKeys         []string
+	APIKeyScopes         map[string][]string
+	OIDCTokenVerifier    TokenVerifier
+	OIDCWriteScopes      []string
+	RateLimitRPM         int
+	RateLimitBurst       int
+	AuditSink            audit.AuditSink
+	AuditFingerprinter   *audit.Fingerprinter
+	TrustedProxies       []string
+	CORSAllowedOrigins   []string
+	DefaultTenantID      string
+	DefaultWorkspaceID   string
+	RequireExplicitScope bool
 }
 
 type scopedAPIKeyAuthConfig struct {
@@ -195,11 +196,11 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	}
 
 	v1 := r.Group("/v1")
+	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes, opts.AuditFingerprinter))
 	v1.Use(apiDenialMetricsMiddleware(metrics))
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
 	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
-	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes, opts.AuditFingerprinter))
-	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID))
+	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID, opts.RequireExplicitScope))
 	centralPolicyResolver := newCentralPolicyRuntimeResolver(authzStore)
 	v1.Use(requireCentralPolicyMiddleware(centralPolicyResolver, opts.WriteAPIKeys, opts.APIKeyScopes, authzStore, metrics, opts.AuditFingerprinter))
 	v1.POST("/authz/policies/simulate", authzPolicySimulationHandler(logger, authzStore, centralPolicyResolver, opts.AuditSink, opts.AuditFingerprinter))
@@ -1822,7 +1823,11 @@ func paginatedItemsResponse[T any](items []T, offset int, limit int) gin.H {
 	return response
 }
 
-func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string) gin.HandlerFunc {
+func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string, requireExplicitScope ...bool) gin.HandlerFunc {
+	explicitScope := false
+	if len(requireExplicitScope) > 0 {
+		explicitScope = requireExplicitScope[0]
+	}
 	defaultScope := db.Scope{
 		TenantID:    defaultTenantID,
 		WorkspaceID: defaultWorkspaceID,
@@ -1857,14 +1862,22 @@ func requestScopeMiddleware(defaultTenantID string, defaultWorkspaceID string) g
 		if tenantID == "" && !apiKeyAuth {
 			tenantID = tenantHeader
 		}
+		tenantProvided := tenantID != ""
 		if tenantID == "" {
 			tenantID = defaultScope.TenantID
 		}
 		if workspaceID == "" && !apiKeyAuth {
 			workspaceID = workspaceHeader
 		}
+		workspaceProvided := workspaceID != ""
 		if workspaceID == "" {
 			workspaceID = defaultScope.WorkspaceID
+		}
+		if explicitScope && (!tenantProvided || !workspaceProvided) {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"error": "explicit tenant and workspace scope are required",
+			})
+			return
 		}
 		scopedCtx := db.WithScope(c.Request.Context(), db.Scope{
 			TenantID:    tenantID,
