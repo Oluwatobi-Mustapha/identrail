@@ -804,8 +804,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProjectPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
     post:
       tags: [ProjectManagement]
       summary: Create or update workspace project
@@ -1287,8 +1293,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FindingPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/findings/summary:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1500,8 +1512,16 @@ paths:
                 properties:
                   scan:
                     $ref: "#/components/schemas/ScanRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
-          description: Scan queue is full
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/scans/{scan_id}/diff:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1527,7 +1547,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScanDiff"
         "400":
-          description: Invalid baseline
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/scans/{scan_id}/events:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1557,6 +1583,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ScanEventPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/identities:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1591,6 +1625,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/IdentityPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/relationships:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1623,6 +1665,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RelationshipPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/ownership/signals:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1646,6 +1696,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OwnershipSignalPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /v1/repo-scans:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1687,15 +1745,19 @@ paths:
                   repo_scan:
                     $ref: "#/components/schemas/RepoScanRecord"
         "400":
-          description: Invalid repository scan request
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
-          description: Repo target not allowed
+          $ref: "#/components/responses/Forbidden"
         "409":
-          description: Repo scan already in progress for target
+          $ref: "#/components/responses/Conflict"
         "429":
-          description: Repo scan queue is full
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
         "503":
-          description: Repo scan is disabled
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/repo-scans/{repo_scan_id}:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1716,8 +1778,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RepoScanRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/repo-findings:
     parameters:
       - $ref: "#/components/parameters/scopeTenantID"
@@ -1749,6 +1819,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FindingPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -1805,6 +1883,30 @@ components:
         enum: [asc, desc]
       description: Sort direction.
   responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
     Unauthorized:
       description: Unauthorized
       content:
@@ -1813,6 +1915,18 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     NotFound:
       description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ServiceUnavailable:
+      description: Service unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    TooManyRequests:
+      description: Too many requests
       content:
         application/json:
           schema:
