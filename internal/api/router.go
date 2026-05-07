@@ -196,10 +196,10 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	}
 
 	v1 := r.Group("/v1")
-	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes, opts.AuditFingerprinter))
-	v1.Use(apiDenialMetricsMiddleware(metrics))
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
+	v1.Use(apiDenialMetricsMiddleware(metrics))
 	v1.Use(rateLimitMiddleware(opts.RateLimitRPM, opts.RateLimitBurst))
+	v1.Use(apiKeyAuthMiddleware(opts.APIKeys, opts.APIKeyScopes, opts.OIDCTokenVerifier, opts.OIDCWriteScopes, opts.AuditFingerprinter))
 	v1.Use(requestScopeMiddleware(opts.DefaultTenantID, opts.DefaultWorkspaceID, opts.RequireExplicitScope))
 	centralPolicyResolver := newCentralPolicyRuntimeResolver(authzStore)
 	v1.Use(requireCentralPolicyMiddleware(centralPolicyResolver, opts.WriteAPIKeys, opts.APIKeyScopes, authzStore, metrics, opts.AuditFingerprinter))
@@ -2231,16 +2231,31 @@ func (l *ipRateLimiter) evictOldestLocked() {
 func rateLimitMiddleware(rpm int, burst int) gin.HandlerFunc {
 	limiter := newIPRateLimiter(rpm, burst)
 	return func(c *gin.Context) {
-		ip := c.ClientIP()
-		if ip == "" {
-			ip = "unknown"
-		}
-		if !limiter.allow(ip) {
+		if !limiter.allow(rateLimitKey(c)) {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
 			return
 		}
 		c.Next()
 	}
+}
+
+func rateLimitKey(c *gin.Context) string {
+	ip := "unknown"
+	if c != nil {
+		if clientIP := strings.TrimSpace(c.ClientIP()); clientIP != "" {
+			ip = clientIP
+		}
+	}
+	if c == nil {
+		return ip + "|anon"
+	}
+	if apiKey := readAPIKey(c); apiKey != "" {
+		return ip + "|api"
+	}
+	if bearer := readBearerToken(c); bearer != "" {
+		return ip + "|bearer:" + fingerprintIdentifierWith(nil, bearer)
+	}
+	return ip + "|anon"
 }
 
 func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter *audit.Fingerprinter) gin.HandlerFunc {
