@@ -22,6 +22,13 @@ var ErrNotFound = errors.New("record not found")
 // ErrScopeRequired indicates tenant/workspace scope must be provided in context.
 var ErrScopeRequired = errors.New("scope is required")
 
+// FindingSummaryCounts captures aggregate finding counters for one scoped workspace.
+type FindingSummaryCounts struct {
+	Total      int
+	BySeverity map[string]int
+	ByType     map[string]int
+}
+
 // ErrQueueLimitReached indicates a bounded queue has no remaining capacity.
 var ErrQueueLimitReached = errors.New("queue limit reached")
 
@@ -1020,6 +1027,7 @@ type Store interface {
 	ListFindingTriageEvents(ctx context.Context, findingID string, limit int) ([]FindingTriageEvent, error)
 	ListScans(ctx context.Context, limit int) ([]ScanRecord, error)
 	ListFindings(ctx context.Context, limit int) ([]domain.Finding, error)
+	ListFindingsAll(ctx context.Context) ([]domain.Finding, error)
 	ListFindingsByScan(ctx context.Context, scanID string, limit int) ([]domain.Finding, error)
 	GetFinding(ctx context.Context, findingID string, scanID string) (domain.Finding, error)
 	UpsertAuthzEntityAttributes(ctx context.Context, attributes AuthzEntityAttributes) error
@@ -1058,6 +1066,7 @@ type Store interface {
 	ListRelationships(ctx context.Context, filter RelationshipFilter, limit int) ([]domain.Relationship, error)
 	AppendScanEvent(ctx context.Context, scanID string, level string, message string, metadata map[string]any) error
 	ListScanEvents(ctx context.Context, scanID string, limit int) ([]ScanEvent, error)
+	SummarizeFindings(ctx context.Context) (FindingSummaryCounts, error)
 	CreateRepoScan(ctx context.Context, repository string, startedAt time.Time) (RepoScanRecord, error)
 	CreateQueuedRepoScan(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time) (RepoScanRecord, error)
 	CreateQueuedRepoScanWithinLimit(ctx context.Context, repository string, historyLimit int, maxFindings int, queuedAt time.Time, maxPending int) (RepoScanRecord, error)
