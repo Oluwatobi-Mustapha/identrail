@@ -32,3 +32,7 @@ Run `identrail-migrations` once before starting or upgrading the API and worker 
 not race each other on schema changes.
 
 The migration unit is intentionally manual-only; avoid enabling it at boot to prevent migrations from running automatically during every startup. Run it explicitly once before enabling long-running services.
+
+The example binds the API to `127.0.0.1:8080` so a reverse proxy or load balancer owns
+public TLS and ingress controls. If you bind directly to a public interface, configure
+host firewall rules, TLS termination, and trusted proxy settings before exposing the unit.
