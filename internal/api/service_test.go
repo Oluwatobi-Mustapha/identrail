@@ -471,6 +471,66 @@ func TestServiceListFindingsFiltered(t *testing.T) {
 	if len(scanOnly) != 1 || scanOnly[0].ID != "f1" {
 		t.Fatalf("unexpected findings for scan/type: %+v", scanOnly)
 	}
+
+	limited, err := svc.ListFindingsFiltered(defaultScopeContext(), 1, FindingsFilter{SortBy: "created_at", SortDesc: true})
+	if err != nil {
+		t.Fatalf("list findings with limit: %v", err)
+	}
+	if len(limited) != 1 || limited[0].ID != "f3" {
+		t.Fatalf("expected service to enforce limit and keep newest first, got %+v", limited)
+	}
+
+	defaultOrdered, err := svc.ListFindingsFiltered(defaultScopeContext(), 1, FindingsFilter{})
+	if err != nil {
+		t.Fatalf("list findings with default sort: %v", err)
+	}
+	if len(defaultOrdered) != 1 || defaultOrdered[0].ID != "f3" {
+		t.Fatalf("expected default filtered order to remain newest-first, got %+v", defaultOrdered)
+	}
+
+	offsetWindow, err := svc.ListFindingsFiltered(defaultScopeContext(), 2, FindingsFilter{
+		SortBy:   "created_at",
+		SortDesc: true,
+		Offset:   1,
+	})
+	if err != nil {
+		t.Fatalf("list findings with offset: %v", err)
+	}
+	if len(offsetWindow) == 0 || offsetWindow[0].ID != "f2" {
+		t.Fatalf("expected offset to be applied before paging window, got %+v", offsetWindow)
+	}
+}
+
+func TestServiceListFindingsFilteredMatchesOlderRowsBeyondLegacyWindow(t *testing.T) {
+	store := db.NewMemoryStore()
+	base := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < 5001; i++ {
+		scan, err := store.CreateScan(defaultScopeContext(), "aws", base.Add(time.Duration(i)*time.Minute))
+		if err != nil {
+			t.Fatalf("create scan %d: %v", i, err)
+		}
+		severity := domain.SeverityLow
+		if i == 0 {
+			severity = domain.SeverityCritical
+		}
+		if err := store.UpsertFindings(defaultScopeContext(), scan.ID, []domain.Finding{{
+			ID:        fmt.Sprintf("finding-%04d", i),
+			Type:      domain.FindingOwnerless,
+			Severity:  severity,
+			CreatedAt: base.Add(time.Duration(i) * time.Minute),
+		}}); err != nil {
+			t.Fatalf("upsert finding %d: %v", i, err)
+		}
+	}
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	items, err := svc.ListFindingsFiltered(defaultScopeContext(), 10, FindingsFilter{Severity: "critical"})
+	if err != nil {
+		t.Fatalf("list critical findings: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "finding-0000" {
+		t.Fatalf("expected oldest critical finding to be returned, got %+v", items)
+	}
 }
 
 func TestServiceGetFinding(t *testing.T) {
