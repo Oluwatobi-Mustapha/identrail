@@ -103,6 +103,9 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(
 		metrics.ScanRunsTotal,
+		metrics.ScanEnqueueTotal,
+		metrics.ScanEnqueueFailureTotal,
+		metrics.ScanEnqueueDurationMS,
 		metrics.ScanSuccessTotal,
 		metrics.ScanFailureTotal,
 		metrics.ScanPartialTotal,
@@ -211,6 +214,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	var authzStore db.Store
 	if svc != nil {
 		authzStore = svc.Store
+		svc.Metrics = metrics
 	}
 
 	v1 := r.Group("/v1")
@@ -675,16 +679,14 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 
 	v1.POST("/scans", func(c *gin.Context) {
 		start := time.Now()
-		metrics.ScanRunsTotal.Inc()
-		metrics.ScanInFlight.Inc()
-		defer metrics.ScanInFlight.Dec()
+		metrics.ScanEnqueueTotal.Inc()
 		defer func() {
-			metrics.ScanDurationMS.Observe(float64(time.Since(start).Milliseconds()))
+			metrics.ScanEnqueueDurationMS.Observe(float64(time.Since(start).Milliseconds()))
 		}()
 
 		scan, err := svc.EnqueueScan(c.Request.Context())
 		if err != nil {
-			metrics.ScanFailureTotal.Inc()
+			metrics.ScanEnqueueFailureTotal.Inc()
 			if errors.Is(err, ErrScanInProgress) {
 				c.JSON(http.StatusConflict, gin.H{"error": "scan already in progress"})
 				return
