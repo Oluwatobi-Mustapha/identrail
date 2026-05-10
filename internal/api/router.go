@@ -2549,6 +2549,10 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 		start := time.Now()
 		c.Next()
 		actor := triageActorFromContext(c, fingerprinter)
+		if actor != "" {
+			ctx = audit.WithActor(c.Request.Context(), actor)
+			c.Request = c.Request.WithContext(ctx)
+		}
 		event := audit.AuditEvent{
 			Timestamp:  time.Now().UTC(),
 			Kind:       "api_request",
@@ -2594,6 +2598,16 @@ func auditLogMiddleware(logger *zap.Logger, sink audit.AuditSink, fingerprinter 
 				zap.String("actor", event.Actor),
 			)...,
 		)
+		if event.Status == http.StatusUnauthorized || event.Status == http.StatusForbidden {
+			logger.Warn(
+				"security-sensitive request denied",
+				zap.String("method", event.Method),
+				zap.String("path", event.Path),
+				zap.Int("status", event.Status),
+				zap.String("actor", event.Actor),
+				zap.String("correlation_id", event.CorrelationID),
+			)
+		}
 		if err := sink.Write(c.Request.Context(), audit.NormalizeEvent(c.Request.Context(), event)); err != nil {
 			logger.Warn("audit sink write failed", telemetry.ZapError(err))
 		}
