@@ -156,6 +156,7 @@ type Config struct {
 	AppModeRolloutCanary        int
 	AppModeTenantAllowlist      []string
 	AppModeWorkspaceAllowlist   []string
+	WorkerHeartbeatPath         string
 }
 
 // Load reads environment variables and applies safe defaults for local and CI use.
@@ -253,6 +254,7 @@ func Load() Config {
 		WorkerAPIJobQueueEnabled:    boolEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_ENABLED", defaultWorkerAPIJobQueueEnabled),
 		WorkerAPIJobQueueInterval:   durationEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_INTERVAL", defaultWorkerAPIJobQueueInterval),
 		WorkerAPIJobQueueBatchSize:  parseInt(getEnv("IDENTRAIL_WORKER_API_JOB_QUEUE_BATCH_SIZE", "5"), defaultWorkerAPIJobQueueBatchSize),
+		WorkerHeartbeatPath:         strings.TrimSpace(getEnv("IDENTRAIL_WORKER_HEARTBEAT_PATH", "")),
 		LockBackend:                 strings.ToLower(getEnv("IDENTRAIL_LOCK_BACKEND", defaultLockBackend)),
 		LockNamespace:               getEnv("IDENTRAIL_LOCK_NAMESPACE", defaultLockNamespace),
 		DefaultTenantID:             getEnv("IDENTRAIL_DEFAULT_TENANT_ID", defaultTenantID),
