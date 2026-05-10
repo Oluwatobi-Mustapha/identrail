@@ -125,6 +125,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		metrics.RepoScanFailureTotal,
 		metrics.RepoScanTruncatedTotal,
 		metrics.RepoScanDurationMS,
+		metrics.ServiceAuthzDenialsTotal,
 		metrics.QueueDepth,
 		metrics.WorkerJobsTotal,
 		metrics.WorkerRequeuesTotal,

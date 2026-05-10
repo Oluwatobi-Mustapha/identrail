@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/identrail/identrail/internal/app"
+	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/findings/standards"
@@ -545,6 +546,18 @@ func (s *Service) scannerForScan(ctx context.Context, record db.ScanRecord) (Sca
 	return scanner, nil
 }
 
+func (s *Service) recordServiceAuthzDenial(ctx context.Context, action string, resourceType string, resourceID string) {
+	if s.Metrics != nil {
+		s.Metrics.ServiceAuthzDenialsTotal.WithLabelValues(action, resourceType).Inc()
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Outcome:      "denied",
+	})
+}
+
 func (s *Service) activeAWSConnectionForScan(ctx context.Context) (AWSConnectionStatus, bool, error) {
 	items, err := s.Store.ListTenancyConnectors(ctx, "", "", domain.ConnectorTypeAWS, 25)
 	if err != nil {
@@ -637,7 +650,7 @@ func (s *Service) RunRepoScan(ctx context.Context, request RepoScanRequest) (rep
 func (s *Service) EnqueueRepoScan(ctx context.Context, request RepoScanRequest) (db.RepoScanRecord, error) {
 	ctx = s.scopeContext(ctx)
 	ctx = withQueueTraceContext(ctx)
-	target, historyLimit, maxFindings, err := s.validateRepoScanRequest(request)
+	target, historyLimit, maxFindings, err := s.validateRepoScanRequest(ctx, request)
 	if err != nil {
 		return db.RepoScanRecord{}, err
 	}
@@ -711,7 +724,7 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 // RunRepoScanPersisted runs one repository scan and persists repo scan metadata + findings.
 func (s *Service) RunRepoScanPersisted(ctx context.Context, request RepoScanRequest) (RunRepoScanResult, error) {
 	ctx = s.scopeContext(ctx)
-	target, historyLimit, maxFindings, err := s.validateRepoScanRequest(request)
+	target, historyLimit, maxFindings, err := s.validateRepoScanRequest(ctx, request)
 	if err != nil {
 		return RunRepoScanResult{}, err
 	}
@@ -729,7 +742,7 @@ func (s *Service) RunRepoScanPersisted(ctx context.Context, request RepoScanRequ
 	return s.runRepoScanWithRecord(ctx, record, historyLimit, maxFindings)
 }
 
-func (s *Service) validateRepoScanRequest(request RepoScanRequest) (string, int, int, error) {
+func (s *Service) validateRepoScanRequest(ctx context.Context, request RepoScanRequest) (string, int, int, error) {
 	if !s.RepoScanEnabled {
 		return "", 0, 0, ErrRepoScanDisabled
 	}
@@ -741,9 +754,11 @@ func (s *Service) validateRepoScanRequest(request RepoScanRequest) (string, int,
 		return "", 0, 0, repoScanRequestValidationError{"repository target must not include credentials in URL userinfo"}
 	}
 	if repoexposure.IsLocalRepositoryTarget(target) {
+		s.recordServiceAuthzDenial(ctx, "repo_scans.run", "repo_scan_target", target)
 		return "", 0, 0, ErrRepoTargetNotAllowed
 	}
 	if !repoTargetAllowed(target, s.RepoScanAllowedTargets) {
+		s.recordServiceAuthzDenial(ctx, "repo_scans.run", "repo_scan_target", target)
 		return "", 0, 0, ErrRepoTargetNotAllowed
 	}
 	historyLimit, err := sanitizeRepoScanLimit(request.HistoryLimit, s.RepoScanDefaultHistoryLimit, s.RepoScanMaxHistoryLimit)
@@ -1176,9 +1191,11 @@ func (s *Service) ResolveActiveWorkspace(ctx context.Context, subject string, wo
 		return WorkspaceContext{}, err
 	}
 	if !memberFound {
+		s.recordServiceAuthzDenial(ctx, "workspaces.active.switch", "workspace", normalizedWorkspaceID)
 		return WorkspaceContext{}, ErrWorkspaceAccessDenied
 	}
 	if strings.ToLower(strings.TrimSpace(member.Status)) != "active" {
+		s.recordServiceAuthzDenial(ctx, "workspaces.active.switch", "workspace", normalizedWorkspaceID)
 		return WorkspaceContext{}, ErrWorkspaceAccessDenied
 	}
 	contextItem.Member = &member

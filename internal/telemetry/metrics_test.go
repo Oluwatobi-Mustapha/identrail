@@ -30,6 +30,7 @@ func TestNewMetricsCountersAndHistogram(t *testing.T) {
 	m.RepoScanFailureTotal.Add(1)
 	m.RepoScanTruncatedTotal.Add(1)
 	m.RepoScanDurationMS.Observe(300)
+	m.ServiceAuthzDenialsTotal.WithLabelValues("repo_scans.run", "repo_scan_target").Add(1)
 	m.QueueDepth.WithLabelValues("scan").Set(2)
 	m.WorkerJobsTotal.WithLabelValues("scan", "success").Add(1)
 	m.WorkerRequeuesTotal.WithLabelValues("repo_scan").Add(1)
@@ -82,6 +83,9 @@ func TestNewMetricsCountersAndHistogram(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(m.RepoScanFailureTotal); got != 1 {
 		t.Fatalf("expected repo scan failures 1, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.ServiceAuthzDenialsTotal.WithLabelValues("repo_scans.run", "repo_scan_target")); got != 1 {
+		t.Fatalf("expected service authz denials 1, got %v", got)
 	}
 	if got := testutil.ToFloat64(m.QueueDepth.WithLabelValues("scan")); got != 2 {
 		t.Fatalf("expected scan queue depth 2, got %v", got)

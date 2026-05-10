@@ -22,6 +22,7 @@ type Metrics struct {
 	RepoScanFailureTotal                   prometheus.Counter
 	RepoScanTruncatedTotal                 prometheus.Counter
 	RepoScanDurationMS                     prometheus.Histogram
+	ServiceAuthzDenialsTotal               *prometheus.CounterVec
 	RepoFindingsGenerated                  prometheus.Counter
 	QueueDepth                             *prometheus.GaugeVec
 	WorkerJobsTotal                        *prometheus.CounterVec
@@ -164,6 +165,12 @@ func NewMetrics() *Metrics {
 			Help:      "Duration of repository exposure scans in milliseconds.",
 			Buckets:   []float64{100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000},
 		}),
+		ServiceAuthzDenialsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "identrail",
+			Subsystem: "authz",
+			Name:      "service_denials_total",
+			Help:      "Total service-layer authorization denials outside central policy middleware.",
+		}, []string{"action", "resource_type"}),
 		RepoFindingsGenerated: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "identrail",
 			Subsystem: "repo_analysis",
