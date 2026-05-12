@@ -47,6 +47,7 @@ func TestMemoryStoreTenancyCRUD(t *testing.T) {
 		WorkspaceID: "workspace-a",
 		MemberID:    "member-1",
 		UserID:      "user-1",
+		UserUUID:    "00000000-0000-0000-0000-000000000001",
 		Email:       "user@example.com",
 		Role:        "admin",
 		Status:      "active",
@@ -60,6 +61,16 @@ func TestMemoryStoreTenancyCRUD(t *testing.T) {
 	}
 	if len(members) != 1 || members[0].MemberID != "member-1" {
 		t.Fatalf("unexpected members: %+v", members)
+	}
+	memberByUser, err := store.GetWorkspaceMemberByUserUUID(ctx, "workspace-a", "00000000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("get workspace member by user uuid: %v", err)
+	}
+	if memberByUser.MemberID != "member-1" {
+		t.Fatalf("unexpected member by user uuid: %+v", memberByUser)
+	}
+	if _, err := store.GetWorkspaceMemberByUserUUID(ctx, "workspace-a", "00000000-0000-0000-0000-000000000002"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected missing workspace member by user uuid to return ErrNotFound, got %v", err)
 	}
 
 	if err := store.UpsertProject(ctx, TenancyProject{
@@ -633,5 +644,108 @@ func TestMemoryStoreTenancyNotFoundAndListBranches(t *testing.T) {
 	}
 	if len(allProjects) != 2 {
 		t.Fatalf("expected both projects when includeArchived=true, got %+v", allProjects)
+	}
+}
+
+func TestMemoryStoreScanPolicyCRUD(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "workspace-a", ProjectID: "project-1", Name: "Project 1", Slug: "project-1"}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+
+	if err := store.UpsertTenancyScanPolicy(ctx, TenancyScanPolicy{
+		WorkspaceID:        "workspace-a",
+		ProjectID:          "project-1",
+		PolicyID:           "default",
+		Name:               "Default policy",
+		Enabled:            true,
+		TriggerMode:        domain.ScanTriggerModeScheduled,
+		Cron:               "0 * * * *",
+		MaxConcurrentScans: 2,
+		HistoryLimit:       300,
+		MaxFindings:        120,
+	}); err != nil {
+		t.Fatalf("upsert scan policy: %v", err)
+	}
+
+	policy, err := store.GetTenancyScanPolicy(ctx, "workspace-a", "project-1", "default")
+	if err != nil {
+		t.Fatalf("get scan policy: %v", err)
+	}
+	if policy.TriggerMode != domain.ScanTriggerModeScheduled || policy.HistoryLimit != 300 || policy.MaxFindings != 120 {
+		t.Fatalf("unexpected scan policy payload: %+v", policy)
+	}
+
+	enabled := true
+	policies, err := store.ListTenancyScanPolicies(ctx, "workspace-a", "project-1", domain.ScanTriggerModeScheduled, &enabled, "created_at", false, 20)
+	if err != nil {
+		t.Fatalf("list scan policies: %v", err)
+	}
+	if len(policies) != 1 || policies[0].PolicyID != "default" {
+		t.Fatalf("unexpected scan policy list payload: %+v", policies)
+	}
+
+	if err := store.UpsertTenancyScanPolicy(ctx, TenancyScanPolicy{
+		WorkspaceID:        "workspace-a",
+		ProjectID:          "project-1",
+		PolicyID:           "alpha",
+		Name:               "Alpha policy",
+		Enabled:            true,
+		TriggerMode:        domain.ScanTriggerModeManual,
+		MaxConcurrentScans: 1,
+	}); err != nil {
+		t.Fatalf("upsert alpha scan policy: %v", err)
+	}
+	if err := store.UpsertTenancyScanPolicy(ctx, TenancyScanPolicy{
+		WorkspaceID:        "workspace-a",
+		ProjectID:          "project-1",
+		PolicyID:           "zulu",
+		Name:               "Zulu policy",
+		Enabled:            true,
+		TriggerMode:        domain.ScanTriggerModeManual,
+		MaxConcurrentScans: 1,
+	}); err != nil {
+		t.Fatalf("upsert zulu scan policy: %v", err)
+	}
+	sorted, err := store.ListTenancyScanPolicies(ctx, "workspace-a", "project-1", "", nil, "name", false, 1)
+	if err != nil {
+		t.Fatalf("list scan policies sorted by name: %v", err)
+	}
+	if len(sorted) != 1 || sorted[0].PolicyID != "alpha" {
+		t.Fatalf("expected name sort before limit to return alpha first, got %+v", sorted)
+	}
+	sorted, err = store.ListTenancyScanPolicies(ctx, "workspace-a", "project-1", "", nil, "name", true, 1)
+	if err != nil {
+		t.Fatalf("list scan policies sorted by name desc: %v", err)
+	}
+	if len(sorted) != 1 || sorted[0].PolicyID != "zulu" {
+		t.Fatalf("expected descending name sort before limit to return zulu first, got %+v", sorted)
+	}
+
+	if err := store.UpsertTenancyScanPolicy(ctx, TenancyScanPolicy{
+		WorkspaceID:        "workspace-a",
+		ProjectID:          "project-1",
+		PolicyID:           "secondary",
+		Name:               "Default policy",
+		Enabled:            true,
+		TriggerMode:        domain.ScanTriggerModeManual,
+		MaxConcurrentScans: 1,
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected duplicate scan policy name conflict, got %v", err)
+	}
+
+	if err := store.DeleteTenancyScanPolicy(ctx, "workspace-a", "project-1", "default"); err != nil {
+		t.Fatalf("delete scan policy: %v", err)
+	}
+	if _, err := store.GetTenancyScanPolicy(ctx, "workspace-a", "project-1", "default"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected deleted scan policy to return ErrNotFound, got %v", err)
 	}
 }
