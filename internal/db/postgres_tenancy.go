@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/domain"
@@ -818,9 +819,9 @@ func (p *PostgresStore) UpsertTenancyScanPolicy(ctx context.Context, policy Tena
 		ctx,
 		`INSERT INTO tenancy_scan_policies (
 		     tenant_id, workspace_id, project_id, policy_id, name, enabled, trigger_mode, cron,
-		     max_concurrent_scans, history_limit, max_findings, created_at, updated_at
+		     max_concurrent_scans, history_limit, max_findings, last_scheduled_at, created_at, updated_at
 		 )
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10, $11, $12, $13)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10, $11, $12, $13, $14)
 		 ON CONFLICT (tenant_id, workspace_id, project_id, policy_id) DO UPDATE
 		 SET name = EXCLUDED.name,
 		     enabled = EXCLUDED.enabled,
@@ -841,6 +842,7 @@ func (p *PostgresStore) UpsertTenancyScanPolicy(ctx context.Context, policy Tena
 		normalized.MaxConcurrentScans,
 		normalized.HistoryLimit,
 		normalized.MaxFindings,
+		normalized.LastScheduledAt,
 		normalized.CreatedAt,
 		normalized.UpdatedAt,
 	)
@@ -877,7 +879,7 @@ func (p *PostgresStore) GetTenancyScanPolicy(ctx context.Context, workspaceID st
 	row := p.queryRowContext(
 		ctx,
 		`SELECT tenant_id, workspace_id, project_id, policy_id, name, enabled, trigger_mode, COALESCE(cron, ''),
-		        max_concurrent_scans, history_limit, max_findings, created_at, updated_at
+		        max_concurrent_scans, history_limit, max_findings, last_scheduled_at, created_at, updated_at
 		 FROM tenancy_scan_policies
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
@@ -901,6 +903,7 @@ func (p *PostgresStore) GetTenancyScanPolicy(ctx context.Context, workspaceID st
 		&policy.MaxConcurrentScans,
 		&policy.HistoryLimit,
 		&policy.MaxFindings,
+		&policy.LastScheduledAt,
 		&policy.CreatedAt,
 		&policy.UpdatedAt,
 	); err != nil {
@@ -926,7 +929,7 @@ func (p *PostgresStore) ListTenancyScanPolicies(ctx context.Context, workspaceID
 		limit = 100
 	}
 	query := `SELECT tenant_id, workspace_id, project_id, policy_id, name, enabled, trigger_mode, COALESCE(cron, ''),
-		        max_concurrent_scans, history_limit, max_findings, created_at, updated_at
+		        max_concurrent_scans, history_limit, max_findings, last_scheduled_at, created_at, updated_at
 		 FROM tenancy_scan_policies
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
@@ -982,6 +985,7 @@ func (p *PostgresStore) ListTenancyScanPolicies(ctx context.Context, workspaceID
 			&policy.MaxConcurrentScans,
 			&policy.HistoryLimit,
 			&policy.MaxFindings,
+			&policy.LastScheduledAt,
 			&policy.CreatedAt,
 			&policy.UpdatedAt,
 		); err != nil {
@@ -990,6 +994,101 @@ func (p *PostgresStore) ListTenancyScanPolicies(ctx context.Context, workspaceID
 		policies = append(policies, policy)
 	}
 	return policies, rows.Err()
+}
+
+// ListScheduledTenancyScanPolicies returns enabled scheduled policies for worker execution.
+func (p *PostgresStore) ListScheduledTenancyScanPolicies(ctx context.Context, limit int, offset int) ([]TenancyScanPolicy, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	// Intentionally bypass scoped wrappers to allow worker enumeration across tenants.
+	rows, err := p.db.QueryContext(
+		ctx,
+		`SELECT tenant_id, workspace_id, project_id, policy_id, name, enabled, trigger_mode, COALESCE(cron, ''),
+		        max_concurrent_scans, history_limit, max_findings, last_scheduled_at, created_at, updated_at
+		 FROM tenancy_scan_policies
+		 WHERE enabled = TRUE
+		   AND trigger_mode IN ($1, $2)
+		 ORDER BY created_at ASC, tenant_id ASC, workspace_id ASC, project_id ASC, policy_id ASC
+		 LIMIT $3 OFFSET $4`,
+		string(domain.ScanTriggerModeScheduled),
+		string(domain.ScanTriggerModeHybrid),
+		limit,
+		offset,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query scheduled scan policies: %w", err)
+	}
+	defer rows.Close()
+
+	policies := make([]TenancyScanPolicy, 0, limit)
+	for rows.Next() {
+		var policy TenancyScanPolicy
+		if err := rows.Scan(
+			&policy.TenantID,
+			&policy.WorkspaceID,
+			&policy.ProjectID,
+			&policy.PolicyID,
+			&policy.Name,
+			&policy.Enabled,
+			&policy.TriggerMode,
+			&policy.Cron,
+			&policy.MaxConcurrentScans,
+			&policy.HistoryLimit,
+			&policy.MaxFindings,
+			&policy.LastScheduledAt,
+			&policy.CreatedAt,
+			&policy.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan scheduled scan policy row: %w", err)
+		}
+		policies = append(policies, policy)
+	}
+	return policies, rows.Err()
+}
+
+// ClaimTenancyScanPolicySchedule atomically records that a scheduled tick was claimed.
+func (p *PostgresStore) ClaimTenancyScanPolicySchedule(ctx context.Context, workspaceID string, projectID string, policyID string, scheduledAt time.Time, now time.Time) (bool, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return false, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return false, err
+	}
+	result, err := p.execContext(
+		ctx,
+		`UPDATE tenancy_scan_policies
+		 SET last_scheduled_at = $5,
+		     updated_at = $6
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND project_id = $3
+		   AND policy_id = $4
+		   AND enabled = TRUE
+		   AND trigger_mode IN ($7, $8)
+		   AND (last_scheduled_at IS NULL OR last_scheduled_at < $5)`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		strings.TrimSpace(projectID),
+		strings.TrimSpace(policyID),
+		scheduledAt.UTC().Truncate(time.Minute),
+		now.UTC(),
+		string(domain.ScanTriggerModeScheduled),
+		string(domain.ScanTriggerModeHybrid),
+	)
+	if err != nil {
+		return false, fmt.Errorf("claim scan policy schedule: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("claim scan policy schedule rows affected: %w", err)
+	}
+	return rows > 0, nil
 }
 
 // DeleteTenancyScanPolicy removes one scoped scan policy by id.
