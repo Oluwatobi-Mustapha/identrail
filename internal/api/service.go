@@ -467,14 +467,21 @@ func (s *Service) ProcessNextQueuedScan(ctx context.Context) (bool, error) {
 		TenantID:    record.TenantID,
 		WorkspaceID: record.WorkspaceID,
 	})
+	s.recordAutomationLag("api_queue", "scan", s.Now().UTC().Sub(record.StartedAt.UTC()))
 	recordScopeCtx = continueQueueTraceContext(recordScopeCtx, record.TraceParent, record.TraceState)
 	s.appendScanLifecycleEvent(recordScopeCtx, record.ID, scanLifecycleRunning, map[string]any{"provider": record.Provider})
 	s.appendScanEvent(recordScopeCtx, record.ID, db.ScanEventLevelInfo, "queued scan started", map[string]any{"provider": record.Provider})
-	_, runErr := s.runScanWithRecord(recordScopeCtx, record, true)
+	runResult, runErr := s.runScanWithRecord(recordScopeCtx, record, true)
 	if runErr != nil {
+		s.recordAutomationRun("api_queue", record.Provider, "failed")
 		s.recordWorkerJob("scan", "failure")
 		return true, runErr
 	}
+	outcome := "succeeded"
+	if runResult.PartialSourceRun {
+		outcome = "partial"
+	}
+	s.recordAutomationRun("api_queue", record.Provider, outcome)
 	s.recordWorkerJob("scan", "success")
 	return true, nil
 }
@@ -869,6 +876,94 @@ func (s *Service) recordWorkerDeadLetter(runner string) {
 	}
 }
 
+func (s *Service) recordAutomationRun(source string, connector string, outcome string) {
+	s.recordAutomationRuns(source, connector, outcome, 1)
+}
+
+func (s *Service) recordAutomationRuns(source string, connector string, outcome string, count int) {
+	if s.Metrics == nil || count <= 0 {
+		return
+	}
+	s.Metrics.AutomationRunsTotal.WithLabelValues(
+		automationSourceLabel(source),
+		automationConnectorLabel(connector),
+		automationOutcomeLabel(outcome),
+	).Add(float64(count))
+}
+
+func (s *Service) recordAutomationLag(source string, queue string, lag time.Duration) {
+	if s.Metrics == nil {
+		return
+	}
+	if lag < 0 {
+		lag = 0
+	}
+	s.Metrics.AutomationLagMS.WithLabelValues(
+		automationSourceLabel(source),
+		automationQueueLabel(queue),
+	).Observe(float64(lag.Milliseconds()))
+}
+
+func automationSourceLabel(source string) string {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "scheduled":
+		return "scheduled"
+	case "event":
+		return "event"
+	case "api_queue":
+		return "api_queue"
+	default:
+		return "other"
+	}
+}
+
+func automationConnectorLabel(connector string) string {
+	switch strings.ToLower(strings.TrimSpace(connector)) {
+	case "aws":
+		return "aws"
+	case "github":
+		return "github"
+	case "kubernetes":
+		return "kubernetes"
+	case "repo_scan":
+		return "repo_scan"
+	case "scan_policy":
+		return "scan_policy"
+	default:
+		return "other"
+	}
+}
+
+func automationOutcomeLabel(outcome string) string {
+	switch strings.ToLower(strings.TrimSpace(outcome)) {
+	case "queued":
+		return "queued"
+	case "succeeded":
+		return "succeeded"
+	case "failed":
+		return "failed"
+	case "partial":
+		return "partial"
+	case "skipped":
+		return "skipped"
+	case "requeued":
+		return "requeued"
+	default:
+		return "other"
+	}
+}
+
+func automationQueueLabel(queue string) string {
+	switch strings.ToLower(strings.TrimSpace(queue)) {
+	case "scan":
+		return "scan"
+	case "repo_scan":
+		return "repo_scan"
+	default:
+		return "other"
+	}
+}
+
 // ListFindings returns persisted findings.
 func (s *Service) ListFindings(ctx context.Context, limit int) ([]domain.Finding, error) {
 	ctx = s.scopeContext(ctx)
@@ -933,6 +1028,7 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 		TenantID:    record.TenantID,
 		WorkspaceID: record.WorkspaceID,
 	})
+	s.recordAutomationLag("api_queue", "repo_scan", s.Now().UTC().Sub(record.StartedAt.UTC()))
 	recordScopeCtx = continueQueueTraceContext(recordScopeCtx, record.TraceParent, record.TraceState)
 	requeue := false
 	if s.Locker != nil {
@@ -948,6 +1044,7 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 			s.recordWorkerJob("repo_scan", "failure")
 			return false, fmt.Errorf("requeue repo scan: %w", requeueErr)
 		}
+		s.recordAutomationRun("api_queue", "repo_scan", "requeued")
 		s.recordWorkerJob("repo_scan", "requeued")
 		s.recordWorkerRequeue("repo_scan")
 		// A queued item was handled (requeued) even if this target is currently locked.
@@ -956,10 +1053,12 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 	}
 	_, runErr := s.runRepoScanWithRecord(recordScopeCtx, record, record.HistoryLimit, record.MaxFindings)
 	if runErr != nil {
+		s.recordAutomationRun("api_queue", "repo_scan", "failed")
 		s.recordWorkerJob("repo_scan", "failure")
 		s.recordWorkerDeadLetter("repo_scan")
 		return true, runErr
 	}
+	s.recordAutomationRun("api_queue", "repo_scan", "succeeded")
 	s.recordWorkerJob("repo_scan", "success")
 	return true, nil
 }
