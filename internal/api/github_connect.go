@@ -18,12 +18,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/identrail/identrail/internal/audit"
+	githubconnector "github.com/identrail/identrail/internal/connectors/github"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/secretstore"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -32,7 +34,9 @@ const (
 	githubWebhookSecretRotationWindow = 90 * 24 * time.Hour
 	githubConnectorID                 = "github-app"
 	githubWebhookSecretName           = "webhook_secret"
+	githubPATSecretName               = "pat_token"
 	githubConnectorDisplayName        = "GitHub App"
+	githubPATConnectorDisplayName     = "GitHub Enterprise"
 )
 
 var githubRepositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
@@ -54,6 +58,85 @@ var ErrInvalidGitHubWebhookPayload = errors.New("invalid github webhook payload"
 
 // ErrGitHubConnectorSecretUnavailable indicates connector secret crypto failed.
 var ErrGitHubConnectorSecretUnavailable = errors.New("github connector secret unavailable")
+
+// ErrGitHubAppConfigUnavailable indicates the hosted GitHub App flow is not configured.
+var ErrGitHubAppConfigUnavailable = errors.New("github app config unavailable")
+
+// ErrGitHubRepositoryListUnavailable indicates the GitHub App repository list could not be loaded.
+var ErrGitHubRepositoryListUnavailable = errors.New("github repository list unavailable")
+
+// ErrGitHubPATValidatorUnavailable indicates PAT validation is not configured.
+var ErrGitHubPATValidatorUnavailable = errors.New("github pat validator unavailable")
+
+// GitHubPATValidator validates a GitHub.com or GHES personal access token.
+type GitHubPATValidator interface {
+	ValidateGitHubPAT(ctx context.Context, baseURL string, token string) (githubconnector.PATValidationResult, error)
+}
+
+// GitHubRepositoryLister lists repositories available to a GitHub App installation.
+type GitHubRepositoryLister interface {
+	ListInstallationRepositories(ctx context.Context, installationID int64) ([]githubconnector.Repository, error)
+}
+
+// GitHubConnectorStartRequest captures the flat connector GitHub App bootstrap request.
+type GitHubConnectorStartRequest struct {
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	ProjectID   string `json:"project_id,omitempty"`
+	ConnectorID string `json:"connector_id,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	RedirectURI string `json:"redirect_uri,omitempty"`
+}
+
+// GitHubConnectorStartResponse returns the hosted GitHub App installation flow.
+type GitHubConnectorStartResponse struct {
+	Connection  GitHubConnectionStatus `json:"connection"`
+	ConnectorID string                 `json:"connector_id"`
+	State       string                 `json:"state"`
+	InstallURL  string                 `json:"install_url"`
+	WebhookURL  string                 `json:"webhook_url,omitempty"`
+	ExpiresAt   time.Time              `json:"expires_at"`
+}
+
+// GitHubConnectorCompleteRequest captures the GitHub App installation callback payload.
+type GitHubConnectorCompleteRequest struct {
+	State          string `json:"state"`
+	InstallationID int64  `json:"installation_id"`
+	SetupAction    string `json:"setup_action,omitempty"`
+	AccountLogin   string `json:"account_login,omitempty"`
+}
+
+// GitHubConnectorCompleteResponse returns the activated connector and app redirect target.
+type GitHubConnectorCompleteResponse struct {
+	Connection   GitHubConnectionStatus `json:"connection"`
+	TenantID     string                 `json:"tenant_id"`
+	WorkspaceID  string                 `json:"workspace_id"`
+	ProjectID    string                 `json:"project_id"`
+	RedirectPath string                 `json:"redirect_path"`
+}
+
+// GitHubPATConnectorRequest captures the self-hosted GitHub Enterprise fallback flow.
+type GitHubPATConnectorRequest struct {
+	WorkspaceID          string   `json:"workspace_id,omitempty"`
+	ProjectID            string   `json:"project_id,omitempty"`
+	ConnectorID          string   `json:"connector_id,omitempty"`
+	DisplayName          string   `json:"display_name,omitempty"`
+	BaseURL              string   `json:"base_url,omitempty"`
+	Token                string   `json:"token"`
+	SelectedRepositories []string `json:"selected_repositories,omitempty"`
+}
+
+// GitHubRepositoryStatus is returned by the flat connector repository list.
+type GitHubRepositoryStatus struct {
+	FullName string `json:"full_name"`
+	Private  bool   `json:"private,omitempty"`
+}
+
+// GitHubRepositoryListResponse lists stored or provider-visible repositories.
+type GitHubRepositoryListResponse struct {
+	ConnectorID  string                   `json:"connector_id"`
+	Provider     string                   `json:"provider"`
+	Repositories []GitHubRepositoryStatus `json:"repositories"`
+}
 
 // GitHubConnectionStartRequest captures one project-scoped connection bootstrap request.
 type GitHubConnectionStartRequest struct {
@@ -92,23 +175,29 @@ type GitHubConnectionSecretRotationRequest struct {
 
 // GitHubConnectionStatus describes current GitHub integration state for one project.
 type GitHubConnectionStatus struct {
-	Provider                      string     `json:"provider"`
-	Connected                     bool       `json:"connected"`
-	AccountLogin                  string     `json:"account_login,omitempty"`
-	InstallationID                int64      `json:"installation_id,omitempty"`
-	TokenReference                string     `json:"token_reference,omitempty"`
-	WebhookSecretReference        string     `json:"webhook_secret_reference,omitempty"`
-	WebhookSecretKeyVersion       string     `json:"webhook_secret_key_version,omitempty"`
-	WebhookSecretAlgorithm        string     `json:"webhook_secret_algorithm,omitempty"`
-	WebhookSecretRotatedAt        *time.Time `json:"webhook_secret_rotated_at,omitempty"`
-	WebhookSecretRotationDueAt    *time.Time `json:"webhook_secret_rotation_due_at,omitempty"`
-	WebhookSecretRotationRequired bool       `json:"webhook_secret_rotation_required"`
-	SelectedRepositories          []string   `json:"selected_repositories"`
-	CreatedAt                     *time.Time `json:"created_at,omitempty"`
-	UpdatedAt                     *time.Time `json:"updated_at,omitempty"`
-	LastWebhookEventType          string     `json:"last_webhook_event_type,omitempty"`
-	LastWebhookDeliveryID         string     `json:"last_webhook_delivery_id,omitempty"`
-	LastWebhookEventAt            *time.Time `json:"last_webhook_event_at,omitempty"`
+	Provider                      string                 `json:"provider"`
+	Connected                     bool                   `json:"connected"`
+	ConnectorID                   string                 `json:"connector_id,omitempty"`
+	DisplayName                   string                 `json:"display_name,omitempty"`
+	Status                        domain.ConnectorStatus `json:"status,omitempty"`
+	HealthStatus                  string                 `json:"health_status,omitempty"`
+	AccountLogin                  string                 `json:"account_login,omitempty"`
+	InstallationID                int64                  `json:"installation_id,omitempty"`
+	BaseURL                       string                 `json:"base_url,omitempty"`
+	Scopes                        []string               `json:"scopes,omitempty"`
+	TokenReference                string                 `json:"token_reference,omitempty"`
+	WebhookSecretReference        string                 `json:"webhook_secret_reference,omitempty"`
+	WebhookSecretKeyVersion       string                 `json:"webhook_secret_key_version,omitempty"`
+	WebhookSecretAlgorithm        string                 `json:"webhook_secret_algorithm,omitempty"`
+	WebhookSecretRotatedAt        *time.Time             `json:"webhook_secret_rotated_at,omitempty"`
+	WebhookSecretRotationDueAt    *time.Time             `json:"webhook_secret_rotation_due_at,omitempty"`
+	WebhookSecretRotationRequired bool                   `json:"webhook_secret_rotation_required"`
+	SelectedRepositories          []string               `json:"selected_repositories"`
+	CreatedAt                     *time.Time             `json:"created_at,omitempty"`
+	UpdatedAt                     *time.Time             `json:"updated_at,omitempty"`
+	LastWebhookEventType          string                 `json:"last_webhook_event_type,omitempty"`
+	LastWebhookDeliveryID         string                 `json:"last_webhook_delivery_id,omitempty"`
+	LastWebhookEventAt            *time.Time             `json:"last_webhook_event_at,omitempty"`
 }
 
 // GitHubWebhookResult summarizes how one webhook event was processed.
@@ -131,8 +220,15 @@ type githubProjectConnection struct {
 	TenantID                  string
 	WorkspaceID               string
 	ProjectID                 string
+	ConnectorID               string
+	DisplayName               string
+	Status                    domain.ConnectorStatus
+	HealthStatus              string
+	Provider                  string
 	AccountLogin              string
 	InstallationID            int64
+	BaseURL                   string
+	Scopes                    []string
 	TokenReference            string
 	WebhookSecretReference    string
 	WebhookSecretEnvelope     secretstore.Envelope
@@ -195,6 +291,364 @@ func (s *Service) StartGitHubConnection(ctx context.Context, workspaceID string,
 	}, nil
 }
 
+func (s *Service) StartGitHubConnector(ctx context.Context, request GitHubConnectorStartRequest) (GitHubConnectorStartResponse, error) {
+	if strings.TrimSpace(request.ProjectID) == "" {
+		return GitHubConnectorStartResponse{}, ErrInvalidGitHubConnectionRequest
+	}
+	project, scope, err := s.requireScopedProject(ctx, request.WorkspaceID, request.ProjectID)
+	if err != nil {
+		return GitHubConnectorStartResponse{}, err
+	}
+	appSlug := strings.TrimSpace(s.GitHubAppName)
+	if appSlug == "" || strings.TrimSpace(s.GitHubAppWebhookSecret) == "" {
+		return GitHubConnectorStartResponse{}, ErrGitHubAppConfigUnavailable
+	}
+	now := s.Now().UTC()
+	state := uuid.NewString()
+	expiresAt := now.Add(githubConnectStateTTL)
+	installURL, err := githubconnector.BuildInstallURL(appSlug, state, request.RedirectURI)
+	if err != nil {
+		return GitHubConnectorStartResponse{}, ErrInvalidGitHubConnectionRequest
+	}
+	connectorID := strings.TrimSpace(request.ConnectorID)
+	if connectorID == "" {
+		connectorID = githubConnectorID
+	}
+	displayName := firstNonEmptyString(strings.TrimSpace(request.DisplayName), githubConnectorDisplayName)
+
+	s.githubConnectMu.Lock()
+	s.ensureGitHubConnectionState()
+	s.pruneExpiredGitHubStatesLocked(now)
+	s.githubConnectStates[state] = githubConnectState{
+		TenantID:    scope.TenantID,
+		WorkspaceID: project.WorkspaceID,
+		ProjectID:   project.ProjectID,
+		ExpiresAt:   expiresAt,
+	}
+	s.githubConnectMu.Unlock()
+
+	metadata := map[string]any{
+		"provider":              "github_app",
+		"state":                 state,
+		"install_url":           installURL,
+		"app_slug":              appSlug,
+		"redirect_uri":          strings.TrimSpace(request.RedirectURI),
+		"state_expires_at":      expiresAt.Format(time.RFC3339Nano),
+		"selected_repositories": []string{},
+		"last_started_at":       now.Format(time.RFC3339Nano),
+	}
+	connector := db.TenancyConnector{
+		TenantID:    scope.TenantID,
+		WorkspaceID: project.WorkspaceID,
+		ProjectID:   project.ProjectID,
+		ConnectorID: connectorID,
+		Type:        domain.ConnectorTypeGitHub,
+		DisplayName: displayName,
+		Status:      domain.ConnectorStatusPending,
+		UpdatedAt:   now,
+	}
+	stateRecord := db.TenancyConnectorState{
+		TenantID:     scope.TenantID,
+		WorkspaceID:  project.WorkspaceID,
+		ProjectID:    project.ProjectID,
+		ConnectorID:  connectorID,
+		HealthStatus: "unknown",
+		Metadata:     metadata,
+		ObservedAt:   now,
+		UpdatedAt:    now,
+	}
+	if err := s.Store.UpsertTenancyConnector(ctx, connector, stateRecord); err != nil {
+		return GitHubConnectorStartResponse{}, fmt.Errorf("persist github connector start: %w", err)
+	}
+	status := GitHubConnectionStatus{
+		Provider:             "github_app",
+		Connected:            false,
+		ConnectorID:          connectorID,
+		DisplayName:          displayName,
+		Status:               domain.ConnectorStatusPending,
+		HealthStatus:         "unknown",
+		SelectedRepositories: []string{},
+		CreatedAt:            &now,
+		UpdatedAt:            &now,
+	}
+	return GitHubConnectorStartResponse{
+		Connection:  status,
+		ConnectorID: connectorID,
+		State:       state,
+		InstallURL:  installURL,
+		WebhookURL:  "/auth/webhooks/github",
+		ExpiresAt:   expiresAt,
+	}, nil
+}
+
+func (s *Service) CompleteGitHubConnector(ctx context.Context, request GitHubConnectorCompleteRequest) (GitHubConnectorCompleteResponse, error) {
+	normalizedState := strings.TrimSpace(request.State)
+	if normalizedState == "" || request.InstallationID <= 0 {
+		return GitHubConnectorCompleteResponse{}, ErrInvalidGitHubConnectionRequest
+	}
+	if strings.TrimSpace(s.GitHubAppWebhookSecret) == "" {
+		return GitHubConnectorCompleteResponse{}, ErrGitHubAppConfigUnavailable
+	}
+	if s.Store == nil {
+		return GitHubConnectorCompleteResponse{}, db.ErrNotFound
+	}
+	now := s.Now().UTC()
+	items, err := s.Store.ListTenancyConnectorsUnscoped(ctx, domain.ConnectorTypeGitHub, 0)
+	if err != nil {
+		return GitHubConnectorCompleteResponse{}, fmt.Errorf("list github connector states: %w", err)
+	}
+	var pending *db.TenancyConnectorWithState
+	for index := range items {
+		item := items[index]
+		if item.Connector.Status != domain.ConnectorStatusPending {
+			continue
+		}
+		if firstNonEmptyString(metadataString(item.State.Metadata, "provider"), "github_app") != "github_app" {
+			continue
+		}
+		if metadataString(item.State.Metadata, "state") != normalizedState {
+			continue
+		}
+		pending = &item
+		break
+	}
+	if pending == nil {
+		return GitHubConnectorCompleteResponse{}, ErrGitHubConnectStateNotFound
+	}
+	expiresAt := metadataTime(pending.State.Metadata, "state_expires_at")
+	if !expiresAt.IsZero() && now.After(expiresAt) {
+		return GitHubConnectorCompleteResponse{}, ErrGitHubConnectStateNotFound
+	}
+	scope := db.Scope{TenantID: pending.Connector.TenantID, WorkspaceID: pending.Connector.WorkspaceID}
+	repositories := metadataStringSlice(pending.State.Metadata, "selected_repositories")
+	if s.GitHubRepositoryLister == nil {
+		return GitHubConnectorCompleteResponse{}, ErrGitHubRepositoryListUnavailable
+	}
+	listed, listErr := s.GitHubRepositoryLister.ListInstallationRepositories(ctx, request.InstallationID)
+	if listErr != nil {
+		return GitHubConnectorCompleteResponse{}, ErrGitHubRepositoryListUnavailable
+	}
+	repositories = repositories[:0]
+	for _, repository := range listed {
+		if normalized := normalizeGitHubRepository(repository.FullName); normalized != "" {
+			repositories = append(repositories, normalized)
+		}
+	}
+	sort.Strings(repositories)
+	webhookEnvelope, err := s.encryptGitHubWebhookSecret(scope, pending.Connector.ProjectID, s.GitHubAppWebhookSecret)
+	if err != nil {
+		return GitHubConnectorCompleteResponse{}, ErrGitHubConnectorSecretUnavailable
+	}
+	createdAt := pending.Connector.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = now
+	}
+	connection := githubProjectConnection{
+		TenantID:               pending.Connector.TenantID,
+		WorkspaceID:            pending.Connector.WorkspaceID,
+		ProjectID:              pending.Connector.ProjectID,
+		ConnectorID:            firstNonEmptyString(pending.Connector.ConnectorID, githubConnectorID),
+		DisplayName:            firstNonEmptyString(pending.Connector.DisplayName, githubConnectorDisplayName),
+		Status:                 domain.ConnectorStatusActive,
+		HealthStatus:           "healthy",
+		Provider:               "github_app",
+		AccountLogin:           strings.TrimSpace(request.AccountLogin),
+		InstallationID:         request.InstallationID,
+		TokenReference:         fmt.Sprintf("github-app-installation:%d", request.InstallationID),
+		WebhookSecretReference: "github-app:webhook",
+		WebhookSecretEnvelope:  webhookEnvelope,
+		WebhookSecretRotatedAt: now,
+		SelectedRepositories:   repositories,
+		CreatedAt:              createdAt,
+		UpdatedAt:              now,
+	}
+	if err := s.persistGitHubConnection(ctx, connection); err != nil {
+		return GitHubConnectorCompleteResponse{}, err
+	}
+	s.githubConnectMu.Lock()
+	s.ensureGitHubConnectionsState()
+	s.githubConnections[githubConnectionKey(connection.TenantID, connection.WorkspaceID, connection.ProjectID)] = connection
+	delete(s.githubConnectStates, normalizedState)
+	s.githubConnectMu.Unlock()
+	status := s.toGitHubConnectionStatus(connection)
+	redirectPath := "/app/" + url.PathEscape(connection.TenantID) + "/" + url.PathEscape(connection.WorkspaceID) + "/projects/" + url.PathEscape(connection.ProjectID)
+	return GitHubConnectorCompleteResponse{
+		Connection:   status,
+		TenantID:     connection.TenantID,
+		WorkspaceID:  connection.WorkspaceID,
+		ProjectID:    connection.ProjectID,
+		RedirectPath: redirectPath,
+	}, nil
+}
+
+func (s *Service) UpsertGitHubPATConnector(ctx context.Context, request GitHubPATConnectorRequest) (GitHubConnectionStatus, error) {
+	if strings.TrimSpace(request.ProjectID) == "" {
+		return GitHubConnectionStatus{}, ErrInvalidGitHubConnectionRequest
+	}
+	project, scope, err := s.requireScopedProject(ctx, request.WorkspaceID, request.ProjectID)
+	if err != nil {
+		return GitHubConnectionStatus{}, err
+	}
+	if s.GitHubPATValidator == nil {
+		return GitHubConnectionStatus{}, ErrGitHubPATValidatorUnavailable
+	}
+	baseURL, err := githubconnector.NormalizeBaseURL(request.BaseURL)
+	if err != nil {
+		return GitHubConnectionStatus{}, ErrInvalidGitHubConnectionRequest
+	}
+	repositories, err := normalizeGitHubRepositories(request.SelectedRepositories)
+	if err != nil {
+		return GitHubConnectionStatus{}, ErrInvalidGitHubConnectionRequest
+	}
+	token := strings.TrimSpace(request.Token)
+	if token == "" {
+		return GitHubConnectionStatus{}, ErrInvalidGitHubConnectionRequest
+	}
+	validation, err := s.GitHubPATValidator.ValidateGitHubPAT(ctx, baseURL, token)
+	if err != nil {
+		return GitHubConnectionStatus{}, ErrInvalidGitHubConnectionRequest
+	}
+	now := s.Now().UTC()
+	connectorID := strings.TrimSpace(request.ConnectorID)
+	if connectorID == "" {
+		connectorID = "github-pat"
+	}
+	displayName := firstNonEmptyString(strings.TrimSpace(request.DisplayName), githubPATConnectorDisplayName)
+	envelope, err := s.encryptGitHubPAT(scope, project.ProjectID, connectorID, token)
+	if err != nil {
+		return GitHubConnectionStatus{}, ErrGitHubConnectorSecretUnavailable
+	}
+	metadata := map[string]any{
+		"provider":              "github_pat",
+		"base_url":              baseURL,
+		"account_login":         strings.TrimSpace(validation.Login),
+		"scopes":                append([]string(nil), validation.Scopes...),
+		"selected_repositories": repositories,
+		"last_validated_at":     now.Format(time.RFC3339Nano),
+	}
+	connector := db.TenancyConnector{
+		TenantID:            scope.TenantID,
+		WorkspaceID:         project.WorkspaceID,
+		ProjectID:           project.ProjectID,
+		ConnectorID:         connectorID,
+		Type:                domain.ConnectorTypeGitHub,
+		DisplayName:         displayName,
+		Status:              domain.ConnectorStatusActive,
+		SecretProvider:      "secret-envelope",
+		SecretRefID:         githubPATSecretRef(connectorID),
+		SecretRefVersion:    envelope.KeyVersion,
+		SecretLastRotatedAt: &now,
+		UpdatedAt:           now,
+	}
+	stateRecord := db.TenancyConnectorState{
+		TenantID:     scope.TenantID,
+		WorkspaceID:  project.WorkspaceID,
+		ProjectID:    project.ProjectID,
+		ConnectorID:  connectorID,
+		HealthStatus: "healthy",
+		Metadata:     metadata,
+		ObservedAt:   now,
+		UpdatedAt:    now,
+	}
+	if err := s.Store.UpsertTenancyConnector(ctx, connector, stateRecord); err != nil {
+		return GitHubConnectionStatus{}, fmt.Errorf("persist github pat connector: %w", err)
+	}
+	secret := db.TenancyConnectorSecretEnvelope{
+		TenantID:        scope.TenantID,
+		WorkspaceID:     project.WorkspaceID,
+		ProjectID:       project.ProjectID,
+		ConnectorID:     connectorID,
+		SecretName:      githubPATSecretName,
+		EnvelopeVersion: envelope.Version,
+		Envelope:        envelope,
+		SecretRefID:     githubPATSecretRef(connectorID),
+		RotatedAt:       now,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := s.Store.UpsertTenancyConnectorSecretEnvelope(ctx, secret); err != nil {
+		return GitHubConnectionStatus{}, fmt.Errorf("persist github pat envelope: %w", err)
+	}
+	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
+	if err != nil {
+		return GitHubConnectionStatus{}, fmt.Errorf("load github pat connector: %w", err)
+	}
+	return gitHubConnectionStatusFromStored(stored), nil
+}
+
+func (s *Service) GetGitHubConnectorStatus(ctx context.Context, workspaceID string, projectID string) (GitHubConnectionStatus, error) {
+	project, _, err := s.requireScopedProject(ctx, workspaceID, projectID)
+	if err != nil {
+		return GitHubConnectionStatus{}, err
+	}
+	items, err := s.Store.ListTenancyConnectors(ctx, project.WorkspaceID, project.ProjectID, domain.ConnectorTypeGitHub, 10)
+	if err != nil {
+		return GitHubConnectionStatus{}, fmt.Errorf("list github connectors: %w", err)
+	}
+	if len(items) == 0 {
+		return GitHubConnectionStatus{
+			Provider:             "github_app",
+			Connected:            false,
+			Status:               domain.ConnectorStatusPending,
+			HealthStatus:         "unknown",
+			SelectedRepositories: []string{},
+			Scopes:               []string{},
+		}, nil
+	}
+	selected := items[0]
+	for _, item := range items {
+		if item.Connector.Status == domain.ConnectorStatusActive {
+			selected = item
+			break
+		}
+	}
+	return gitHubConnectionStatusFromStored(selected), nil
+}
+
+func (s *Service) GetGitHubConnectorRepositories(ctx context.Context, connectorID string, workspaceID string, projectID string) (GitHubRepositoryListResponse, error) {
+	project, _, err := s.requireScopedProject(ctx, workspaceID, projectID)
+	if err != nil {
+		return GitHubRepositoryListResponse{}, err
+	}
+	connectorID = strings.TrimSpace(connectorID)
+	if connectorID == "" {
+		return GitHubRepositoryListResponse{}, ErrInvalidGitHubConnectionRequest
+	}
+	stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
+	if err != nil {
+		return GitHubRepositoryListResponse{}, err
+	}
+	provider := firstNonEmptyString(metadataString(stored.State.Metadata, "provider"), "github_app")
+	repositories := []GitHubRepositoryStatus{}
+	if provider == "github_app" && s.GitHubRepositoryLister != nil {
+		installationID := metadataInt64(stored.State.Metadata, "installation_id")
+		if installationID > 0 {
+			listed, listErr := s.GitHubRepositoryLister.ListInstallationRepositories(ctx, installationID)
+			if listErr == nil {
+				for _, repository := range listed {
+					repositories = append(repositories, GitHubRepositoryStatus{
+						FullName: normalizeGitHubRepository(repository.FullName),
+						Private:  repository.Private,
+					})
+				}
+			}
+		}
+	}
+	if len(repositories) == 0 {
+		for _, repository := range metadataStringSlice(stored.State.Metadata, "selected_repositories") {
+			repositories = append(repositories, GitHubRepositoryStatus{FullName: normalizeGitHubRepository(repository)})
+		}
+	}
+	sort.Slice(repositories, func(i, j int) bool {
+		return repositories[i].FullName < repositories[j].FullName
+	})
+	return GitHubRepositoryListResponse{
+		ConnectorID:  stored.Connector.ConnectorID,
+		Provider:     provider,
+		Repositories: repositories,
+	}, nil
+}
+
 func (s *Service) CompleteGitHubConnection(ctx context.Context, workspaceID string, projectID string, request GitHubConnectionCompleteRequest) (GitHubConnectionStatus, error) {
 	project, scope, err := s.requireScopedProject(ctx, workspaceID, projectID)
 	if err != nil {
@@ -248,6 +702,11 @@ func (s *Service) CompleteGitHubConnection(ctx context.Context, workspaceID stri
 		TenantID:               scope.TenantID,
 		WorkspaceID:            project.WorkspaceID,
 		ProjectID:              project.ProjectID,
+		ConnectorID:            githubConnectorID,
+		DisplayName:            githubConnectorDisplayName,
+		Status:                 domain.ConnectorStatusActive,
+		HealthStatus:           "healthy",
+		Provider:               "github_app",
 		AccountLogin:           strings.TrimSpace(request.AccountLogin),
 		InstallationID:         request.InstallationID,
 		TokenReference:         normalizedTokenRef,
@@ -285,13 +744,13 @@ func (s *Service) GetGitHubConnection(ctx context.Context, workspaceID string, p
 			return GitHubConnectionStatus{}, loadErr
 		}
 		if !loaded {
-			return GitHubConnectionStatus{Provider: "github_app", Connected: false, SelectedRepositories: []string{}}, nil
+			return s.GetGitHubConnectorStatus(ctx, project.WorkspaceID, project.ProjectID)
 		}
 		s.githubConnectMu.RLock()
 		connection, exists = s.githubConnections[key]
 		s.githubConnectMu.RUnlock()
 		if !exists {
-			return GitHubConnectionStatus{Provider: "github_app", Connected: false, SelectedRepositories: []string{}}, nil
+			return s.GetGitHubConnectorStatus(ctx, project.WorkspaceID, project.ProjectID)
 		}
 	}
 	return s.toGitHubConnectionStatus(connection), nil
@@ -449,17 +908,70 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 		return GitHubWebhookResult{}, ErrGitHubWebhookSignatureInvalid
 	}
 
+	result, err := s.processGitHubWebhookConnections(ctx, span, normalizedEventType, deliveryID, repository, validConnections)
+	if err != nil {
+		return GitHubWebhookResult{}, err
+	}
+	return result, nil
+}
+
+func (s *Service) HandleGitHubAppWebhook(ctx context.Context, eventType string, deliveryID string, signature string, payload []byte) (GitHubWebhookResult, error) {
+	normalizedEventType := strings.ToLower(strings.TrimSpace(eventType))
+	if normalizedEventType == "" || len(payload) == 0 {
+		return GitHubWebhookResult{}, ErrInvalidGitHubWebhookPayload
+	}
+	if !githubconnector.VerifyWebhookSignature(s.GitHubAppWebhookSecret, payload, signature) {
+		return GitHubWebhookResult{}, ErrGitHubWebhookSignatureInvalid
+	}
+	if normalizedEventType == "installation" {
+		event, err := githubconnector.ParseInstallationEvent(payload)
+		if err != nil {
+			return GitHubWebhookResult{}, ErrInvalidGitHubWebhookPayload
+		}
+		return GitHubWebhookResult{
+			EventType:       event.Action,
+			MatchedProjects: s.markGitHubInstallationDisconnected(ctx, event),
+		}, nil
+	}
+	if normalizedEventType == "installation_repositories" {
+		event, err := githubconnector.ParseInstallationRepositoriesEvent(payload)
+		if err != nil {
+			return GitHubWebhookResult{}, ErrInvalidGitHubWebhookPayload
+		}
+		return GitHubWebhookResult{
+			EventType:       event.Action,
+			MatchedProjects: s.reconcileGitHubInstallationRepositories(ctx, event),
+		}, nil
+	}
+	var envelope githubWebhookEnvelope
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return GitHubWebhookResult{}, ErrInvalidGitHubWebhookPayload
+	}
+	repository := normalizeGitHubRepository(envelope.Repository.FullName)
+	if repository == "" {
+		return GitHubWebhookResult{EventType: normalizedEventType}, nil
+	}
+	candidates := s.lookupGitHubConnectionsByRepository(repository, envelope.Installation.ID)
+	if len(candidates) == 0 {
+		return GitHubWebhookResult{EventType: normalizedEventType, Repository: repository}, nil
+	}
+	ctx, span := otel.Tracer("identrail/automation").Start(ctx, "automation.github_app_webhook")
+	defer span.End()
+	return s.processGitHubWebhookConnections(ctx, span, normalizedEventType, deliveryID, repository, candidates)
+}
+
+func (s *Service) processGitHubWebhookConnections(ctx context.Context, span trace.Span, eventType string, deliveryID string, repository string, connections []githubProjectConnection) (GitHubWebhookResult, error) {
 	result := GitHubWebhookResult{
-		EventType:       normalizedEventType,
+		EventType:       eventType,
 		Repository:      repository,
-		MatchedProjects: len(validConnections),
+		MatchedProjects: len(connections),
 	}
 
 	now := s.Now().UTC()
 	normalizedDeliveryID := strings.TrimSpace(deliveryID)
-	scanTriggerEvent := githubWebhookTriggersScan(normalizedEventType)
+	scanTriggerEvent := githubWebhookTriggersScan(eventType)
 
-	for _, connection := range validConnections {
+	for _, connection := range connections {
 		replayed := s.isGitHubWebhookReplay(connection, normalizedDeliveryID, now)
 		if replayed && scanTriggerEvent {
 			result.SkippedScans++
@@ -467,13 +979,13 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 			continue
 		}
 		if !scanTriggerEvent {
-			s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
+			s.recordGitHubWebhookDelivery(ctx, connection, eventType, normalizedDeliveryID, now)
 			continue
 		}
 		if s.shouldThrottleGitHubWebhookScan(connection, repository, now) {
 			result.SkippedScans++
 			s.recordAutomationRun("event", "github", "skipped")
-			s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
+			s.recordGitHubWebhookDelivery(ctx, connection, eventType, normalizedDeliveryID, now)
 			continue
 		}
 
@@ -491,7 +1003,7 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 				errors.Is(err, ErrInvalidRepoScanRequest) {
 				result.SkippedScans++
 				s.recordAutomationRun("event", "github", "skipped")
-				s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
+				s.recordGitHubWebhookDelivery(ctx, connection, eventType, normalizedDeliveryID, now)
 				continue
 			}
 			s.recordAutomationRun("event", "github", "failed")
@@ -501,7 +1013,7 @@ func (s *Service) HandleGitHubWebhook(ctx context.Context, eventType string, del
 		}
 		result.QueuedScans++
 		s.recordAutomationRun("event", "github", "queued")
-		s.recordGitHubWebhookDelivery(ctx, connection, normalizedEventType, normalizedDeliveryID, now)
+		s.recordGitHubWebhookDelivery(ctx, connection, eventType, normalizedDeliveryID, now)
 		s.recordGitHubWebhookQueuedScan(ctx, connection, repository, now)
 	}
 
@@ -518,6 +1030,9 @@ func (s *Service) verifyGitHubWebhookSignatureForInstallation(installationID int
 	defer s.githubConnectMu.RUnlock()
 
 	for _, connection := range s.githubConnections {
+		if connection.Status == domain.ConnectorStatusDisconnected {
+			continue
+		}
 		if connection.InstallationID != installationID {
 			continue
 		}
@@ -534,6 +1049,9 @@ func (s *Service) lookupGitHubConnectionsByRepository(repository string, install
 
 	matches := make([]githubProjectConnection, 0)
 	for _, connection := range s.githubConnections {
+		if connection.Status == domain.ConnectorStatusDisconnected {
+			continue
+		}
 		if connection.InstallationID != installationID {
 			continue
 		}
@@ -543,6 +1061,96 @@ func (s *Service) lookupGitHubConnectionsByRepository(repository string, install
 		matches = append(matches, connection)
 	}
 	return matches
+}
+
+func (s *Service) markGitHubInstallationDisconnected(ctx context.Context, event githubconnector.InstallationEvent) int {
+	switch event.Action {
+	case "deleted", "suspend", "suspended":
+	default:
+		return 0
+	}
+	items, err := s.Store.ListTenancyConnectorsUnscoped(ctx, domain.ConnectorTypeGitHub, 0)
+	if err != nil {
+		return 0
+	}
+	now := s.Now().UTC()
+	matched := 0
+	disconnectedKeys := []string{}
+	for _, item := range items {
+		if metadataInt64(item.State.Metadata, "installation_id") != event.InstallationID {
+			continue
+		}
+		if firstNonEmptyString(metadataString(item.State.Metadata, "provider"), "github_app") != "github_app" {
+			continue
+		}
+		matched++
+		metadata := copyMetadata(item.State.Metadata)
+		metadata["installation_action"] = event.Action
+		metadata["account_login"] = firstNonEmptyString(event.AccountLogin, metadataString(metadata, "account_login"))
+		metadata["disconnected_at"] = now.Format(time.RFC3339Nano)
+		connector := item.Connector
+		connector.Status = domain.ConnectorStatusDisconnected
+		connector.UpdatedAt = now
+		state := item.State
+		state.HealthStatus = "error"
+		state.LastErrorCode = "github_installation_disconnected"
+		state.LastErrorMessage = "GitHub App installation was disconnected."
+		state.Metadata = metadata
+		state.ObservedAt = now
+		state.UpdatedAt = now
+		scopedCtx := db.WithScope(ctx, db.Scope{TenantID: item.Connector.TenantID, WorkspaceID: item.Connector.WorkspaceID})
+		_ = s.Store.UpsertTenancyConnector(scopedCtx, connector, state)
+		disconnectedKeys = append(disconnectedKeys, githubConnectionKey(item.Connector.TenantID, item.Connector.WorkspaceID, item.Connector.ProjectID))
+	}
+	if matched > 0 {
+		s.githubConnectMu.Lock()
+		for _, key := range disconnectedKeys {
+			delete(s.githubConnections, key)
+		}
+		s.githubConnectMu.Unlock()
+		s.hydrateGitHubConnections(ctx)
+	}
+	return matched
+}
+
+func (s *Service) reconcileGitHubInstallationRepositories(ctx context.Context, event githubconnector.InstallationRepositoriesEvent) int {
+	items, err := s.Store.ListTenancyConnectorsUnscoped(ctx, domain.ConnectorTypeGitHub, 0)
+	if err != nil {
+		return 0
+	}
+	now := s.Now().UTC()
+	matched := 0
+	added := normalizeGitHubRepositoriesLenient(event.AddedRepositories)
+	removed := normalizeGitHubRepositoriesLenient(event.RemovedRepositories)
+	for _, item := range items {
+		if metadataInt64(item.State.Metadata, "installation_id") != event.InstallationID {
+			continue
+		}
+		if firstNonEmptyString(metadataString(item.State.Metadata, "provider"), "github_app") != "github_app" {
+			continue
+		}
+		matched++
+		metadata := copyMetadata(item.State.Metadata)
+		metadata["installation_repositories_action"] = event.Action
+		metadata["last_repository_selection_event_at"] = now.Format(time.RFC3339Nano)
+		metadata["selected_repositories"] = reconcileGitHubRepositorySelection(
+			metadataStringSlice(metadata, "selected_repositories"),
+			added,
+			removed,
+		)
+		state := item.State
+		state.Metadata = metadata
+		state.ObservedAt = now
+		state.UpdatedAt = now
+		connector := item.Connector
+		connector.UpdatedAt = now
+		scopedCtx := db.WithScope(ctx, db.Scope{TenantID: item.Connector.TenantID, WorkspaceID: item.Connector.WorkspaceID})
+		_ = s.Store.UpsertTenancyConnector(scopedCtx, connector, state)
+	}
+	if matched > 0 {
+		s.hydrateGitHubConnections(ctx)
+	}
+	return matched
 }
 
 func (s *Service) isGitHubWebhookReplay(connection githubProjectConnection, deliveryID string, now time.Time) bool {
@@ -746,7 +1354,10 @@ func (s *Service) hydrateGitHubConnections(ctx context.Context) {
 	}
 	hydrated := make(map[string]githubProjectConnection, len(items))
 	for _, item := range items {
-		if strings.TrimSpace(item.Connector.ConnectorID) != githubConnectorID {
+		if item.Connector.Status != domain.ConnectorStatusActive {
+			continue
+		}
+		if firstNonEmptyString(metadataString(item.State.Metadata, "provider"), "github_app") != "github_app" {
 			continue
 		}
 		connection, convErr := s.githubConnectionFromStored(ctx, item)
@@ -771,22 +1382,31 @@ func (s *Service) loadGitHubConnection(ctx context.Context, scope db.Scope, work
 		TenantID:    scope.TenantID,
 		WorkspaceID: workspaceID,
 	})
-	item, err := s.Store.GetTenancyConnector(scopedCtx, workspaceID, projectID, githubConnectorID)
+	items, err := s.Store.ListTenancyConnectors(scopedCtx, workspaceID, projectID, domain.ConnectorTypeGitHub, 10)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			return false, nil
 		}
-		return false, fmt.Errorf("load github connector: %w", err)
+		return false, fmt.Errorf("list github connectors: %w", err)
 	}
-	connection, err := s.githubConnectionFromStored(scopedCtx, item)
-	if err != nil {
-		return false, err
+	for _, item := range items {
+		if item.Connector.Status != domain.ConnectorStatusActive {
+			continue
+		}
+		if firstNonEmptyString(metadataString(item.State.Metadata, "provider"), "github_app") != "github_app" {
+			continue
+		}
+		connection, err := s.githubConnectionFromStored(scopedCtx, item)
+		if err != nil {
+			return false, err
+		}
+		s.githubConnectMu.Lock()
+		s.ensureGitHubConnectionsState()
+		s.githubConnections[githubConnectionKey(connection.TenantID, connection.WorkspaceID, connection.ProjectID)] = connection
+		s.githubConnectMu.Unlock()
+		return true, nil
 	}
-	s.githubConnectMu.Lock()
-	s.ensureGitHubConnectionsState()
-	s.githubConnections[githubConnectionKey(connection.TenantID, connection.WorkspaceID, connection.ProjectID)] = connection
-	s.githubConnectMu.Unlock()
-	return true, nil
+	return false, nil
 }
 
 func (s *Service) persistGitHubConnection(ctx context.Context, connection githubProjectConnection) error {
@@ -826,9 +1446,9 @@ func (s *Service) persistGitHubConnection(ctx context.Context, connection github
 		TenantID:            connection.TenantID,
 		WorkspaceID:         connection.WorkspaceID,
 		ProjectID:           connection.ProjectID,
-		ConnectorID:         githubConnectorID,
+		ConnectorID:         firstNonEmptyString(connection.ConnectorID, githubConnectorID),
 		Type:                domain.ConnectorTypeGitHub,
-		DisplayName:         githubConnectorDisplayName,
+		DisplayName:         firstNonEmptyString(connection.DisplayName, githubConnectorDisplayName),
 		Status:              domain.ConnectorStatusActive,
 		SecretProvider:      "secret-envelope",
 		SecretRefID:         connection.WebhookSecretReference,
@@ -841,7 +1461,7 @@ func (s *Service) persistGitHubConnection(ctx context.Context, connection github
 		TenantID:     connection.TenantID,
 		WorkspaceID:  connection.WorkspaceID,
 		ProjectID:    connection.ProjectID,
-		ConnectorID:  githubConnectorID,
+		ConnectorID:  firstNonEmptyString(connection.ConnectorID, githubConnectorID),
 		HealthStatus: "healthy",
 		Metadata:     metadata,
 		ObservedAt:   connection.UpdatedAt,
@@ -855,7 +1475,7 @@ func (s *Service) persistGitHubConnection(ctx context.Context, connection github
 		TenantID:        connection.TenantID,
 		WorkspaceID:     connection.WorkspaceID,
 		ProjectID:       connection.ProjectID,
-		ConnectorID:     githubConnectorID,
+		ConnectorID:     firstNonEmptyString(connection.ConnectorID, githubConnectorID),
 		SecretName:      githubWebhookSecretName,
 		EnvelopeVersion: connection.WebhookSecretEnvelope.Version,
 		Envelope:        connection.WebhookSecretEnvelope,
@@ -901,8 +1521,15 @@ func (s *Service) githubConnectionFromStored(ctx context.Context, item db.Tenanc
 		TenantID:                  item.Connector.TenantID,
 		WorkspaceID:               item.Connector.WorkspaceID,
 		ProjectID:                 item.Connector.ProjectID,
+		ConnectorID:               item.Connector.ConnectorID,
+		DisplayName:               item.Connector.DisplayName,
+		Status:                    item.Connector.Status,
+		HealthStatus:              firstNonEmptyString(item.State.HealthStatus, "unknown"),
+		Provider:                  firstNonEmptyString(metadataString(metadata, "provider"), "github_app"),
 		AccountLogin:              metadataString(metadata, "account_login"),
 		InstallationID:            installationID,
+		BaseURL:                   metadataString(metadata, "base_url"),
+		Scopes:                    metadataStringSlice(metadata, "scopes"),
 		TokenReference:            metadataString(metadata, "token_reference"),
 		WebhookSecretReference:    firstNonEmptyString(metadataString(metadata, "webhook_secret_reference"), secret.SecretRefID),
 		WebhookSecretEnvelope:     secret.Envelope,
@@ -916,6 +1543,38 @@ func (s *Service) githubConnectionFromStored(ctx context.Context, item db.Tenanc
 		LastWebhookScanRepository: normalizeGitHubRepository(metadataString(metadata, "last_webhook_scan_repository")),
 		LastWebhookScanQueuedAt:   timePtr(lastWebhookScanQueuedAt),
 	}, nil
+}
+
+func gitHubConnectionStatusFromStored(item db.TenancyConnectorWithState) GitHubConnectionStatus {
+	metadata := item.State.Metadata
+	createdAt := item.Connector.CreatedAt
+	updatedAt := item.Connector.UpdatedAt
+	status := GitHubConnectionStatus{
+		Provider:              firstNonEmptyString(metadataString(metadata, "provider"), "github_app"),
+		Connected:             item.Connector.Status == domain.ConnectorStatusActive && item.State.HealthStatus == "healthy",
+		ConnectorID:           item.Connector.ConnectorID,
+		DisplayName:           item.Connector.DisplayName,
+		Status:                item.Connector.Status,
+		HealthStatus:          firstNonEmptyString(item.State.HealthStatus, "unknown"),
+		AccountLogin:          metadataString(metadata, "account_login"),
+		InstallationID:        metadataInt64(metadata, "installation_id"),
+		BaseURL:               metadataString(metadata, "base_url"),
+		Scopes:                metadataStringSlice(metadata, "scopes"),
+		TokenReference:        metadataString(metadata, "token_reference"),
+		SelectedRepositories:  metadataStringSlice(metadata, "selected_repositories"),
+		CreatedAt:             &createdAt,
+		UpdatedAt:             &updatedAt,
+		LastWebhookEventType:  metadataString(metadata, "last_webhook_event_type"),
+		LastWebhookDeliveryID: metadataString(metadata, "last_webhook_delivery_id"),
+		LastWebhookEventAt:    timePtr(metadataTime(metadata, "last_webhook_event_at")),
+	}
+	if status.SelectedRepositories == nil {
+		status.SelectedRepositories = []string{}
+	}
+	if status.Scopes == nil {
+		status.Scopes = []string{}
+	}
+	return status
 }
 
 func metadataString(metadata map[string]any, key string) string {
@@ -932,6 +1591,14 @@ func metadataString(metadata map[string]any, key string) string {
 	default:
 		return strings.TrimSpace(fmt.Sprint(typed))
 	}
+}
+
+func copyMetadata(metadata map[string]any) map[string]any {
+	out := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		out[key] = value
+	}
+	return out
 }
 
 func metadataStringSlice(metadata map[string]any, key string) []string {
@@ -1042,6 +1709,45 @@ func normalizeGitHubRepositories(repositories []string) ([]string, error) {
 	return normalized, nil
 }
 
+func normalizeGitHubRepositoriesLenient(repositories []string) []string {
+	normalized := make([]string, 0, len(repositories))
+	for _, repository := range repositories {
+		item := normalizeGitHubRepository(repository)
+		if item == "" || !githubRepositoryPattern.MatchString(item) {
+			continue
+		}
+		normalized = append(normalized, item)
+	}
+	return normalized
+}
+
+func reconcileGitHubRepositorySelection(existing []string, added []string, removed []string) []string {
+	selected := make(map[string]struct{}, len(existing)+len(added))
+	for _, repository := range existing {
+		item := normalizeGitHubRepository(repository)
+		if item == "" || !githubRepositoryPattern.MatchString(item) {
+			continue
+		}
+		selected[item] = struct{}{}
+	}
+	for _, repository := range added {
+		item := normalizeGitHubRepository(repository)
+		if item == "" || !githubRepositoryPattern.MatchString(item) {
+			continue
+		}
+		selected[item] = struct{}{}
+	}
+	for _, repository := range removed {
+		delete(selected, normalizeGitHubRepository(repository))
+	}
+	reconciled := make([]string, 0, len(selected))
+	for repository := range selected {
+		reconciled = append(reconciled, repository)
+	}
+	sort.Strings(reconciled)
+	return reconciled
+}
+
 func normalizeGitHubRepository(repository string) string {
 	return strings.ToLower(strings.TrimSpace(repository))
 }
@@ -1072,8 +1778,14 @@ func gitHubConnectionStatus(connection githubProjectConnection, manager *secrets
 	status := GitHubConnectionStatus{
 		Provider:                      "github_app",
 		Connected:                     true,
+		ConnectorID:                   firstNonEmptyString(connection.ConnectorID, githubConnectorID),
+		DisplayName:                   firstNonEmptyString(connection.DisplayName, githubConnectorDisplayName),
+		Status:                        firstNonEmptyConnectorStatus(connection.Status, domain.ConnectorStatusActive),
+		HealthStatus:                  firstNonEmptyString(connection.HealthStatus, "healthy"),
 		AccountLogin:                  connection.AccountLogin,
 		InstallationID:                connection.InstallationID,
+		BaseURL:                       connection.BaseURL,
+		Scopes:                        append([]string(nil), connection.Scopes...),
 		TokenReference:                connection.TokenReference,
 		WebhookSecretReference:        connection.WebhookSecretReference,
 		WebhookSecretKeyVersion:       connection.WebhookSecretEnvelope.KeyVersion,
@@ -1091,7 +1803,19 @@ func gitHubConnectionStatus(connection githubProjectConnection, manager *secrets
 	if status.SelectedRepositories == nil {
 		status.SelectedRepositories = []string{}
 	}
+	if status.Scopes == nil {
+		status.Scopes = []string{}
+	}
 	return status
+}
+
+func firstNonEmptyConnectorStatus(values ...domain.ConnectorStatus) domain.ConnectorStatus {
+	for _, value := range values {
+		if strings.TrimSpace(string(value)) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func connectorSecretRotationRequired(manager *secretstore.Manager, envelope secretstore.Envelope, rotatedAt time.Time, now time.Time) bool {
@@ -1110,6 +1834,11 @@ func connectorSecretRotationRequired(manager *secretstore.Manager, envelope secr
 func (s *Service) encryptGitHubWebhookSecret(scope db.Scope, projectID string, secret string) (secretstore.Envelope, error) {
 	manager := s.connectorSecretManager()
 	return manager.Encrypt([]byte(secret), githubWebhookSecretAAD(scope, projectID))
+}
+
+func (s *Service) encryptGitHubPAT(scope db.Scope, projectID string, connectorID string, token string) (secretstore.Envelope, error) {
+	manager := s.connectorSecretManager()
+	return manager.Encrypt([]byte(token), githubPATSecretAAD(scope, projectID, connectorID))
 }
 
 func (s *Service) decryptGitHubWebhookSecret(connection githubProjectConnection) (string, error) {
@@ -1148,6 +1877,22 @@ func githubWebhookSecretAAD(scope db.Scope, projectID string) []byte {
 		strings.ToLower(strings.TrimSpace(projectID)),
 	}
 	return []byte(strings.Join(parts, "\x00"))
+}
+
+func githubPATSecretAAD(scope db.Scope, projectID string, connectorID string) []byte {
+	parts := []string{
+		"github",
+		"pat_token",
+		strings.ToLower(strings.TrimSpace(scope.TenantID)),
+		strings.ToLower(strings.TrimSpace(scope.WorkspaceID)),
+		strings.ToLower(strings.TrimSpace(projectID)),
+		strings.ToLower(strings.TrimSpace(connectorID)),
+	}
+	return []byte(strings.Join(parts, "\x00"))
+}
+
+func githubPATSecretRef(connectorID string) string {
+	return "secret-envelope://github/" + strings.TrimSpace(connectorID) + "/" + githubPATSecretName
 }
 
 func auditGitHubConnectorAction(ctx context.Context, action string, scope db.Scope, projectID string, outcome string) {
