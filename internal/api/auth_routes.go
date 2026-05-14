@@ -99,6 +99,11 @@ func workOSStartHandler(logger *zap.Logger, svc *Service, opts authSessionRouteO
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth service unavailable"})
 			return
 		}
+		provider, ok := workOSProviderFromPublicID(c.Query("provider"))
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported auth provider"})
+			return
+		}
 		returnTo := sanitizeAuthReturnTo(c.Query("return_to"), opts.ReturnToOrigins)
 		state, err := opts.StateManager.Issue(intent, returnTo)
 		if err != nil {
@@ -111,7 +116,9 @@ func workOSStartHandler(logger *zap.Logger, svc *Service, opts authSessionRouteO
 		screenHint := ""
 		action := "auth.login.start"
 		if intent == "signup" {
-			screenHint = "sign-up"
+			if provider == "authkit" {
+				screenHint = "sign-up"
+			}
 			action = "auth.signup"
 		}
 		auditAuthAction(c.Request.Context(), action, "", "success")
@@ -119,6 +126,7 @@ func workOSStartHandler(logger *zap.Logger, svc *Service, opts authSessionRouteO
 			RedirectURI: workOSCallbackURL(opts.PublicBaseURL),
 			State:       state,
 			ScreenHint:  screenHint,
+			Provider:    provider,
 		})
 		if err != nil {
 			auditAuthAction(c.Request.Context(), "auth.login.failure", "", "denied")
@@ -130,6 +138,19 @@ func workOSStartHandler(logger *zap.Logger, svc *Service, opts authSessionRouteO
 			return
 		}
 		c.Redirect(http.StatusFound, authorizationURL)
+	}
+}
+
+func workOSProviderFromPublicID(provider string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "", "authkit":
+		return "authkit", true
+	case "google_oauth":
+		return "GoogleOAuth", true
+	case "github_oauth":
+		return "GitHubOAuth", true
+	default:
+		return "", false
 	}
 }
 
