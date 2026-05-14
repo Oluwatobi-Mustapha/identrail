@@ -3,7 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"io"
 	"net/http"
@@ -75,6 +77,7 @@ type RouterOptions struct {
 	FeatureWorkOSLogin       bool
 	FeatureConnectorAWS      bool
 	FeatureConnectorGitHubV2 bool
+	FeatureConnectorK8S      bool
 	PublicBaseURL            string
 	SessionKey               string
 	AuthManualMode           bool
@@ -320,6 +323,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	if opts.FeatureNewAuth {
 		registerAuthConfigRoute(publicV1, opts.AuthManualMode, opts.FeatureWorkOSLogin)
 	}
+	registerKubernetesAgentRoutes(publicV1, logger, svc, opts.FeatureConnectorK8S, opts.PublicBaseURL)
 
 	v1 := r.Group("/v1")
 	v1.Use(auditLogMiddleware(logger, opts.AuditSink, opts.AuditFingerprinter))
@@ -350,7 +354,7 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 	}
 	registerEnterpriseAuthPrepRoutes(v1)
 	registerTenancyRoutes(v1, logger, svc, opts.FeatureConnectorAWS, opts.FeatureConnectorGitHubV2)
-	registerKubernetesConnectionRoutes(v1, logger, svc)
+	registerKubernetesConnectionRoutes(v1, logger, svc, opts.FeatureConnectorK8S, opts.PublicBaseURL)
 
 	if svc == nil {
 		v1.GET("/findings", func(c *gin.Context) {
@@ -3268,9 +3272,30 @@ func rateLimitKey(c *gin.Context) string {
 		return ip + "|api"
 	}
 	if bearer := readBearerToken(c); bearer != "" {
+		if isKubernetesAgentHeartbeatRequest(c) {
+			return ip + "|k8s-heartbeat|" + shortRateLimitCredentialHash(bearer)
+		}
 		return ip + "|bearer"
 	}
 	return ip + "|anon"
+}
+
+func isKubernetesAgentHeartbeatRequest(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return false
+	}
+	if c.Request.Method != http.MethodPost {
+		return false
+	}
+	if c.FullPath() == "/v1/connectors/k8s/heartbeat" {
+		return true
+	}
+	return c.Request.URL != nil && c.Request.URL.Path == "/v1/connectors/k8s/heartbeat"
+}
+
+func shortRateLimitCredentialHash(credential string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(credential)))
+	return hex.EncodeToString(sum[:8])
 }
 
 func requireMetricsScopeMiddleware(writeKeys []string, scopedKeys map[string][]string) gin.HandlerFunc {
