@@ -207,13 +207,14 @@ func FetchSAMLMetadataXML(ctx context.Context, client *http.Client, metadataURL 
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	// Shallow-clone the client so installing CheckRedirect does not mutate
-	// the caller's instance, then enforce the same scheme + host guard on
-	// every redirect hop. Without this, a public-facing https endpoint could
-	// 30x to a plain-http URL or to a private IP and bypass the up-front
-	// guard, restoring the SSRF surface this fetcher is meant to close.
+	// Shallow-clone the client so installing CheckRedirect and the dial
+	// guard does not mutate the caller's instance, then enforce the same
+	// scheme + host guard on every redirect hop. Without this, a
+	// public-facing https endpoint could 30x to a plain-http URL or to a
+	// private IP and bypass the up-front guard.
 	guardedClient := *client
 	guardedClient.CheckRedirect = checkMetadataRedirect
+	guardedClient.Transport = guardedMetadataTransport(guardedClient.Transport)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
 		return nil, err
@@ -232,6 +233,115 @@ func FetchSAMLMetadataXML(ctx context.Context, client *http.Client, metadataURL 
 		return nil, fmt.Errorf("read metadata body: %w", err)
 	}
 	return body, nil
+}
+
+// metadataProxyAddrKey carries the operator-configured proxy host:port (if
+// any) into DialContext via request context. The wrapping RoundTripper sets
+// the value once per request after consulting the transport's Proxy func, so
+// the dial guard can distinguish a proxy-bound dial (trusted egress) from a
+// direct dial to the metadata host (must be re-validated to close the
+// rebinding TOCTOU).
+type metadataProxyAddrKey struct{}
+
+// guardedMetadataTransport wraps base so every direct TCP dial re-validates
+// the destination IP. Without this, an attacker-controlled DNS could hand the
+// up-front host guard a public IP and then re-resolve to a private IP at
+// dial time (DNS rebinding).
+//
+// Dials destined for an operator-configured HTTPS_PROXY are exempted: the
+// proxy is trusted egress, the metadata host has already been validated by
+// the up-front + redirect guards, and rejecting RFC1918 proxy addresses
+// would break every deployment behind an internal egress proxy.
+func guardedMetadataTransport(base http.RoundTripper) http.RoundTripper {
+	transport, ok := base.(*http.Transport)
+	if !ok || transport == nil {
+		// Fresh clone inherits http.ProxyFromEnvironment, so HTTPS_PROXY /
+		// HTTP_PROXY / NO_PROXY are honored for the default code path.
+		transport = http.DefaultTransport.(*http.Transport).Clone()
+	} else {
+		// Preserve the caller's Proxy decision, including an explicit nil
+		// (the "no proxy" sentinel). Overwriting nil with
+		// http.ProxyFromEnvironment would silently route a hermetic test
+		// transport through the deployment's env proxy.
+		transport = transport.Clone()
+	}
+	// Clear any caller-supplied custom TLS dial hooks. Per the net/http docs,
+	// when DialTLSContext or DialTLS is set, the standard library skips the
+	// DialContext hook entirely — which would let an HTTPS request bypass
+	// our guarded dialer and reopen the DNS-rebinding gap this guard exists
+	// to close. The transport falls back to DialContext + TLSClientConfig,
+	// which is what we want.
+	transport.DialTLSContext = nil
+	transport.DialTLS = nil
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		// Proxy-bound dial: addr is the operator-configured proxy host:port.
+		// Skip the IP guard so internal egress proxies stay reachable.
+		if proxyAddr, ok := ctx.Value(metadataProxyAddrKey{}).(string); ok && proxyAddr != "" && addr == proxyAddr {
+			return metadataDialContext(ctx, network, addr)
+		}
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, fmt.Errorf("metadata dial: invalid address %q: %w", addr, err)
+		}
+		ips, err := metadataResolver(ctx, host)
+		if err != nil {
+			return nil, fmt.Errorf("metadata dial: resolve %q: %w", host, err)
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("metadata dial: no addresses for %q", host)
+		}
+		for _, ip := range ips {
+			if err := internalIPGuard(ip, host); err != nil {
+				return nil, err
+			}
+		}
+		// Try every validated address in order before giving up. This mirrors
+		// the fallback behavior of net.Dialer when handed a hostname (e.g.,
+		// AAAA-first on an IPv4-only deployment, or a stale A record before a
+		// healthy one) and is safe because every candidate has already
+		// cleared internalIPGuard. TLS SNI + cert verification still use the
+		// URL's hostname so server identity is enforced normally.
+		var lastErr error
+		for _, ip := range ips {
+			conn, dialErr := metadataDialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+			if dialErr == nil {
+				return conn, nil
+			}
+			lastErr = dialErr
+		}
+		return nil, fmt.Errorf("metadata dial %q: all %d validated addresses failed; last error: %w", host, len(ips), lastErr)
+	}
+	return &metadataProxyAwareTransport{base: transport}
+}
+
+// metadataProxyAwareTransport tags every outgoing request's context with the
+// proxy address derived from the transport's Proxy func, so the dial guard
+// can recognize and skip proxy-bound dials.
+type metadataProxyAwareTransport struct {
+	base *http.Transport
+}
+
+func (m *metadataProxyAwareTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if m.base.Proxy != nil {
+		if proxyURL, err := m.base.Proxy(req); err == nil && proxyURL != nil {
+			proxyAddr := proxyURL.Host
+			if proxyAddr != "" {
+				if _, _, splitErr := net.SplitHostPort(proxyAddr); splitErr != nil {
+					// Fill in the protocol-default port so the eventual dial
+					// addr matches what we stash here.
+					switch strings.ToLower(proxyURL.Scheme) {
+					case "https":
+						proxyAddr = net.JoinHostPort(proxyAddr, "443")
+					case "http":
+						proxyAddr = net.JoinHostPort(proxyAddr, "80")
+					}
+				}
+				ctx := context.WithValue(req.Context(), metadataProxyAddrKey{}, proxyAddr)
+				req = req.Clone(ctx)
+			}
+		}
+	}
+	return m.base.RoundTrip(req)
 }
 
 // checkMetadataRedirect runs the same scheme + host guard that gates the
@@ -254,18 +364,32 @@ func checkMetadataRedirect(req *http.Request, via []*http.Request) error {
 	return metadataHostGuard(req.Context(), host)
 }
 
-// metadataResolver is the DNS resolver used by assertMetadataHostIsExternal.
-// Tests override it with a deterministic in-memory resolver so the SSRF guard
-// can be exercised without depending on real DNS.
+// metadataResolver is the DNS resolver used by the SSRF guards. Tests
+// override it with a deterministic in-memory resolver so behavior can be
+// exercised without depending on real DNS.
 var metadataResolver = func(ctx context.Context, host string) ([]net.IP, error) {
+	if ip := net.ParseIP(host); ip != nil {
+		return []net.IP{ip}, nil
+	}
 	return net.DefaultResolver.LookupIP(ctx, "ip", host)
 }
 
-// metadataHostGuard is the SSRF guard called before issuing the metadata
-// fetch. Production wiring uses assertMetadataHostIsExternal; tests that need
-// to point at a httptest server (which binds to 127.0.0.1) swap in a no-op
-// for the duration of the test.
+// metadataHostGuard is the up-front SSRF guard called before issuing the
+// metadata fetch. Production wiring uses assertMetadataHostIsExternal; tests
+// that need to point at a httptest server (which binds to 127.0.0.1) swap in
+// a no-op for the duration of the test.
 var metadataHostGuard = assertMetadataHostIsExternal
+
+// internalIPGuard is the per-IP rejection used by both the up-front host
+// guard and the dial-time guard. Tests swap to a no-op so a httptest TLS
+// server bound on 127.0.0.1 is reachable.
+var internalIPGuard = rejectInternalIP
+
+// metadataDialContext is the dialer used by guardedMetadataTransport. It is
+// a package-level variable so tests can swap in a deterministic fake to
+// exercise the per-candidate fallback behavior without depending on
+// network-level race conditions.
+var metadataDialContext = (&net.Dialer{Timeout: 10 * time.Second}).DialContext
 
 // assertMetadataHostIsExternal refuses to fetch from a host that resolves to
 // any address Identrail considers internal: loopback, link-local, multicast,
@@ -275,7 +399,7 @@ var metadataHostGuard = assertMetadataHostIsExternal
 // pointing at e.g. 169.254.169.254 (cloud metadata) or a private subnet.
 func assertMetadataHostIsExternal(ctx context.Context, host string) error {
 	if ip := net.ParseIP(host); ip != nil {
-		return rejectInternalIP(ip, host)
+		return internalIPGuard(ip, host)
 	}
 	addrs, err := metadataResolver(ctx, host)
 	if err != nil {
@@ -285,7 +409,7 @@ func assertMetadataHostIsExternal(ctx context.Context, host string) error {
 		return fmt.Errorf("metadata_url host %q resolved to no addresses", host)
 	}
 	for _, ip := range addrs {
-		if err := rejectInternalIP(ip, host); err != nil {
+		if err := internalIPGuard(ip, host); err != nil {
 			return err
 		}
 	}

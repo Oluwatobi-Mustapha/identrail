@@ -4,21 +4,52 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
-// withPermissiveHostGuard swaps out the SSRF guard for the duration of the
+// hermeticClient returns an http.Client that explicitly disables proxy
+// resolution. Tests must use this (or otherwise null Proxy on their custom
+// transport) so an HTTPS_PROXY/HTTP_PROXY value inherited from the CI runner
+// or the operator's shell does not hijack requests away from the local
+// httptest server or away from the guarded dialer being exercised.
+func hermeticClient(base *http.Client) *http.Client {
+	clone := &http.Client{Timeout: 10 * time.Second}
+	if base != nil {
+		*clone = *base
+		clone.Transport = nil
+	}
+	source, _ := http.DefaultTransport.(*http.Transport)
+	if base != nil {
+		if t, ok := base.Transport.(*http.Transport); ok && t != nil {
+			source = t
+		}
+	}
+	transport := source.Clone()
+	transport.Proxy = nil
+	clone.Transport = transport
+	return clone
+}
+
+// withPermissiveHostGuard swaps out both SSRF guards for the duration of the
 // test so a httptest.NewTLSServer (which binds to 127.0.0.1) is reachable.
-// Production wiring keeps the strict guard.
+// Production wiring keeps the strict guards.
 func withPermissiveHostGuard(t *testing.T) {
 	t.Helper()
-	prev := metadataHostGuard
+	prevHost := metadataHostGuard
+	prevIP := internalIPGuard
 	metadataHostGuard = func(context.Context, string) error { return nil }
-	t.Cleanup(func() { metadataHostGuard = prev })
+	internalIPGuard = func(net.IP, string) error { return nil }
+	t.Cleanup(func() {
+		metadataHostGuard = prevHost
+		internalIPGuard = prevIP
+	})
 }
 
 // withFakeResolver lets a test pretend that a public-looking hostname resolves
@@ -139,7 +170,7 @@ func TestFetchSAMLMetadataXML_HappyPath(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	withPermissiveHostGuard(t)
-	body, err := FetchSAMLMetadataXML(context.Background(), srv.Client(), srv.URL+"/idp/metadata")
+	body, err := FetchSAMLMetadataXML(context.Background(), hermeticClient(srv.Client()), srv.URL+"/idp/metadata")
 	if err != nil {
 		t.Fatalf("fetch metadata: %v", err)
 	}
@@ -214,26 +245,36 @@ func TestFetchSAMLMetadataXML_BlocksRedirectToHTTP(t *testing.T) {
 		http.Redirect(w, r, "http://idp.example.com/metadata", http.StatusFound)
 	}))
 	t.Cleanup(srv.Close)
-	_, err := FetchSAMLMetadataXML(context.Background(), srv.Client(), srv.URL+"/idp/metadata")
+	_, err := FetchSAMLMetadataXML(context.Background(), hermeticClient(srv.Client()), srv.URL+"/idp/metadata")
 	if err == nil || !strings.Contains(err.Error(), "non-https") {
 		t.Errorf("expected non-https redirect rejection, got: %v", err)
 	}
 }
 
 func TestFetchSAMLMetadataXML_BlocksRedirectToPrivateIP(t *testing.T) {
-	// Bypass the loopback check on the original httptest URL but reinstall
-	// the strict guard for the redirect target. This exercises the SSRF
-	// protection against an attacker-controlled public endpoint that 30x'es
-	// to a private IP.
-	prev := metadataHostGuard
-	t.Cleanup(func() { metadataHostGuard = prev })
-	allowFirst := true
+	// Bypass the loopback check just for the local httptest host but keep
+	// the strict guard for everything else. Both the up-front host guard
+	// and the dial-time guard now flow through internalIPGuard, so swapping
+	// it lets us exercise the SSRF protection against an attacker-controlled
+	// public endpoint that 30x'es to a private IP without losing coverage of
+	// the strict path.
+	prevHost := metadataHostGuard
+	prevIP := internalIPGuard
+	t.Cleanup(func() {
+		metadataHostGuard = prevHost
+		internalIPGuard = prevIP
+	})
 	metadataHostGuard = func(ctx context.Context, host string) error {
-		if allowFirst {
-			allowFirst = false
+		if host == "127.0.0.1" || host == "::1" {
 			return nil
 		}
 		return assertMetadataHostIsExternal(ctx, host)
+	}
+	internalIPGuard = func(ip net.IP, host string) error {
+		if ip.IsLoopback() {
+			return nil
+		}
+		return rejectInternalIP(ip, host)
 	}
 
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -241,10 +282,188 @@ func TestFetchSAMLMetadataXML_BlocksRedirectToPrivateIP(t *testing.T) {
 		http.Redirect(w, r, "https://169.254.169.254/latest/meta-data/", http.StatusFound)
 	}))
 	t.Cleanup(srv.Close)
-	_, err := FetchSAMLMetadataXML(context.Background(), srv.Client(), srv.URL+"/idp/metadata")
+	_, err := FetchSAMLMetadataXML(context.Background(), hermeticClient(srv.Client()), srv.URL+"/idp/metadata")
 	if err == nil || !strings.Contains(err.Error(), "link-local") {
 		t.Errorf("expected link-local rejection on redirect target, got: %v", err)
 	}
+}
+
+func TestFetchSAMLMetadataXML_BlocksDNSRebinding(t *testing.T) {
+	// DNS rebinding TOCTOU: the up-front host guard sees a public IP, but
+	// the dial-time resolver returns a private IP. Without the dial-time
+	// guard the request would still hit the internal address.
+	calls := 0
+	prev := metadataResolver
+	t.Cleanup(func() { metadataResolver = prev })
+	metadataResolver = func(_ context.Context, host string) ([]net.IP, error) {
+		if host == "rebinding.example.com" {
+			calls++
+			if calls == 1 {
+				// First call: up-front guard. Hand back a public IP.
+				return []net.IP{net.ParseIP("198.51.100.1")}, nil
+			}
+			// Second call (and later): dial-time. Now resolve to a private IP.
+			return []net.IP{net.ParseIP("10.0.0.99")}, nil
+		}
+		return nil, &net.DNSError{Err: "not found", Name: host, IsNotFound: true}
+	}
+
+	_, err := FetchSAMLMetadataXML(context.Background(), hermeticClient(nil), "https://rebinding.example.com/metadata")
+	if err == nil || !strings.Contains(err.Error(), "private") {
+		t.Errorf("expected DNS-rebinding rejection at dial time, got: %v", err)
+	}
+	if calls < 2 {
+		t.Errorf("expected dial-time resolver to be called (calls=%d) — guard ran only at check time", calls)
+	}
+}
+
+func TestFetchSAMLMetadataXML_FallsBackToSecondValidatedAddress(t *testing.T) {
+	// Stand up a real TLS server on 127.0.0.1 — this is the "live" candidate.
+	// The "dead" candidate is the documentation address 192.0.2.1. The test
+	// must not depend on real-network behavior, so the dial function is
+	// swapped to a deterministic fake that returns ECONNREFUSED for
+	// 192.0.2.1 and forwards every other address to the standard dialer
+	// (so the httptest connection still completes).
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/samlmetadata+xml")
+		_, _ = w.Write([]byte(oktaMetadataFixture))
+	}))
+	t.Cleanup(srv.Close)
+
+	srvURL, _ := url.Parse(srv.URL)
+	deadIP := net.ParseIP("192.0.2.1")
+	liveIP := net.ParseIP(srvURL.Hostname())
+
+	prevResolver := metadataResolver
+	t.Cleanup(func() { metadataResolver = prevResolver })
+	metadataResolver = func(_ context.Context, host string) ([]net.IP, error) {
+		if host == "idp.example.com" {
+			return []net.IP{deadIP, liveIP}, nil
+		}
+		return nil, &net.DNSError{Err: "not found", Name: host, IsNotFound: true}
+	}
+
+	withPermissiveHostGuard(t)
+	// Permit just the loopback and dead-IP candidates past the guard so the
+	// strict path stays intact for everything else.
+	prevIP := internalIPGuard
+	internalIPGuard = func(ip net.IP, host string) error {
+		if ip.IsLoopback() || ip.Equal(deadIP) {
+			return nil
+		}
+		return rejectInternalIP(ip, host)
+	}
+	t.Cleanup(func() { internalIPGuard = prevIP })
+
+	// Hermetic client: explicitly disable proxy resolution so an env
+	// HTTPS_PROXY/HTTP_PROXY does not hijack the request away from the
+	// local TLS server / guarded dialer being exercised.
+	caller := hermeticClient(srv.Client())
+
+	// Swap the dialer so 192.0.2.1 returns an instant refusal and 127.0.0.1
+	// uses the real net.Dialer. Track per-candidate calls so the assertion
+	// proves the second address was actually tried.
+	prevDial := metadataDialContext
+	t.Cleanup(func() { metadataDialContext = prevDial })
+	var dialedDead, dialedLive int
+	realDialer := &net.Dialer{Timeout: 5 * time.Second}
+	metadataDialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, _, _ := net.SplitHostPort(addr)
+		switch host {
+		case deadIP.String():
+			dialedDead++
+			return nil, fmt.Errorf("connection refused (synthetic)")
+		default:
+			dialedLive++
+			return realDialer.DialContext(ctx, network, addr)
+		}
+	}
+
+	body, err := FetchSAMLMetadataXML(context.Background(), caller, "https://idp.example.com:"+srvURL.Port()+"/metadata")
+	if err != nil {
+		t.Fatalf("expected fallback to succeed, got: %v", err)
+	}
+	if !strings.Contains(string(body), "EntityDescriptor") {
+		t.Errorf("unexpected body: %q", string(body))
+	}
+	if dialedDead == 0 {
+		t.Error("dead address was never attempted — fallback test is ineffective")
+	}
+	if dialedLive == 0 {
+		t.Error("live address was never attempted — fallback did not fire")
+	}
+}
+
+func TestGuardedMetadataTransport_ClearsCallerCustomTLSDialHooks(t *testing.T) {
+	// Per net/http docs, when DialTLSContext or DialTLS is set on the
+	// underlying transport, the standard library skips DialContext entirely
+	// for HTTPS requests — which would let an attacker-controlled DNS slip
+	// past our guard for non-proxied HTTPS. The wrapper must null those
+	// hooks so every dial goes through our guarded DialContext.
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.DialTLSContext = func(context.Context, string, string) (net.Conn, error) {
+		t.Fatalf("guarded transport must clear DialTLSContext")
+		return nil, nil
+	}
+	base.DialTLS = func(string, string) (net.Conn, error) {
+		t.Fatalf("guarded transport must clear DialTLS")
+		return nil, nil
+	}
+	wrapped := guardedMetadataTransport(base)
+	innerTransport := wrapped.(*metadataProxyAwareTransport).base
+	if innerTransport.DialTLSContext != nil {
+		t.Errorf("DialTLSContext was not cleared by guardedMetadataTransport")
+	}
+	if innerTransport.DialTLS != nil {
+		t.Errorf("DialTLS was not cleared by guardedMetadataTransport")
+	}
+}
+
+func TestFetchSAMLMetadataXML_AllowsConfiguredProxyDial(t *testing.T) {
+	// Spin up a TCP-only listener on 127.0.0.1 to stand in for an internal
+	// HTTPS_PROXY. The transport's Proxy func points every request at it.
+	// We do not need a complete CONNECT-speaking proxy — the test only needs
+	// to prove that the dial-time IP guard is exempted for proxy-bound dials,
+	// and we verify that by observing whether internalIPGuard is invoked on
+	// the loopback proxy address.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+	proxyURL := &url.URL{Scheme: "http", Host: ln.Addr().String()}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = func(*http.Request) (*url.URL, error) { return proxyURL, nil }
+	caller := &http.Client{Transport: transport}
+
+	// Bypass only the up-front host guard for the metadata host. The
+	// dial-time guard stays strict, and our spy variant fails the test if
+	// it is ever called with the loopback proxy address.
+	withPermissiveHostGuard(t)
+	prevIP := internalIPGuard
+	internalIPGuard = func(ip net.IP, host string) error {
+		if ip.IsLoopback() {
+			t.Fatalf("internalIPGuard was called with loopback %s — proxy exemption did not fire", ip)
+		}
+		return rejectInternalIP(ip, host)
+	}
+	t.Cleanup(func() { internalIPGuard = prevIP })
+
+	// We expect the dial to succeed (proving the guard exemption fired) and
+	// then for the request to fail downstream because the listener is not a
+	// real HTTP proxy. The success criterion is "internalIPGuard was NOT
+	// called for the loopback proxy address" — guarded by t.Fatalf above.
+	_, _ = FetchSAMLMetadataXML(context.Background(), caller, "https://idp.example.com/metadata")
 }
 
 func TestNewSCIMBearerToken_Format(t *testing.T) {
