@@ -434,6 +434,36 @@ describe('App', () => {
     );
   });
 
+  it('does not show loading copy or provider actions while auth config loads', () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise(() => {})));
+
+    setCurrentPath('/signup');
+    render(<App />);
+
+    expect(screen.getByRole('heading', { level: 1, name: /Your first trust graph/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Continue with Google/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Continue with GitHub/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Continue with SAML SSO/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Loading authentication/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps the auth theme trigger icon-only while exposing named menu choices', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(authConfig(false, true)));
+
+    setCurrentPath('/signup');
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Your first trust graph/i })).toBeInTheDocument();
+    const themeTrigger = screen.getByRole('button', { name: /Color theme: Dark/i });
+    expect(themeTrigger.textContent).toBe('');
+
+    fireEvent.click(themeTrigger);
+
+    expect(screen.getByRole('menuitemradio', { name: /Light/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitemradio', { name: /System/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitemradio', { name: /Dark/i })).toBeInTheDocument();
+  });
+
   it('shows a clear API reachability error when auth config cannot be fetched', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new TypeError('Failed to fetch')));
 
