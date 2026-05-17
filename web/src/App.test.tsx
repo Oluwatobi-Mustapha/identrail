@@ -100,6 +100,25 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Contact Sales' })).toBeInTheDocument();
   });
 
+  it('renders the full-bleed product page story', () => {
+    setCurrentPath('/product');
+    render(<App />);
+
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: /Machine identity risk, mapped end to end/i
+      })
+    ).toBeInTheDocument();
+
+    expect(screen.getByRole('heading', { level: 2, name: /Four connected surfaces/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /The Trust Graph is the control plane/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /From discovery to fix/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /Start Free Risk Scan/i }).length).toBeGreaterThan(0);
+    expect(document.querySelector('main main')).not.toBeInTheDocument();
+    expect(document.querySelector('.idt-product-hero-visual')).toHaveAttribute('aria-hidden', 'true');
+  });
+
   it('renders read-only scan intake flow route', () => {
     setCurrentPath('/read-only-scan');
     render(<App />);
