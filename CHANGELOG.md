@@ -16,6 +16,13 @@
     `/v1/me`, the workspaces list, the members list (active owner), the default
     project, and the scoped `/app/<org>/<workspace>` redirect all agree, and
     that re-running start is idempotent.
+- Wired public lead capture to a production-style Resend email path: scan
+  requests now send an internal notification and requester confirmation when
+  `RESEND_API_KEY`, `LEAD_NOTIFY_TO`, and a verified `LEAD_EMAIL_FROM` are
+  configured, while preserving the signed webhook forwarding option for
+  CRM/automation fanout even when Resend rejects or times out, and accepting
+  the submission once either configured delivery channel succeeds or the
+  internal team notification has been accepted.
 - Redesigned the product page as a full-bleed Vercel-style surface with a dark hero, spread-out trust graph connections, alternating neutral sections, and no centered container around the main product story.
 - Exposed backend feature availability to the frontend so the web bundle no
   longer shows a backend-gated self-serve flow purely from a Vite build flag:
