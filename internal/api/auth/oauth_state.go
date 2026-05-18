@@ -35,9 +35,10 @@ type OAuthState struct {
 }
 
 type OAuthStateManager struct {
-	secret []byte
-	ttl    time.Duration
-	now    func() time.Time
+	secret   []byte
+	previous []byte
+	ttl      time.Duration
+	now      func() time.Time
 
 	mu   sync.Mutex
 	used map[string]time.Time
@@ -53,6 +54,35 @@ func NewOAuthStateManager(secret string, now func() time.Time) *OAuthStateManage
 		now:    now,
 		used:   map[string]time.Time{},
 	}
+}
+
+// WithPreviousSecret registers a previous signing key accepted for
+// verification only during a key-rotation window. New state is always signed
+// with the active secret; the previous secret is never used to issue tokens.
+// An empty previous secret clears any prior value.
+//
+// Set/clear is decided on the trimmed value so a whitespace-only string
+// (e.g. injected by env templating or a stray newline) is treated as unset,
+// matching how config (security.go) decides whether
+// IDENTRAIL_SESSION_KEY_PREVIOUS is configured. This prevents an accidental
+// low-entropy fallback key from ever being accepted for verification.
+//
+// When a real key is present it is stored verbatim, exactly as
+// NewOAuthStateManager stores the active secret. This is deliberate: state
+// is signed with the active key's raw bytes, so after a rotation the same
+// raw bytes (including any surrounding whitespace that was part of the real
+// key) must be presented as the previous key for in-flight signatures to
+// verify. Returns the manager so it can be chained off the constructor.
+func (m *OAuthStateManager) WithPreviousSecret(previous string) *OAuthStateManager {
+	if m == nil {
+		return m
+	}
+	if strings.TrimSpace(previous) != "" {
+		m.previous = []byte(previous)
+	} else {
+		m.previous = nil
+	}
+	return m
 }
 
 func (m *OAuthStateManager) Issue(intent string, returnTo string) (string, error) {
@@ -102,8 +132,7 @@ func (m *OAuthStateManager) Decode(raw string) (OAuthState, error) {
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return OAuthState{}, ErrOAuthStateInvalid
 	}
-	expected := signOAuthState(m.secret, parts[0])
-	if !hmac.Equal([]byte(expected), []byte(parts[1])) {
+	if !m.signatureValid(parts[0], parts[1]) {
 		return OAuthState{}, ErrOAuthStateInvalid
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[0])
@@ -150,6 +179,20 @@ func (m *OAuthStateManager) pruneLocked(now time.Time) {
 			delete(m.used, nonce)
 		}
 	}
+}
+
+// signatureValid accepts a signature produced by the active secret, or by
+// the previous secret when one is configured (key-rotation window). The
+// active key is always checked first so the common path is unchanged.
+func (m *OAuthStateManager) signatureValid(payloadPart, signature string) bool {
+	if hmac.Equal([]byte(signOAuthState(m.secret, payloadPart)), []byte(signature)) {
+		return true
+	}
+	if len(m.previous) > 0 &&
+		hmac.Equal([]byte(signOAuthState(m.previous, payloadPart)), []byte(signature)) {
+		return true
+	}
+	return false
 }
 
 func signOAuthState(secret []byte, payloadPart string) string {
