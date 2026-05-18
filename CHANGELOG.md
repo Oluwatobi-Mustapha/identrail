@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Fixed the authenticated workspace Settings view so a `whoami` response with
+  `scopes: null` renders as `None granted` instead of tripping the app error
+  boundary, and replaced the fallback error copy with user-facing workspace
+  recovery language.
 - Required explicit review before read-only scan intake submission and added
   stronger lead-quality checks for work emails, disposable domains, matching
   company websites, and publicly verifiable company DNS.
