@@ -1,6 +1,23 @@
 # Changelog
 
 ## Unreleased
+- Made WorkOS webhook delivery idempotent. After signature validation the
+  handler claims the provider event ID in a new durable `webhook_events`
+  table (status `processing` → `processed`) before applying user-lifecycle
+  side effects. A completed duplicate, retry, or replay returns a no-op
+  success without reapplying `user.deleted` / `user.email_changed` /
+  `user.updated` effects; a duplicate that arrives while the first delivery
+  is still in flight is told to retry (HTTP 503) rather than acknowledged,
+  so the provider keeps retrying until the effects are durably applied. The
+  check is durable across restarts and shared across API instances; a
+  transient server-side failure rolls back the claim so a provider retry can
+  reprocess, and a claim left behind by a crashed instance is reclaimable
+  after a grace period. Each claim carries a token so a superseded stale
+  handler cannot complete or erase the reclaiming retry's in-flight claim;
+  completion and rollback run on a request-detached context; rows that
+  predate the ledger are treated as already-processed; and processed rows
+  past a retention window are opportunistically pruned so the ledger does
+  not grow unbounded.
 - Added the hosted AWS worker deploy path for queued GitHub repository scans.
   The manual AWS API deploy workflow now enables the worker service by default,
   derives the matching immutable worker image from the API image when no
