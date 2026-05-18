@@ -79,6 +79,21 @@ func TestValidateSecurityRejectsInvalidSessionAuthConfig(t *testing.T) {
 			want: "IDENTRAIL_AUTH_MANUAL_MODE",
 		},
 		{
+			name: "manual mode non-local base url",
+			cfg: Config{
+				AuthManualMode: true,
+				PublicBaseURL:  "https://app.example.com",
+			},
+			want: "IDENTRAIL_AUTH_MANUAL_MODE",
+		},
+		{
+			name: "manual mode empty base url",
+			cfg: Config{
+				AuthManualMode: true,
+			},
+			want: "IDENTRAIL_AUTH_MANUAL_MODE",
+		},
+		{
 			name: "workos login requires new auth",
 			cfg: Config{
 				APIKeys:             []string{"reader", "writer"},
@@ -113,6 +128,102 @@ func TestValidateSecurityRejectsInvalidSessionAuthConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateSecurityAllowsManualModeOnLoopback(t *testing.T) {
+	for _, tc := range []struct{ base, addr string }{
+		{"http://localhost:8080", "127.0.0.1:8080"},
+		{"http://127.0.0.1:8080", "127.0.0.1:8080"},
+		{"http://[::1]:8080", "[::1]:8080"},
+		{"http://localhost:8080", "localhost:8080"},
+	} {
+		cfg := Config{
+			FeatureNewAuth: true,
+			PublicBaseURL:  tc.base,
+			HTTPAddr:       tc.addr,
+			SessionKey:     strings.Repeat("a", 64),
+			AuthManualMode: true,
+		}
+		if err := ValidateSecurity(cfg); err != nil {
+			t.Fatalf("expected manual mode to be valid on %s / %s, got %v", tc.base, tc.addr, err)
+		}
+	}
+}
+
+func TestValidateSecurityRejectsManualModeWithRemoteBindAddr(t *testing.T) {
+	for _, addr := range []string{"", ":8080", "0.0.0.0:8080", "[::]:8080", "10.0.0.5:8080"} {
+		cfg := Config{
+			FeatureNewAuth: true,
+			PublicBaseURL:  "http://localhost:8080",
+			HTTPAddr:       addr,
+			SessionKey:     strings.Repeat("a", 64),
+			AuthManualMode: true,
+		}
+		err := ValidateSecurity(cfg)
+		if err == nil || !strings.Contains(err.Error(), "IDENTRAIL_HTTP_ADDR") {
+			t.Fatalf("expected loopback bind requirement for addr %q, got %v", addr, err)
+		}
+	}
+}
+
+func TestValidateSecurityAllowsManualModeWithUnsafeOverride(t *testing.T) {
+	cfg := Config{
+		FeatureNewAuth:            true,
+		PublicBaseURL:             "https://staging.example.com",
+		SessionKey:                strings.Repeat("a", 64),
+		AuthManualMode:            true,
+		AuthManualModeAllowUnsafe: true,
+	}
+	if err := ValidateSecurity(cfg); err != nil {
+		t.Fatalf("expected unsafe override to permit non-local manual mode, got %v", err)
+	}
+}
+
+func TestValidateSecurityStillRejectsManualModeWithWorkOS(t *testing.T) {
+	cfg := Config{
+		FeatureNewAuth: true,
+		PublicBaseURL:  "http://localhost:8080",
+		SessionKey:     strings.Repeat("a", 64),
+		AuthManualMode: true,
+		WorkOSClientID: "client_123",
+	}
+	err := ValidateSecurity(cfg)
+	if err == nil || !strings.Contains(err.Error(), "IDENTRAIL_WORKOS_CLIENT_ID") {
+		t.Fatalf("expected WorkOS mutual-exclusion error even on loopback, got %v", err)
+	}
+}
+
+func TestSecurityWarningsManualMode(t *testing.T) {
+	local := SecurityWarnings(Config{
+		FeatureNewAuth: true,
+		PublicBaseURL:  "http://localhost:8080",
+		HTTPAddr:       "127.0.0.1:8080",
+		SessionKey:     strings.Repeat("a", 64),
+		AuthManualMode: true,
+	})
+	if !containsSubstring(local, "local-development-only login") {
+		t.Fatalf("expected local manual-mode warning, got %+v", local)
+	}
+
+	unsafe := SecurityWarnings(Config{
+		FeatureNewAuth:            true,
+		PublicBaseURL:             "https://staging.example.com",
+		SessionKey:                strings.Repeat("a", 64),
+		AuthManualMode:            true,
+		AuthManualModeAllowUnsafe: true,
+	})
+	if !containsSubstring(unsafe, "must never be exposed to production") {
+		t.Fatalf("expected unsafe manual-mode warning, got %+v", unsafe)
+	}
+}
+
+func containsSubstring(values []string, want string) bool {
+	for _, v := range values {
+		if strings.Contains(v, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestValidateSecurityRejectsOIDCIssuerWithoutAudience(t *testing.T) {

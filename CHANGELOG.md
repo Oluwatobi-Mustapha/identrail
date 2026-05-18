@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- Made `IDENTRAIL_AUTH_MANUAL_MODE` a local-development-only feature at
+  startup validation. The server now refuses to boot with manual mode
+  enabled unless `IDENTRAIL_PUBLIC_BASE_URL` is a loopback origin
+  (`http://localhost`, `http://127.0.0.1`, or `http://[::1]`) **and**
+  `IDENTRAIL_HTTP_ADDR` binds a loopback interface, so the request-trusting
+  `/auth/manual` session endpoint cannot be exposed accidentally — a
+  loopback base URL alone does not stop a `0.0.0.0` bind or ingress from
+  reaching it. A deliberately non-production test deployment whose
+  reachability is constrained another way must opt in explicitly with the
+  clearly named `IDENTRAIL_AUTH_MANUAL_MODE_ALLOW_UNSAFE=true`. Manual mode
+  now also emits a startup security warning, and the WorkOS mutual-exclusion
+  checks are unchanged.
 - Added first-class AWS API deployment variables for repository scan runtime
   configuration, including allowlist validation before Terraform so hosted
   GitHub scans cannot be enabled without an explicit target boundary.
