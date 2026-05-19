@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- Added rule-aware confidence classification for repository secret findings.
+  Secret detections now carry deterministic `confidence_score`,
+  `confidence_state`, and `confidence_reasons` metadata, distinguish likely
+  production leaks from samples, placeholders, docs, test fixtures, and
+  repository-local fingerprint allowlists, and preserve API/backfill
+  compatibility for existing finding records.
 - Recovered stale repository scans after worker replacement. Hosted workers now
   requeue `running` repository scan rows older than the worker timeout grace
   period before claiming new work, and repo scan claims refresh the stored
