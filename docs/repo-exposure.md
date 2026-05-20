@@ -71,6 +71,12 @@ Read APIs:
 - `source_url` is a direct GitHub blob link pinned to the detected commit when Identrail can derive one
 - grouped cluster responses roll duplicate repo findings into cluster counts with `first_seen_at`, `last_seen_at`, `spread`, and a per-occurrence `members` list
 
+Management APIs:
+
+- `POST /v1/repo-scans/:repo_scan_id/cancel` marks a queued or running scan
+  terminal with `repository scan canceled by user`, freeing the repository for
+  a fresh scan.
+
 ## What It Scans
 
 1. Commit history (all reachable commits, bounded by `--history-limit`):
