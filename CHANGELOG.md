@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- Added GitHub App repository posture collection. The connector can now collect
+  normalized posture checks for selected repositories, including repository
+  metadata, default branch protection, branch rulesets, Actions permissions,
+  Dependabot security status, code and secret scanning alerts, deploy keys,
+  repository webhooks, and deployment environments. Posture checks distinguish
+  `secure`, `insecure`, `permission_limited`, and `unavailable` states, capture
+  rate-limit metadata, keep webhook evidence redacted, and document the
+  read-only GitHub App permissions required for the collector.
 - Hardened hosted repository scan execution so cancelled git subprocesses are
   terminated as a process group with a bounded wait, preventing worker timeouts
   from leaving scans stuck in `running`. Worker logs now include repository
