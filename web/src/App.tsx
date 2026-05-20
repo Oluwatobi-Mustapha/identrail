@@ -722,6 +722,45 @@ function useAnalytics() {
   }, [location]);
 }
 
+function RouteScrollReset() {
+  const location = useLocation();
+
+  useEffect(() => {
+    const resetScrollTop = () => {
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      if (window.scrollX > 0 || window.scrollY > 0) {
+        try {
+          window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+        } catch {
+          // Some non-browser renderers do not implement scrollTo.
+        }
+      }
+    };
+
+    if (location.hash) {
+      const scrollToHashTarget = () => {
+        const target = document.getElementById(location.hash.slice(1));
+        if (typeof target?.scrollIntoView === 'function') {
+          target.scrollIntoView({ block: 'start' });
+          return;
+        }
+        resetScrollTop();
+      };
+      if (typeof window.requestAnimationFrame === 'function') {
+        const frameID = window.requestAnimationFrame(scrollToHashTarget);
+        return () => window.cancelAnimationFrame(frameID);
+      }
+      const timeoutID = window.setTimeout(scrollToHashTarget, 0);
+      return () => window.clearTimeout(timeoutID);
+    }
+
+    resetScrollTop();
+  }, [location.pathname, location.search, location.hash]);
+
+  return null;
+}
+
 function SectionTitle({
   eyebrow,
   title,
@@ -1114,6 +1153,35 @@ function EnterpriseHeroVisual() {
   );
 }
 
+function DemoBookingVisual() {
+  return (
+    <div className="idt-demo-booking-visual" aria-hidden="true">
+      <div className="idt-demo-booking-orbit">
+        <span className="is-source">OIDC</span>
+        <span className="is-workload">K8s</span>
+        <span className="is-target">RDS</span>
+        <svg viewBox="0 0 420 260" focusable="false">
+          <path d="M86 64 C158 42 230 61 305 116" />
+          <path d="M122 206 C177 178 237 157 316 136" />
+        </svg>
+      </div>
+      <div className="idt-demo-booking-card">
+        <span>Guided walkthrough</span>
+        <strong>15 minute trust path review</strong>
+        <p>Bring one AWS account, namespace, or repository. Leave with the first path, blast radius, and owner-ready next step.</p>
+      </div>
+      <div className="idt-demo-booking-agenda">
+        <span>Live agenda</span>
+        <ol>
+          <li>Scope one production boundary</li>
+          <li>Map a reachable high-risk path</li>
+          <li>Package the safest first fix</li>
+        </ol>
+      </div>
+    </div>
+  );
+}
+
 function LeadCaptureForm({
   id,
   title,
@@ -1359,6 +1427,41 @@ function CalendlyEmbed() {
         </aside>
       </div>
     </section>
+  );
+}
+
+function BookDemoModal({ onClose }: { onClose: () => void }) {
+  return (
+    <ModalShell titleId="book-demo-modal-title" onClose={onClose} className="idt-book-demo-modal">
+      <button type="button" className="idt-modal-close" onClick={onClose} aria-label="Close dialog">
+        x
+      </button>
+      <div className="idt-book-demo-modal-shell">
+        <aside className="idt-book-demo-modal-visual" aria-label="Demo preview">
+          <p className="idt-eyebrow">Book Demo</p>
+          <h2 id="book-demo-modal-title">Walk through a live trust path</h2>
+          <p>Choose a guided walkthrough or send enough context for a prepared review.</p>
+          <DemoBookingVisual />
+        </aside>
+        <div className="idt-book-demo-modal-body">
+          <LeadCaptureForm
+            compact
+            title="Book a guided walkthrough"
+            caption="Share the environment you want to review and we will route the demo around the trust paths that matter."
+            ctaLabel="Request demo time"
+            variant="short"
+          />
+          <div className="idt-book-demo-modal-actions">
+            <SafeLink href={CALENDLY_URL} className="idt-btn idt-btn-primary">
+              Open Booking Calendar
+            </SafeLink>
+            <Link to="/demo" className="idt-btn idt-btn-dark" onClick={onClose}>
+              Open Full Demo Page
+            </Link>
+          </div>
+        </div>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -1778,10 +1881,28 @@ function DeploymentPathBanner() {
   return (
     <section className="idt-section idt-deployment-bridge" aria-label="Adoption paths">
       <div className="idt-deployment-panel">
-        <p className="idt-eyebrow">Adoption Paths</p>
-        <h2>Choose the deployment model that fits your operating constraints.</h2>
+        <div className="idt-deployment-head">
+          <div className="idt-deployment-copy">
+            <p className="idt-eyebrow">Adoption Paths</p>
+            <h2>Choose the deployment model that fits your operating constraints.</h2>
+            <p>
+              Start with the control posture you need today, then move into the path that gets your first trust graph
+              reviewed without forcing a platform rewrite.
+            </p>
+          </div>
+          <aside className="idt-deployment-summary" aria-label="Recommended deployment path">
+            <span>Recommended default</span>
+            <strong>Hosted SaaS gets most teams from zero to first risk path fastest.</strong>
+            <p>Open source stays ideal for internal control. Enterprise is built for private tenancy and procurement.</p>
+          </aside>
+        </div>
+
         <div className="idt-adoption-grid">
           <article className="idt-adoption-card">
+            <div className="idt-adoption-card-topline">
+              <span className="idt-adoption-index">01</span>
+              <span className="idt-adoption-tag">Maximum control</span>
+            </div>
             <h3>Open Source</h3>
             <p className="idt-muted-strong">Best for: self-hosted evaluation and internal control.</p>
             <dl>
@@ -1803,6 +1924,10 @@ function DeploymentPathBanner() {
             </SafeLink>
           </article>
           <article className="idt-adoption-card is-featured">
+            <div className="idt-adoption-card-topline">
+              <span className="idt-adoption-index">02</span>
+              <span className="idt-adoption-tag">Fastest path</span>
+            </div>
             <h3>Hosted SaaS</h3>
             <p className="idt-muted-strong">Best for: fastest onboarding and operational simplicity.</p>
             <dl>
@@ -1820,8 +1945,15 @@ function DeploymentPathBanner() {
               </div>
             </dl>
             <p className="idt-adoption-note">Recommended for teams that need the fastest first scan.</p>
+            <Link to="/signup" className="idt-inline-link">
+              Start hosted evaluation →
+            </Link>
           </article>
           <article className="idt-adoption-card">
+            <div className="idt-adoption-card-topline">
+              <span className="idt-adoption-index">03</span>
+              <span className="idt-adoption-tag">Private control</span>
+            </div>
             <h3>Enterprise</h3>
             <p className="idt-muted-strong">Best for: private tenancy, procurement, and compliance control.</p>
             <dl>
@@ -1844,8 +1976,11 @@ function DeploymentPathBanner() {
           </article>
         </div>
         <div className="idt-inline-actions idt-adoption-actions">
-          <Link to="/pricing" className="idt-btn idt-btn-ghost">
+          <Link to="/pricing" className="idt-btn idt-btn-dark">
             Compare plan details
+          </Link>
+          <Link to="/enterprise" className="idt-btn idt-btn-ghost">
+            Talk through procurement
           </Link>
         </div>
       </div>
@@ -3463,67 +3598,84 @@ function IntegrationsPage() {
 
 function DemoPage() {
   useSeo({
-    title: 'Demo | Interactive Trust Graph',
+    title: 'Book Demo | Identrail Trust Graph Walkthrough',
     description:
-      'Explore the Identrail interactive trust graph demo for AWS IAM and Kubernetes machine identities.',
+      'Book a guided Identrail demo to review live machine identity trust paths, blast radius, and owner-ready remediation.',
     path: '/demo'
   });
 
   return (
     <div className="idt-marketing-page idt-modern-public-page idt-demo-page">
       <PageHero
-        eyebrow="Interactive Demo"
-        title="Simulate real trust-path investigation in a production-style environment"
-        body="Explore node relationships, inspect risk context, and test rollout-safe controls from one console."
-        variant="product"
+        eyebrow="Book Demo"
+        title="Walk through your first machine identity trust path with us"
+        body="Bring one AWS account, Kubernetes namespace, or repository. We will show the reachable path, explain the evidence, and leave you with the safest first fix."
+        variant="enterprise"
+        visual={<DemoBookingVisual />}
         actions={
           <>
-            <ScanIntakeCTA className="idt-btn idt-btn-primary" />
-            <Link to="/enterprise" className="idt-btn idt-btn-dark">
-              Book Demo
-            </Link>
+            <SafeLink href={CALENDLY_URL} className="idt-btn idt-btn-primary">
+              Open Booking Calendar
+            </SafeLink>
+            <ScanIntakeCTA className="idt-btn idt-btn-dark">Request Trust Path Review</ScanIntakeCTA>
           </>
         }
       />
 
-      <section className="idt-section idt-shell">
+      <section className="idt-section idt-shell idt-demo-booking-section">
+        <LeadCaptureForm
+          title="Book a guided walkthrough"
+          caption="Share the environment you want to review and we will route the demo around the trust paths that matter to your team."
+          ctaLabel="Request demo time"
+          variant="full"
+        />
+        <aside className="idt-demo-agenda-panel" aria-label="Demo agenda">
+          <p className="idt-eyebrow">What we will cover</p>
+          <h2>Not a generic product tour. A working review path.</h2>
+          <div className="idt-demo-agenda-list">
+            <article>
+              <span>01</span>
+              <strong>Scope</strong>
+              <p>Pick one real trust boundary across cloud, cluster, or CI/CD identity.</p>
+            </article>
+            <article>
+              <span>02</span>
+              <strong>Trace</strong>
+              <p>Follow source identity to reachable resource with explainable evidence.</p>
+            </article>
+            <article>
+              <span>03</span>
+              <strong>Package</strong>
+              <p>Turn the path into owner-ready remediation and rollout notes.</p>
+            </article>
+          </div>
+          <SafeLink href={CALENDLY_URL} className="idt-inline-link">
+            Choose a time on the calendar →
+          </SafeLink>
+        </aside>
+      </section>
+
+      <section className="idt-section idt-shell idt-demo-graph-preview">
+        <SectionTitle
+          eyebrow="Live preview"
+          title="The demo uses the same graph language your team will operate later"
+          body="We keep the walkthrough close to the real product surface: source evidence, reachable path, blast radius, and next action."
+        />
         <TrustGraphDemo variant="full" />
       </section>
 
-      <section className="idt-section idt-shell">
-        <div className="idt-card-grid two-col">
-          <article className="idt-card">
-            <h2>What this demo includes</h2>
-            <ul>
-              <li>Machine identity sources across AWS IAM, Kubernetes, and Git workflows</li>
-              <li>Risk severity and blast-radius context for each trust path</li>
-              <li>Explainable remediation guidance before policy changes are enforced</li>
-            </ul>
-          </article>
-          <article className="idt-card">
-            <h2>What to do next</h2>
-            <p>Run a read-only risk scan to map your own trust paths, or book a guided walkthrough with security engineering.</p>
-            <div className="idt-inline-actions">
-              <ScanIntakeCTA className="idt-btn idt-btn-primary" />
-              <Link to="/enterprise" className="idt-btn idt-btn-dark">
-                Book Demo
-              </Link>
-            </div>
-          </article>
-        </div>
-      </section>
-
       <section className="idt-section idt-shell idt-connect-cloud">
-        <SectionTitle
-          eyebrow="Next Step"
-          title="One-click connect your cloud"
-          body="Start in hosted SaaS or self-host OSS and import your first AWS account or Kubernetes cluster."
-        />
-        <div className="idt-inline-actions">
-          <ScanIntakeCTA className="idt-btn idt-btn-primary" />
-          <SafeLink href={GITHUB_REPO} className="idt-btn idt-btn-ghost">
-            Run Self-Hosted
-          </SafeLink>
+        <div className="idt-demo-choice-band">
+          <div>
+            <p className="idt-eyebrow">Two ways in</p>
+            <h2>Book the walkthrough, or send context for a trust path review.</h2>
+          </div>
+          <div className="idt-inline-actions">
+            <SafeLink href={CALENDLY_URL} className="idt-btn idt-btn-primary">
+              Book calendar slot
+            </SafeLink>
+            <ScanIntakeCTA className="idt-btn idt-btn-dark">Request Trust Path Review</ScanIntakeCTA>
+          </div>
         </div>
       </section>
     </div>
@@ -4437,10 +4589,17 @@ function NotFoundPage() {
 export function RoutedSite() {
   useAnalytics();
   const location = useLocation();
+  const [bookDemoModalOpen, setBookDemoModalOpen] = useState(false);
   const isProductShellRoute = location.pathname.startsWith('/app') || location.pathname.startsWith('/reports');
   const isOnboardingRoute = location.pathname.startsWith('/onboarding');
   const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
   const isAuthChoiceRoute = normalizedPath === '/signin' || normalizedPath === '/signup' || normalizedPath === '/auth/mfa';
+  const openBookDemoModal = useCallback(() => setBookDemoModalOpen(true), []);
+  const closeBookDemoModal = useCallback(() => setBookDemoModalOpen(false), []);
+
+  useEffect(() => {
+    setBookDemoModalOpen(false);
+  }, [location.pathname, location.search, location.hash]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = 'light';
@@ -4453,6 +4612,7 @@ export function RoutedSite() {
 
   return (
     <div className={`idt-site ${isAuthChoiceRoute ? 'idt-site-auth' : ''}`}>
+      {!isProductShellRoute && !isOnboardingRoute && !isAuthChoiceRoute ? <RouteScrollReset /> : null}
       <a className="idt-skip" href="#main-content">
         Skip to content
       </a>
@@ -4461,6 +4621,7 @@ export function RoutedSite() {
         <Header
           navLinks={NAV_LINKS}
           githubRepo={GITHUB_REPO}
+          onRequestDemo={openBookDemoModal}
         />
       ) : null}
 
@@ -4607,6 +4768,7 @@ export function RoutedSite() {
           <Footer xUrl={X_URL} linkedInUrl={LINKEDIN_URL} githubRepo={GITHUB_REPO} discordUrl={DISCORD_URL} />
         </>
       ) : null}
+      {bookDemoModalOpen ? <BookDemoModal onClose={closeBookDemoModal} /> : null}
     </div>
   );
 }

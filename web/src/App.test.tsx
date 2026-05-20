@@ -110,7 +110,7 @@ describe('App', () => {
     expect(scanButtons.length).toBeGreaterThan(0);
     fireEvent.click(scanButtons[0]);
     expect(screen.getByRole('dialog', { name: /Verify company identity/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Book Demo/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Book Demo/i })).toBeInTheDocument();
     expect(screen.getAllByText(/Adoption Paths/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Reachable Risk Paths/i).length).toBeGreaterThan(0);
     expect(
@@ -120,6 +120,80 @@ describe('App', () => {
     expect(document.querySelector('#risk-scan-form')).not.toBeInTheDocument();
     expect(document.querySelector('.idt-trust-strip + .idt-home-after-stack')).toBeInTheDocument();
     expect(document.querySelector('.idt-home-after-stack .idt-shell')).not.toBeInTheDocument();
+  });
+
+  it('opens book demo in a dimmed modal from the header', () => {
+    setCurrentPath('/');
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Book Demo/i }));
+
+    expect(screen.getByRole('dialog', { name: /Walk through a live trust path/i })).toBeInTheDocument();
+    expect(document.querySelector('.idt-modal-backdrop')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open Full Demo Page/i })).toHaveAttribute('href', '/demo');
+  });
+
+  it('closes the book demo modal when the route changes', async () => {
+    setCurrentPath('/');
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: /Book Demo/i }));
+    expect(screen.getByRole('dialog', { name: /Walk through a live trust path/i })).toBeInTheDocument();
+
+    act(() => {
+      window.history.pushState({}, '', '/product');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: /Walk through a live trust path/i })).not.toBeInTheDocument()
+    );
+  });
+
+  it('resets scroll when a routed hash target is missing', async () => {
+    setCurrentPath('/pricing');
+    render(<App />);
+    document.documentElement.scrollTop = 640;
+    document.body.scrollTop = 640;
+
+    act(() => {
+      window.history.pushState({}, '', '/product#missing-anchor');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    });
+
+    await waitFor(() => expect(document.documentElement.scrollTop).toBe(0));
+    expect(document.body.scrollTop).toBe(0);
+  });
+
+  it('cancels scheduled hash scrolling when navigation changes first', async () => {
+    const requestAnimationFrame = vi.fn(() => 42);
+    const cancelAnimationFrame = vi.fn();
+    vi.stubGlobal('requestAnimationFrame', requestAnimationFrame);
+    vi.stubGlobal('cancelAnimationFrame', cancelAnimationFrame);
+    setCurrentPath('/pricing#missing-anchor');
+    render(<App />);
+    expect(requestAnimationFrame).toHaveBeenCalled();
+
+    act(() => {
+      window.history.pushState({}, '', '/product');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    });
+
+    await waitFor(() => expect(cancelAnimationFrame).toHaveBeenCalledWith(42));
+  });
+
+  it('does not apply marketing scroll reset inside app routes', async () => {
+    setCurrentPath('/app/login');
+    render(<App />);
+    document.documentElement.scrollTop = 640;
+    document.body.scrollTop = 640;
+
+    act(() => {
+      window.history.pushState({}, '', '/app/login?return_to=/app/default/default');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+    });
+
+    await waitFor(() => expect(document.documentElement.scrollTop).toBe(640));
+    expect(document.body.scrollTop).toBe(640);
   });
 
   it('renders pricing page routes and key elements', () => {
