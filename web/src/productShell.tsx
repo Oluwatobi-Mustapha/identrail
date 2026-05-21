@@ -17,6 +17,8 @@ import {
   type KubernetesConnectorStartResponse,
   type KubernetesConnectionStatus,
   type ProjectRecord,
+  type RepoFindingsSummary,
+  type RepoFindingLifecycleStatus,
   type RepoScanRequest,
   type RepoScanRecord,
   type TrendPoint,
@@ -334,7 +336,21 @@ function normalizeFindingStatus(value: string | undefined): FindingLifecycleStat
   return 'open';
 }
 
-function repoFindingStatusClass(status: FindingLifecycleStatus): string {
+function normalizeRepoFindingLifecycleStatus(value: string | undefined): RepoFindingLifecycleStatus {
+  const normalized = normalizeValue(value ?? '').toLowerCase();
+  if (
+    normalized === 'fixed' ||
+    normalized === 'reopened' ||
+    normalized === 'suppressed' ||
+    normalized === 'risk_accepted' ||
+    normalized === 'false_positive'
+  ) {
+    return normalized;
+  }
+  return 'open';
+}
+
+function repoFindingStatusClass(status: FindingLifecycleStatus | RepoFindingLifecycleStatus): string {
   return `idt-repo-finding-status is-${status}`;
 }
 
@@ -5006,6 +5022,7 @@ export function ProductFindingsPage() {
   const [trendError, setTrendError] = useState('');
   const [repoScans, setRepoScans] = useState<RepoScanRecord[]>([]);
   const [repoFindings, setRepoFindings] = useState<ApiFinding[]>([]);
+  const [repoFindingSummary, setRepoFindingSummary] = useState<RepoFindingsSummary | null>(null);
   const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
   const [repoScanFilter, setRepoScanFilter] = useState('');
   const [severityFilter, setSeverityFilter] = useState<(typeof REPO_FINDING_SEVERITY_FILTERS)[number]>('all');
@@ -5080,9 +5097,21 @@ export function ProductFindingsPage() {
   );
 
   const openFindingCount = useMemo(
-    () => filteredFindings.filter((finding) => normalizeFindingStatus(finding.triage?.status) === 'open').length,
-    [filteredFindings]
+    () =>
+      repoFindingSummary?.total_open ??
+      filteredFindings.filter((finding) => {
+        const lifecycle = normalizeRepoFindingLifecycleStatus(finding.lifecycle_status);
+        return lifecycle === 'open' || lifecycle === 'reopened';
+      }).length,
+    [filteredFindings, repoFindingSummary?.total_open]
   );
+
+  const fixedFindingCount = repoFindingSummary?.fixed_count ?? filteredFindings.filter((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'fixed').length;
+  const reopenedFindingCount =
+    repoFindingSummary?.reopened_count ?? filteredFindings.filter((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'reopened').length;
+  const slaAgedFindingCount = repoFindingSummary?.sla_aged_count ?? 0;
+  const mttrSeconds = repoFindingSummary?.mean_time_to_resolve_seconds;
+  const mttrLabel = typeof mttrSeconds === 'number' && Number.isFinite(mttrSeconds) ? formatExecutiveDuration(mttrSeconds) : 'N/A';
 
   const averageConfidence = useMemo(() => {
     const findingsWithConfidence = filteredFindings.filter((finding) => Number.isFinite(finding.confidence_score ?? NaN));
@@ -5124,6 +5153,7 @@ export function ProductFindingsPage() {
       }
       setRepoScans(repoScanResponse.items);
       setRepoFindings(repoFindingResponse.items);
+      setRepoFindingSummary(repoFindingResponse.summary ?? null);
     } catch (requestError) {
       if (requestID !== requestRef.current) {
         return;
@@ -5185,6 +5215,7 @@ export function ProductFindingsPage() {
     const currentStatus = normalizeFindingStatus(selectedFinding.triage?.status);
     const currentAssignee = normalizeValue(selectedFinding.triage?.assignee ?? '');
     const trackingSuppression = nextStatus === 'suppressed';
+    const enteringSuppression = currentStatus !== 'suppressed' && trackingSuppression;
     const currentSuppression = normalizeValue(toLocalDateTimeInputValue(selectedFinding.triage?.suppression_expires_at ?? ''));
     const nextSuppression = normalizeValue(workflowSuppressionExpiresAt);
     const hasChanges =
@@ -5209,8 +5240,9 @@ export function ProductFindingsPage() {
         suppression_expires_at?: string;
         comment?: string;
       } = {};
-      if (trackingSuppression && !nextSuppression) {
-        setWorkflowError('Suppression requires an expiry date/time.');
+      const trimmedComment = normalizeValue(workflowComment);
+      if (enteringSuppression && !trimmedComment) {
+        setWorkflowError('Suppression requires a reason.');
         setWorkflowLoading(false);
         return;
       }
@@ -5234,7 +5266,6 @@ export function ProductFindingsPage() {
       if (nextAssignee !== currentAssignee) {
         request.assignee = nextAssignee;
       }
-      const trimmedComment = normalizeValue(workflowComment);
       if (trimmedComment) {
         request.comment = trimmedComment;
       }
@@ -5415,6 +5446,22 @@ export function ProductFindingsPage() {
           <strong>{openFindingCount}</strong>
         </article>
         <article className="idt-repo-finding-stat">
+          <span>Fixed findings</span>
+          <strong>{fixedFindingCount}</strong>
+        </article>
+        <article className="idt-repo-finding-stat">
+          <span>Reopened findings</span>
+          <strong>{reopenedFindingCount}</strong>
+        </article>
+        <article className="idt-repo-finding-stat">
+          <span>SLA-aged highs</span>
+          <strong>{slaAgedFindingCount}</strong>
+        </article>
+        <article className="idt-repo-finding-stat">
+          <span>Mean time to fix</span>
+          <strong>{mttrLabel}</strong>
+        </article>
+        <article className="idt-repo-finding-stat">
           <div className="idt-overview-metric-top">
             <span>Critical findings</span>
             <SourceLogoStack label="Critical finding source coverage" />
@@ -5562,7 +5609,8 @@ export function ProductFindingsPage() {
                       const repositoryLabel = canonicalGitHubRepositoryDisplay(repositoryValue) || 'Repository unavailable';
                       const selectionKey = buildRepoFindingSelectionKey(finding);
                       const isSelected = selectedFindingKey === selectionKey;
-                      const lifecycle = normalizeFindingStatus(finding.triage?.status);
+                      const lifecycle = normalizeRepoFindingLifecycleStatus(finding.lifecycle_status);
+                      const triageStatus = normalizeFindingStatus(finding.triage?.status);
                       return (
                         <button
                           key={selectionKey}
@@ -5586,7 +5634,8 @@ export function ProductFindingsPage() {
                             </div>
                             <div className="idt-repo-finding-row-meta">
                               <span className={repoFindingStatusClass(lifecycle)}>{formatTokenLabel(lifecycle)}</span>
-                              <span>{`Assignee ${finding.triage?.assignee || 'Unassigned'}`}</span>
+                              <span>{`Owner ${finding.owner || finding.triage?.assignee || 'Unassigned'}`}</span>
+                              <span>{`Triage ${formatTokenLabel(triageStatus)}`}</span>
                             </div>
                           </div>
                         </button>
@@ -5645,11 +5694,27 @@ export function ProductFindingsPage() {
                 </div>
                 <div>
                   <dt>Lifecycle status</dt>
-                  <dd>{formatTokenLabel(normalizeFindingStatus(selectedFinding.triage?.status))}</dd>
+                  <dd>{formatTokenLabel(normalizeRepoFindingLifecycleStatus(selectedFinding.lifecycle_status))}</dd>
                 </div>
                 <div>
-                  <dt>Assignee</dt>
-                  <dd>{selectedFinding.triage?.assignee || 'Unassigned'}</dd>
+                  <dt>Owner</dt>
+                  <dd>{selectedFinding.owner || selectedFinding.triage?.assignee || 'Unassigned'}</dd>
+                </div>
+                <div>
+                  <dt>First seen</dt>
+                  <dd>{selectedFinding.first_seen_at ? formatDateLabel(selectedFinding.first_seen_at) : formatDateLabel(selectedFinding.created_at)}</dd>
+                </div>
+                <div>
+                  <dt>Last seen</dt>
+                  <dd>{selectedFinding.last_seen_at ? formatDateLabel(selectedFinding.last_seen_at) : formatDateLabel(selectedFinding.created_at)}</dd>
+                </div>
+                <div>
+                  <dt>Fixed at</dt>
+                  <dd>{selectedFinding.fixed_at ? formatDateLabel(selectedFinding.fixed_at) : 'Not fixed yet'}</dd>
+                </div>
+                <div>
+                  <dt>Triage status</dt>
+                  <dd>{formatTokenLabel(normalizeFindingStatus(selectedFinding.triage?.status))}</dd>
                 </div>
                 <div>
                   <dt>Detector</dt>

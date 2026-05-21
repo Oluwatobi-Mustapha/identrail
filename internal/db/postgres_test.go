@@ -654,6 +654,55 @@ func TestNewPostgresStoreWithDB(t *testing.T) {
 	}
 }
 
+func repoScanRows(recordID string, status string, startedAt time.Time, finishedAt any) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "scan_mode", "base_revision", "head_revision", "cursor_before", "cursor_after", "changed_paths", "error_message", "history_limit", "max_findings_limit", "source_provider", "source_project_id", "source_connector_id", "source_installation_id"}).
+		AddRow(recordID, "default", "default", "owner/repo", status, startedAt, finishedAt, 12, 8, 1, false, "deep", "", "", "", "", []byte("[]"), "", 0, 0, "", "", "", int64(0))
+}
+
+func repoFindingLifecycleColumns() []string {
+	return []string{
+		"repo_scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at", "repository",
+		"lifecycle_key", "lifecycle_status", "first_seen_at", "last_seen_at", "fixed_at", "reopened_at", "dismissed_at", "suppression_expires_at",
+		"owner", "rule_version", "detector_version", "adapter_source", "confidence_state", "verification_status", "scan_mode", "evidence_version",
+	}
+}
+
+func repoFindingLifecycleRows(recordID string, now time.Time) *sqlmock.Rows {
+	return sqlmock.NewRows(repoFindingLifecycleColumns()).
+		AddRow(recordID, "rf-1", "secret_exposure", "high", "secret", "summary", []byte(`["app.env"]`), []byte(`{"k":"v"}`), "fix", now, "owner/repo",
+			"repo_finding\x1fowner/repo\x1fsecret_exposure\x1f\x1fapp.env\x1f\x1frf-1", "open", now, now, nil, nil, nil, nil,
+			"platform", "", "", "", "", "", "deep", "")
+}
+
+func TestPostgresStoreListRepoFindingsOwnerFilterIncludesCodeowners(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Now().UTC()
+
+	mock.ExpectQuery(regexp.QuoteMeta("NULLIF(rf.evidence->>'codeowners', '')")).
+		WithArgs("default", "default", "secops", 100).
+		WillReturnRows(sqlmock.NewRows(repoFindingLifecycleColumns()).
+			AddRow("repo-scan-1", "rf-codeowners", "repo_misconfig", "medium", "workflow", "summary", []byte(`[".github/workflows/build.yml"]`), []byte(`{"codeowners":"secops"}`), "fix", now, "owner/repo",
+				"repo_finding\x1fowner/repo\x1frepo_misconfig\x1fworkflow\x1f.github/workflows/build.yml\x1f\x1frf-codeowners", "open", now, now, nil, nil, nil, nil,
+				"secops", "", "", "", "", "", "deep", ""))
+
+	findings, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{Owner: " SECOPS "}, 100)
+	if err != nil {
+		t.Fatalf("list repo findings by codeowners owner: %v", err)
+	}
+	if len(findings) != 1 || findings[0].ID != "rf-codeowners" || findings[0].Owner != "secops" {
+		t.Fatalf("expected codeowners-backed owner result, got %+v", findings)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -674,16 +723,14 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("create repo scan failed: %v", err)
 	}
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT status
-		 FROM repo_scans
-		 WHERE id = $1
-		   AND tenant_id = $2
-		   AND workspace_id = $3`)).
+	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, repository, status").
 		WithArgs(record.ID, "default", "default").
-		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("running"))
+		WillReturnRows(repoScanRows(record.ID, "running", now, nil))
 	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT COALESCE\\(rf.first_seen_at").
+		WithArgs("default", "default", "owner/repo", sqlmock.AnyArg(), record.ID).
+		WillReturnRows(sqlmock.NewRows([]string{"first_seen_at", "lifecycle_status", "fixed_at", "reopened_at", "dismissed_at", "suppression_expires_at", "owner"}))
 	mock.ExpectExec("INSERT INTO repo_findings").
-		WithArgs(record.ID, "rf-1", "secret_exposure", "high", "secret", "summary", sqlmock.AnyArg(), sqlmock.AnyArg(), "fix", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
@@ -701,6 +748,7 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("upsert repo findings failed: %v", err)
 	}
 
+	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE repo_scans
 		 SET status = $2,
 		     finished_at = $3,
@@ -719,14 +767,16 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		   AND status IN ('queued', 'running')`)).
 		WithArgs(record.ID, "completed", sqlmock.AnyArg(), 12, 8, 1, false, "", "", "", "[]", nil, "default", "default").
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("UPDATE repo_findings rf").
+		WithArgs(sqlmock.AnyArg(), "default", "default", record.ID).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
 
 	if err := store.CompleteRepoScan(defaultScopeContext(), record.ID, "completed", now, 12, 8, 1, false, RepoScanContext{}, ""); err != nil {
 		t.Fatalf("complete repo scan failed: %v", err)
 	}
 
-	repoScanRows := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "scan_mode", "base_revision", "head_revision", "cursor_before", "cursor_after", "changed_paths", "error_message", "history_limit", "max_findings_limit", "source_provider", "source_project_id", "source_connector_id", "source_installation_id"}).
-		AddRow(record.ID, "default", "default", "owner/repo", "completed", now, now, 12, 8, 1, false, "deep", "", "", "", "", []byte("[]"), "", 0, 0, "", "", "", int64(0))
-	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, repository, status").WithArgs("default", "default", 20).WillReturnRows(repoScanRows)
+	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, repository, status").WithArgs("default", "default", 20).WillReturnRows(repoScanRows(record.ID, "completed", now, now))
 	repoScans, err := store.ListRepoScans(defaultScopeContext(), 20)
 	if err != nil {
 		t.Fatalf("list repo scans failed: %v", err)
@@ -735,8 +785,6 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("unexpected repo scans: %+v", repoScans)
 	}
 
-	repoFindingsRows := sqlmock.NewRows([]string{"repo_scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at", "repository"}).
-		AddRow(record.ID, "rf-1", "secret_exposure", "high", "secret", "summary", []byte(`["app.env"]`), []byte(`{"k":"v"}`), "fix", now, "owner/repo")
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
 			SELECT 1
 			FROM repo_scans
@@ -746,7 +794,7 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		)`)).
 		WithArgs(record.ID, "default", "default").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", "", "", "default", "default", 100).WillReturnRows(repoFindingsRows)
+	mock.ExpectQuery("WITH filtered AS").WithArgs("default", "default", record.ID, 100).WillReturnRows(repoFindingLifecycleRows(record.ID, now))
 	repoFindings, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{RepoScanID: record.ID}, 100)
 	if err != nil {
 		t.Fatalf("list repo findings failed: %v", err)
@@ -758,8 +806,6 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("expected repository backfill from repo scan, got %+v", repoFindings[0])
 	}
 
-	unboundedRepoFindingsRows := sqlmock.NewRows([]string{"repo_scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at", "repository"}).
-		AddRow(record.ID, "rf-1", "secret_exposure", "high", "secret", "summary", []byte(`["app.env"]`), []byte(`{"k":"v"}`), "fix", now, "owner/repo")
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT EXISTS (
 			SELECT 1
 			FROM repo_scans
@@ -769,7 +815,7 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		)`)).
 		WithArgs(record.ID, "default", "default").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery("SELECT rf.repo_scan_id, rf.finding_id, rf.type").WithArgs(record.ID, "", "", "", "", "default", "default").WillReturnRows(unboundedRepoFindingsRows)
+	mock.ExpectQuery("WITH filtered AS").WithArgs("default", "default", record.ID).WillReturnRows(repoFindingLifecycleRows(record.ID, now))
 	unboundedRepoFindings, err := store.ListRepoFindings(defaultScopeContext(), RepoFindingFilter{RepoScanID: record.ID}, 0)
 	if err != nil {
 		t.Fatalf("list repo findings unbounded failed: %v", err)
@@ -781,15 +827,88 @@ func TestPostgresStoreRepoScanLifecycle(t *testing.T) {
 		t.Fatalf("expected repository backfill from repo scan, got %+v", unboundedRepoFindings[0])
 	}
 
-	repoScanRow := sqlmock.NewRows([]string{"id", "tenant_id", "workspace_id", "repository", "status", "started_at", "finished_at", "commits_scanned", "files_scanned", "finding_count", "truncated", "scan_mode", "base_revision", "head_revision", "cursor_before", "cursor_after", "changed_paths", "error_message", "history_limit", "max_findings_limit", "source_provider", "source_project_id", "source_connector_id", "source_installation_id"}).
-		AddRow(record.ID, "default", "default", "owner/repo", "completed", now, now, 12, 8, 1, false, "deep", "", "", "", "", []byte("[]"), "", 0, 0, "", "", "", int64(0))
-	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, repository, status").WithArgs(record.ID, "default", "default").WillReturnRows(repoScanRow)
+	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, repository, status").WithArgs(record.ID, "default", "default").WillReturnRows(repoScanRows(record.ID, "completed", now, now))
 	gotRepoScan, err := store.GetRepoScan(defaultScopeContext(), record.ID)
 	if err != nil {
 		t.Fatalf("get repo scan failed: %v", err)
 	}
 	if gotRepoScan.ID != record.ID {
 		t.Fatalf("unexpected repo scan: %+v", gotRepoScan)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreUpsertRepoFindingsReopensExpiredSuppressionSnapshot(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	firstSeen := now.Add(-48 * time.Hour)
+	dismissedAt := now.Add(-36 * time.Hour)
+	expiredAt := now.Add(-24 * time.Hour)
+	scanID := "11111111-1111-1111-1111-111111111111"
+
+	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, repository, status").
+		WithArgs(scanID, "default", "default").
+		WillReturnRows(repoScanRows(scanID, "running", now, nil))
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT COALESCE\\(rf.first_seen_at").
+		WithArgs("default", "default", "owner/repo", sqlmock.AnyArg(), scanID).
+		WillReturnRows(sqlmock.NewRows([]string{"first_seen_at", "lifecycle_status", "fixed_at", "reopened_at", "dismissed_at", "suppression_expires_at", "owner"}).
+			AddRow(firstSeen, string(domain.RepoFindingLifecycleSuppressed), nil, nil, dismissedAt, expiredAt, "secops"))
+	mock.ExpectExec("INSERT INTO repo_findings").
+		WithArgs(
+			scanID,
+			"rf-new",
+			sqlmock.AnyArg(),
+			string(domain.FindingSecretExposure),
+			string(domain.SeverityHigh),
+			"GitHub token exposed",
+			"A token-like value was committed.",
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			"Rotate the token.",
+			now,
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			nil,
+			sqlmock.AnyArg(),
+			nil,
+			nil,
+			string(domain.RepoFindingLifecycleReopened),
+			"secops",
+			nil,
+			nil,
+			nil,
+			nil,
+			nil,
+			"deep",
+			nil,
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	if err := store.UpsertRepoFindings(defaultScopeContext(), scanID, []domain.Finding{{
+		ID:           "rf-new",
+		Type:         domain.FindingSecretExposure,
+		Severity:     domain.SeverityHigh,
+		Title:        "GitHub token exposed",
+		HumanSummary: "A token-like value was committed.",
+		Repository:   "owner/repo",
+		FilePath:     "config/app.env",
+		LineNumber:   7,
+		Detector:     "github_token",
+		Remediation:  "Rotate the token.",
+		CreatedAt:    now,
+	}}); err != nil {
+		t.Fatalf("upsert resurfaced repo finding: %v", err)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -807,13 +926,9 @@ func TestPostgresStoreUpsertRepoFindingsRejectsTerminalScan(t *testing.T) {
 	store := NewPostgresStoreWithDB(db)
 	scanID := "11111111-1111-1111-1111-111111111111"
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT status
-		 FROM repo_scans
-		 WHERE id = $1
-		   AND tenant_id = $2
-		   AND workspace_id = $3`)).
+	mock.ExpectQuery("SELECT id, tenant_id, workspace_id, repository, status").
 		WithArgs(scanID, "default", "default").
-		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("failed"))
+		WillReturnRows(repoScanRows(scanID, "failed", time.Now().UTC(), time.Now().UTC()))
 
 	err = store.UpsertRepoFindings(defaultScopeContext(), scanID, []domain.Finding{{
 		ID:       "rf-canceled",
@@ -1696,6 +1811,7 @@ func TestPostgresStoreCompleteRepoScanReturnsConflictForTerminalScan(t *testing.
 	scanID := "11111111-1111-1111-1111-111111111111"
 	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
 
+	mock.ExpectBegin()
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE repo_scans
 		 SET status = $2,
 		     finished_at = $3,
@@ -1714,6 +1830,7 @@ func TestPostgresStoreCompleteRepoScanReturnsConflictForTerminalScan(t *testing.
 		   AND status IN ('queued', 'running')`)).
 		WithArgs(scanID, "completed", now, 4, 2, 1, false, "", "", "", "[]", nil, "default", "default").
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
 
 	rows := sqlmock.NewRows([]string{
 		"id",

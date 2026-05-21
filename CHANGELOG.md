@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Added repository finding lifecycle intelligence. Repo findings now carry
+  stable lifecycle keys, first/last seen timestamps, fixed/reopened/suppressed
+  state, owner and detector metadata, list filters for lifecycle, ownership,
+  confidence, and age, plus dashboard summary metrics for open, fixed,
+  reopened, SLA-aged, and MTTR-ready repository risk.
 - Replaced public demo calendar placeholders with the first-party demo booking
   form, including preferred day/time capture in lead delivery emails and
   clearer dark-page contrast for the demo booking and evidence panels.
