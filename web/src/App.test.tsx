@@ -622,13 +622,12 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText(/Workspace ID/i), { target: { value: 'workspace-a' } });
     fireEvent.click(screen.getByRole('button', { name: /Continue in dev mode/i }));
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     expect(await screen.findByText(/Open risk/i)).toBeInTheDocument();
     expect(await screen.findByText(/Priority findings/i)).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     expect(await screen.findByText(/Production GitHub/i)).toBeInTheDocument();
     expect(await screen.findByText(/1 archived/i)).toBeInTheDocument();
-    expect(await screen.findByText(/Latest scan total 4/i)).toBeInTheDocument();
+    expect(await screen.findByText(/vs\. previous scan \(4 total\)/i)).toBeInTheDocument();
     expect(await screen.findByText('-6')).toBeInTheDocument();
     expect(
       fetchMock.mock.calls.some(([url]) => {
@@ -702,9 +701,9 @@ describe('App', () => {
     setCurrentPath('/app/tenant-a/workspace-a');
     render(<App />);
 
-    expect(await screen.findByText(/Trend delta/i)).toBeInTheDocument();
-    expect(await screen.findByText('N/A')).toBeInTheDocument();
-    expect(await screen.findByText(/Latest scan total 12; awaiting another scan/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Trend/i)).toBeInTheDocument();
+    expect(await screen.findByText('—')).toBeInTheDocument();
+    expect(await screen.findByText(/12 findings · awaiting another scan/i)).toBeInTheDocument();
     expect(screen.queryByText('+12')).not.toBeInTheDocument();
   });
 
@@ -1651,7 +1650,7 @@ describe('App', () => {
     setCurrentPath('/auth/callback');
     render(<App />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
   });
 
@@ -1708,7 +1707,7 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText(/Authentication code/i), { target: { value: '123456' } });
     fireEvent.click(screen.getByRole('button', { name: /Verify and continue/i }));
 
-    expect(await screen.findByRole('heading', { level: 1, name: /Identrail Workspace/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 2, name: /Overview/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/app/tenant-a/workspace-a');
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:8080/auth/mfa/verify',
