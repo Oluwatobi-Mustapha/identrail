@@ -61,7 +61,11 @@ func BuildRootCmd(cfg config.Config, out io.Writer) *cobra.Command {
 	root.AddCommand(buildScanCmd(cfg, out, &stateFile))
 	root.AddCommand(buildScanReplayCmd(cfg, out))
 	root.AddCommand(buildFindingsCmd(out, &stateFile))
-	root.AddCommand(buildRepoScanCmd(out))
+	root.AddCommand(buildRepoScanCmd(cfg, out))
+	root.AddCommand(buildRepoFindingsCmd(cfg, out))
+	root.AddCommand(buildRepoRiskGraphCmd(cfg, out))
+	root.AddCommand(buildRepoPostureCmd(cfg, out))
+	root.AddCommand(buildRepoRemediationCmd(cfg, out))
 	root.AddCommand(buildAuthzCmd(cfg, out))
 
 	return root
@@ -260,7 +264,7 @@ func buildScanReplayCmd(cfg config.Config, out io.Writer) *cobra.Command {
 	return cmd
 }
 
-func buildRepoScanCmd(out io.Writer) *cobra.Command {
+func buildRepoScanCmd(cfg config.Config, out io.Writer) *cobra.Command {
 	options := repoScanCLIOptions{}
 
 	cmd := &cobra.Command{
@@ -283,6 +287,10 @@ func buildRepoScanCmd(out io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&options.OutputFormat, "output", formatTable, "Output format: table|json")
 	cmd.Flags().IntVar(&options.HistoryLimit, "history-limit", 500, "Maximum number of commits to inspect for history secret exposure")
 	cmd.Flags().IntVar(&options.MaxFindings, "max-findings", 200, "Maximum findings to emit before truncating scan output")
+	cmd.AddCommand(buildRepoScanQueueCmd(cfg, out))
+	cmd.AddCommand(buildRepoScanListCmd(cfg, out))
+	cmd.AddCommand(buildRepoScanShowCmd(cfg, out))
+	cmd.AddCommand(buildRepoScanCancelCmd(cfg, out))
 	return cmd
 }
 
