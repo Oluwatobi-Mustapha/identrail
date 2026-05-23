@@ -55,7 +55,7 @@ import {
   type WorkspaceMemberStatus
 } from './api/client';
 import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
-import { useMe } from './hooks/useMe';
+import { clearMeCache, primeMeCache, useMe } from './hooks/useMe';
 import { isFeatureAvailable, useBackendFeatures } from './hooks/useBackendFeatures';
 import {
   FEATURE_ONBOARDING_CONNECTOR_AWS as FEATURE_CONNECTOR_AWS,
@@ -208,6 +208,40 @@ const SORT_LABEL_BY_FIELD: Record<(typeof REPO_FINDING_SORT_FIELDS)[number], str
 };
 
 const TREND_POINTS = 10;
+const PRODUCT_AUTH_SESSION_SCOPE_KEY = '__product_session__';
+let validatedProductAuthSession = false;
+let validatedProductAuthScopeKey = '';
+let productAuthSessionVersion = 0;
+
+function hasValidatedProductAuthScope(routeScopeKey: string): boolean {
+  if (!validatedProductAuthSession) {
+    return false;
+  }
+  return routeScopeKey === PRODUCT_AUTH_SESSION_SCOPE_KEY || validatedProductAuthScopeKey === routeScopeKey;
+}
+
+function setValidatedProductAuthScope(routeScopeKey: string) {
+  productAuthSessionVersion += 1;
+  validatedProductAuthSession = true;
+  if (routeScopeKey !== PRODUCT_AUTH_SESSION_SCOPE_KEY) {
+    validatedProductAuthScopeKey = routeScopeKey;
+  } else {
+    validatedProductAuthScopeKey = '';
+  }
+}
+
+function resetProductAuthSessionCache(options: { unauthenticated?: boolean } = {}) {
+  productAuthSessionVersion += 1;
+  validatedProductAuthSession = false;
+  validatedProductAuthScopeKey = '';
+  clearMeCache(options);
+}
+
+export function clearProductAuthSessionCacheForTests() {
+  productAuthSessionVersion += 1;
+  validatedProductAuthSession = false;
+  validatedProductAuthScopeKey = '';
+}
 
 function resolveEnabledSourceProvider(provider: SourceProvider): SourceProvider | null {
   return SOURCE_STACK.includes(provider) ? provider : null;
@@ -951,11 +985,15 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
   const params = useParams<ScopeRouteParams>();
   const routeTenantID = normalizeValue(params.tenantID);
   const routeWorkspaceID = normalizeValue(params.workspaceID);
-  const routeScopeKey = `${routeTenantID}::${routeWorkspaceID}`;
+  const routeHasExplicitScope = Boolean(routeTenantID && routeWorkspaceID);
+  const routeScopeKey = routeHasExplicitScope ? `${routeTenantID}::${routeWorkspaceID}` : PRODUCT_AUTH_SESSION_SCOPE_KEY;
   const routeLocationKey = `${location.pathname}${location.search}`;
-  const [status, setStatus] = useState<'checking' | 'authenticated' | 'unauthenticated' | 'error'>('checking');
-  const [validatedScopeKey, setValidatedScopeKey] = useState('');
-  const validatedScopeKeyRef = useRef('');
+  const routeAuthWarm = hasValidatedProductAuthScope(routeScopeKey);
+  const [status, setStatus] = useState<'checking' | 'authenticated' | 'unauthenticated' | 'error'>(
+    routeAuthWarm ? 'authenticated' : 'checking'
+  );
+  const [validatedScopeKey, setValidatedScopeKey] = useState(routeAuthWarm ? routeScopeKey : '');
+  const validatedScopeKeyRef = useRef(routeAuthWarm ? routeScopeKey : '');
   const statusRef = useRef(status);
   const [error, setError] = useState('');
 
@@ -970,17 +1008,24 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    const run = async () => {
-      const alreadyValidated = validatedScopeKeyRef.current === routeScopeKey;
-      if (alreadyValidated && statusRef.current === 'authenticated') {
-        return;
+    const validateSession = async (options: { silent?: boolean } = {}) => {
+      const silent = options.silent === true;
+      const requestSessionVersion = productAuthSessionVersion;
+      if (!silent) {
+        setStatus('checking');
       }
-      setStatus('checking');
       setError('');
       try {
         const current = await apiClient.getMe({ redirectOnUnauthorized: false });
         const currentTenantID = normalizeValue(current.me.org_id ?? '');
         const currentWorkspaceID = normalizeValue(current.me.workspace_id ?? '');
+        const currentScopeKey =
+          currentTenantID && currentWorkspaceID ? `${currentTenantID}::${currentWorkspaceID}` : PRODUCT_AUTH_SESSION_SCOPE_KEY;
+        let validatedRouteScopeKey = routeScopeKey;
+        if (!mounted || requestSessionVersion !== productAuthSessionVersion) {
+          return;
+        }
+        primeMeCache(current.me);
         if (
           routeTenantID &&
           routeWorkspaceID &&
@@ -993,6 +1038,9 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
               return;
             }
             navigateRef.current(buildTenantWorkspacePath(currentTenantID, currentWorkspaceID), { replace: true });
+            setValidatedProductAuthScope(currentScopeKey);
+            validatedScopeKeyRef.current = currentScopeKey;
+            setValidatedScopeKey(currentScopeKey);
             setStatus('authenticated');
             return;
           }
@@ -1000,22 +1048,28 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
             tenantID: currentTenantID,
             workspaceID: currentWorkspaceID
           });
+          validatedRouteScopeKey = routeScopeKey;
+        } else if (!routeHasExplicitScope) {
+          validatedRouteScopeKey = currentScopeKey;
         }
-        if (!mounted) {
-          return;
-        }
+        setValidatedProductAuthScope(validatedRouteScopeKey);
         validatedScopeKeyRef.current = routeScopeKey;
         setValidatedScopeKey(routeScopeKey);
         setStatus('authenticated');
       } catch (requestError) {
-        if (!mounted) {
+        if (!mounted || requestSessionVersion !== productAuthSessionVersion) {
           return;
         }
         if (requestError instanceof ApiError && requestError.status === 401) {
+          resetProductAuthSessionCache({ unauthenticated: true });
           setStatus('unauthenticated');
           return;
         }
+        if (silent) {
+          return;
+        }
         const message = requestError instanceof Error ? requestError.message : 'Unable to validate account session.';
+        resetProductAuthSessionCache();
         validatedScopeKeyRef.current = '';
         setValidatedScopeKey('');
         setError(message);
@@ -1023,12 +1077,23 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
       }
     };
 
+    const run = async () => {
+      const alreadyValidated = validatedScopeKeyRef.current === routeScopeKey || hasValidatedProductAuthScope(routeScopeKey);
+      if (alreadyValidated && statusRef.current === 'authenticated') {
+        validatedScopeKeyRef.current = routeScopeKey;
+        setValidatedScopeKey(routeScopeKey);
+        await validateSession({ silent: true });
+        return;
+      }
+      await validateSession();
+    };
+
     void run();
 
     return () => {
       mounted = false;
     };
-  }, [routeTenantID, routeWorkspaceID, routeScopeKey, routeLocationKey]);
+  }, [routeHasExplicitScope, routeTenantID, routeWorkspaceID, routeScopeKey, routeLocationKey]);
 
   if (status === 'checking' || (status === 'authenticated' && validatedScopeKey !== routeScopeKey)) {
     return <AppShellLoading message="Validating session" />;
@@ -1161,6 +1226,7 @@ export function ProductLogoutPage() {
       }
 
       if (mounted) {
+        resetProductAuthSessionCache({ unauthenticated: true });
         navigate('/signin?signed_out=1', { replace: true });
       }
     };
