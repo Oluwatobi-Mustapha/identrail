@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- Added structured repository scan diagnostics to API errors and the hosted app
+  so enqueue/list failures can distinguish disabled scans, allowlist or
+  selected-repository rejection, queue pressure, missing migrations, GitHub App
+  token minting failures, and worker timeouts. Cleaned stale documentation by
+  aligning current architecture/scope docs with AWS, GitHub, and Kubernetes,
+  leading repo exposure docs with `identrail scan owner/repo`, archiving phase
+  records, and removing historical leftovers.
 - Let GitHub App-backed project scans use the app installation's selected
   repository list as the scoped target guard, so personal and organization repos
   selected in GitHub no longer require a per-repo deployment allowlist update
