@@ -98,20 +98,10 @@ const ROUTE_META: Record<string, RouteMeta> = {
     description:
       'Estimate expected risk reduction and operational impact from machine identity hardening with an ROI-first assessment workflow.'
   },
-  '/read-only-scan': {
-    title: 'Read-Only Risk Scan | Safe Machine Identity Discovery',
-    description:
-      'Run a read-only machine identity risk scan across AWS and Kubernetes trust paths without making policy changes in your environment.'
-  },
   '/deployment-models': {
     title: 'Deployment Models | Self-Hosted, SaaS, and Enterprise Options',
     description:
       'Compare Identrail deployment models across self-hosted, hosted SaaS, and enterprise rollout patterns with security and control tradeoffs.'
-  },
-  '/demo': {
-    title: 'Demo | Interactive Trust Graph and Risk Workflows',
-    description:
-      'Explore an interactive trust graph demo showing machine identity attack-path evidence, risk scoring, and recommended controls.'
   },
   '/integrations': {
     title: 'Integrations | AWS, Kubernetes, GitHub, OIDC, and Observability',
