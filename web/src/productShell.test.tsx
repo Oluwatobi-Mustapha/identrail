@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   AWSConnectionStatus,
   CurrentUserContext,
-  GitHubConnectionStatus,
   Finding,
+  GitHubConnectionStatus,
   RepoScanRecord
 } from './api/client';
 import type { BackendFeatureState } from './hooks/useBackendFeatures';
@@ -735,7 +735,18 @@ async function renderFindings(options: { repoScans?: RepoScanRecord[]; repoFindi
     .mockResolvedValue({ items: options.repoScans ?? [] });
   const listRepoFindings = vi
     .spyOn(api.apiClient, 'listRepoFindings')
-    .mockResolvedValue({ items: options.repoFindings ?? [], summary: undefined });
+    .mockImplementation(async (params) => {
+      // Apply the server-side filters (severity/type) the component passes so
+      // tests that exercise filtering observe a realistic empty result.
+      let items = options.repoFindings ?? [];
+      if (params?.severity) {
+        items = items.filter((finding) => finding.severity === params.severity);
+      }
+      if (params?.type) {
+        items = items.filter((finding) => finding.type === params.type);
+      }
+      return { items, summary: undefined };
+    });
   vi.spyOn(api.apiClient, 'getRepoFindingsTrends').mockResolvedValue({ items: [] });
   vi.spyOn(api.apiClient, 'getRepoRiskGraph').mockRejectedValue(new Error('no graph'));
 
@@ -763,7 +774,7 @@ describe('ProductFindingsPage states', () => {
 
     expect(await screen.findByText('Run your first repository scan')).toBeInTheDocument();
     // The zero-filled dashboard chrome must not render in the empty state.
-    expect(screen.queryByText('Completed repo scans')).not.toBeInTheDocument();
+    expect(screen.queryByText('Completed scans')).not.toBeInTheDocument();
   });
 
   it('surfaces a failure state instead of zeros when every scan failed', async () => {
@@ -779,7 +790,7 @@ describe('ProductFindingsPage states', () => {
 
     expect(await screen.findByText('Your last repository scan failed')).toBeInTheDocument();
     expect(screen.getByText(/Repository not found or access revoked/i)).toBeInTheDocument();
-    expect(screen.queryByText('Completed repo scans')).not.toBeInTheDocument();
+    expect(screen.queryByText('Completed scans')).not.toBeInTheDocument();
   });
 
   it('shows a clean "no exposure" state when a scan succeeded with zero findings', async () => {
@@ -794,8 +805,12 @@ describe('ProductFindingsPage states', () => {
     await renderFindings({ repoScans: [succeededScan] });
 
     expect(await screen.findByText('No exposure found')).toBeInTheDocument();
-    // The dashboard chrome renders for a succeeded scan.
-    expect(screen.getByText('Completed repo scans')).toBeInTheDocument();
+    // The consolidated KPI strip renders for a succeeded scan.
+    expect(screen.getByText('Completed scans')).toBeInTheDocument();
+    // With no findings and no active filters, the filter panel and the empty
+    // detail pane are gated out (no redundant empty placeholders).
+    expect(screen.queryByText('Filters and sorting')).not.toBeInTheDocument();
+    expect(screen.queryByText('Select a finding')).not.toBeInTheDocument();
   });
 
   it('does not show failed state when a canceled scan is the latest', async () => {
@@ -876,7 +891,7 @@ describe('ProductFindingsPage states', () => {
     });
 
     expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
-    expect(await screen.findByText(/Completed\s+repo\s+scans/i)).toBeInTheDocument();
+    expect(await screen.findByText('Completed scans')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Legacy finding' })).toBeInTheDocument();
   });
 
@@ -893,5 +908,42 @@ describe('ProductFindingsPage states', () => {
 
     expect(await screen.findByText('No completed scan results')).toBeInTheDocument();
     expect(screen.queryByText('Your last repository scan failed')).not.toBeInTheDocument();
+  });
+
+  it('keeps the finding detail pane visible when filters are active but no findings match', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-with-findings',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 1
+    };
+
+    const finding: Finding = {
+      id: 'finding-1',
+      scan_id: scan.id,
+      type: 'aws_access_key',
+      severity: 'critical',
+      title: 'IAM role with wildcard trust',
+      human_summary: 'AssumeRole trust policy allows any principal.',
+      remediation: 'Tighten trust policy principals.',
+      created_at: '2026-05-17T11:06:00Z'
+    };
+
+    await renderFindings({
+      repoScans: [scan],
+      repoFindings: [finding]
+    });
+
+    expect((await screen.findAllByText('IAM role with wildcard trust')).length).toBeGreaterThan(0);
+
+    const filtersSummary = await screen.findByText('Filters and sorting');
+    fireEvent.click(filtersSummary);
+
+    const severityFilter = screen.getByLabelText('Severity');
+    fireEvent.change(severityFilter, { target: { value: 'high' } });
+
+    expect(await screen.findByText('No findings match the current filters.')).toBeInTheDocument();
+    expect(screen.getByText('Select a finding')).toBeInTheDocument();
   });
 });
