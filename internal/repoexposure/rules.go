@@ -880,7 +880,7 @@ func entropy(value string) float64 {
 	return entropy
 }
 
-func detectMisconfigFindings(repo string, commit string, path string, content []byte, detectedAt time.Time) []domain.Finding {
+func detectMisconfigFindings(repo string, commit string, path string, content []byte, detectedAt time.Time, options ...secretFindingOption) []domain.Finding {
 	data := string(content)
 	findings := []domain.Finding{}
 	seen := map[string]struct{}{}
@@ -889,8 +889,14 @@ func detectMisconfigFindings(repo string, commit string, path string, content []
 		revision = "HEAD"
 	}
 
+	if isAIAgentConfigPath(path) {
+		findings = append(findings, detectAIAgentConfigFindings(repo, revision, path, content, seen, detectedAt, options...)...)
+		return findings
+	}
+
 	parserFindings, parserUsed := detectMisconfigFindingsWithParsers(repo, revision, path, content, seen, detectedAt)
 	findings = append(findings, parserFindings...)
+	findings = append(findings, detectAIAgentConfigFindings(repo, revision, path, content, seen, detectedAt, options...)...)
 
 	for _, rule := range lineMisconfigRules {
 		if parserUsed && shouldSkipLineRuleByParser(rule.ID, path) {
@@ -1035,7 +1041,7 @@ func appendMisconfigFinding(
 	detectedAt time.Time,
 	extraEvidence map[string]any,
 ) {
-	key := fmt.Sprintf("%s:%d:%s", path, line, ruleID)
+	key := fmt.Sprintf("%s:%d:%s:%q", path, line, ruleID, strings.TrimSpace(snippet))
 	if _, exists := seen[key]; exists {
 		return
 	}
@@ -1860,6 +1866,9 @@ func shouldInspectMisconfiguration(path string) bool {
 	}
 	base := strings.ToLower(filepath.Base(lower))
 	if strings.HasPrefix(lower, ".github/workflows/") {
+		return true
+	}
+	if isAIAgentConfigPath(lower) {
 		return true
 	}
 	if base == "dockerfile" || strings.HasPrefix(base, "dockerfile.") {
