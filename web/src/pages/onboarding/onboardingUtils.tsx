@@ -123,7 +123,22 @@ export async function loadOrStartOnboarding(): Promise<OnboardingState> {
   return (await loadOrStartOnboardingResponse()).state;
 }
 
-const NEXT_STEPS = ['Create boundary', 'Name workspace', 'Connect source', 'Run scan'];
+const NEXT_STEPS: Array<{ id: OnboardingStep; label: string }> = [
+  { id: 'org', label: 'Create boundary' },
+  { id: 'workspace', label: 'Name workspace' },
+  { id: 'connect', label: 'Connect source' },
+  { id: 'scan', label: 'Run scan' },
+  { id: 'invite', label: 'Invite team' }
+];
+
+function nextStepsFor(step: OnboardingStep): Array<{ id: OnboardingStep | 'dashboard'; label: string }> {
+  const currentIndex = NEXT_STEPS.findIndex((item) => item.id === step);
+  if (currentIndex < 0) {
+    return [{ id: 'dashboard', label: 'Open dashboard' }];
+  }
+  const remaining = NEXT_STEPS.slice(currentIndex + 1);
+  return remaining.length > 0 ? remaining : [{ id: 'dashboard', label: 'Open dashboard' }];
+}
 
 export function OnboardingFrame({
   step,
@@ -138,6 +153,8 @@ export function OnboardingFrame({
   description?: string;
   children: ReactNode;
 }) {
+  const remainingSteps = nextStepsFor(step);
+
   return (
     <section className="idt-onboarding-shell">
       <header className="idt-onboarding-topbar">
@@ -168,12 +185,12 @@ export function OnboardingFrame({
             {description ? <p>{description}</p> : null}
             {children}
           </div>
-          <aside className="idt-onboarding-outcome" aria-label="What happens next">
-            <p className="idt-onboarding-outcome-label">What happens next</p>
+          <aside className="idt-onboarding-outcome" aria-label="Next steps">
+            <p className="idt-onboarding-outcome-label">Next</p>
             <ol>
-              {NEXT_STEPS.map((item) => (
-                <li key={item}>
-                  <span>{item}</span>
+              {remainingSteps.map((item) => (
+                <li key={item.id}>
+                  <span>{item.label}</span>
                   <ArrowRight size={14} strokeWidth={2.2} aria-hidden="true" />
                 </li>
               ))}
