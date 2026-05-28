@@ -46,21 +46,82 @@ jobs:
             exit 0
           fi
 
-          review_decision="$(gh api graphql \
+          pr_json="$(gh api repos/"${{ github.repository_owner }}"/"${{ github.event.repository.name }}"/pulls/"${{ github.event.pull_request.number }}")"
+          is_draft="$(jq -r '.draft // false' <<< "${pr_json}")"
+          if [ "${is_draft}" = "true" ]; then
+            echo "can_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Pull request is a draft; skipping production deploy."
+            exit 0
+          fi
+
+          head_sha="$(jq -r '.head.sha // empty' <<< "${pr_json}")"
+          if [ -z "${head_sha}" ]; then
+            echo "can_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Unable to read pull request head SHA; skipping production deploy."
+            exit 0
+          fi
+
+          # Review state must come from GraphQL: reviewDecision is not on the
+          # REST pull request payload, and latestReviews returns one record per
+          # reviewer (latest state) so a "changes requested" later upgraded to
+          # "approved" on the same commit no longer permanently blocks the
+          # deploy. This single query also avoids the multi-page jq breakage
+          # that --paginate without --slurp causes when a PR has >100 reviews.
+          review_state_json="$(gh api graphql \
             -F owner="${{ github.repository_owner }}" \
-            -F repo="${{ github.event.repository.name }}" \
+            -F name="${{ github.event.repository.name }}" \
             -F number="${{ github.event.pull_request.number }}" \
-            -f query='query($owner: String!, $repo: String!, $number: Int!) {
-              repository(owner: $owner, name: $repo) {
+            -f query='query($owner: String!, $name: String!, $number: Int!) {
+              repository(owner: $owner, name: $name) {
                 pullRequest(number: $number) {
                   reviewDecision
+                  latestReviews(first: 100) {
+                    nodes {
+                      state
+                      authorAssociation
+                      commit { oid }
+                    }
+                  }
+                  reviews(first: 100, states: APPROVED) {
+                    nodes {
+                      state
+                      authorAssociation
+                      author { login }
+                      commit { oid }
+                    }
+                  }
                 }
               }
-            }' \
-            -q '.data.repository.pullRequest.reviewDecision // empty')"
-          if [ "${review_decision}" != "APPROVED" ]; then
+            }')"
+
+          review_decision="$(jq -r '.data.repository.pullRequest.reviewDecision // empty' <<< "${review_state_json}")"
+          if [ "${review_decision}" = "REVIEW_REQUIRED" ]; then
             echo "can_deploy=false" >> "$GITHUB_OUTPUT"
-            echo "Pull request review state is '${review_decision}', not APPROVED; skipping production deploy."
+            echo "Pull request is review required; skipping production deploy."
+            exit 0
+          fi
+          if [ "${review_decision}" = "CHANGES_REQUESTED" ]; then
+            echo "can_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Pull request has unresolved change requests; skipping production deploy."
+            exit 0
+          fi
+
+          latest_reviews="$(jq -c '.data.repository.pullRequest.latestReviews.nodes' <<< "${review_state_json}")"
+          review_approvals="$(jq -c '.data.repository.pullRequest.reviews.nodes' <<< "${review_state_json}")"
+
+          approved_on_head="$(jq -r --arg head_sha "${head_sha}" '[ .[] | select(.state == "APPROVED" and .commit.oid == $head_sha and (.authorAssociation == "MEMBER" or .authorAssociation == "OWNER" or .authorAssociation == "COLLABORATOR")) ] | length' <<< "${latest_reviews}")"
+          trusted_approved_on_head="$(jq -r --arg head_sha "${head_sha}" '[ .[] | select((.state == "APPROVED" and .commit.oid == $head_sha and (.authorAssociation == "MEMBER" or .authorAssociation == "OWNER" or .authorAssociation == "COLLABORATOR") and ((.author.login // "") != ""))) | .author.login ] | sort | unique | length' <<< "${review_approvals}")"
+          if [ "${approved_on_head}" -lt 1 ] && [ "${trusted_approved_on_head}" -lt 1 ]; then
+            echo "can_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "No trusted approval for the merged commit ${head_sha} was found; skipping production deploy."
+            exit 0
+          fi
+          # Apply the same trusted-author filter to CHANGES_REQUESTED so a
+          # non-trusted reviewer cannot permanently block production deploys.
+          requested_changes_on_head="$(jq -r --arg head_sha "${head_sha}" '[ .[] | select(.state == "CHANGES_REQUESTED" and .commit.oid == $head_sha and (.authorAssociation == "MEMBER" or .authorAssociation == "OWNER" or .authorAssociation == "COLLABORATOR")) ] | length' <<< "${latest_reviews}")"
+          if [ "${requested_changes_on_head}" -gt 0 ]; then
+            echo "can_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "A trusted reviewer has an unresolved change request on the merged commit ${head_sha}; skipping production deploy."
             exit 0
           fi
 

@@ -113,19 +113,52 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 		if getErr != nil {
 			return WorkOSLoginResult{}, getErr
 		}
+		if fresh, getErr := s.Store.GetUser(ctx, identity.UserID); getErr == nil {
+			user = fresh
+		} else {
+			return WorkOSLoginResult{}, getErr
+		}
 		if existing, emailErr := s.Store.GetUserByPrimaryEmail(ctx, email); emailErr == nil && existing.ID != user.ID {
 			auditAuthAction(ctx, "auth.identity.conflict", existing.ID, "denied")
 			return WorkOSLoginResult{}, ErrAuthIdentityConflict
 		} else if emailErr != nil && !errors.Is(emailErr, db.ErrNotFound) {
 			return WorkOSLoginResult{}, emailErr
 		}
+		mustReactivate := workOSUserCanBeReactivated(user)
+		if mustReactivate {
+			if intent != workOSAuthIntentSignup {
+				auditAuthAction(ctx, "auth.account.reactivation_required", user.ID, "denied")
+				return WorkOSLoginResult{}, ErrAuthReactivationRequired
+			}
+			// Mirror the unbound-identity reactivation branch below: a
+			// signup-intent sign-in that revives a soft-deleted row must
+			// clear DeletedAt, otherwise workOSUserCanBeReactivated keeps
+			// returning true and downstream code that gates on DeletedAt
+			// continues to treat the account as deleted.
+			user.DeletedAt = nil
+		}
 		user.PrimaryEmail = email
 		user.DisplayName = displayName
 		user.AvatarURL = strings.TrimSpace(profile.ProfilePictureURL)
-		user.Status = "active"
 		user.UpdatedAt = now
-		savedUser, saveErr := s.Store.UpsertUser(ctx, user)
+		var savedUser db.User
+		var saveErr error
+		if mustReactivate {
+			// Signup-intent reactivation must clear DeletedAt and update the
+			// profile separately from status, so we never overwrite lifecycle
+			// state in a broad upsert.
+			savedUser, saveErr = s.Store.UpdateUserProfile(ctx, user)
+			if saveErr == nil {
+				savedUser, saveErr = s.Store.SetUserStatus(ctx, user.ID, "active", now)
+			}
+		} else {
+			savedUser, saveErr = s.Store.UpdateUserProfile(ctx, user)
+		}
 		if saveErr != nil {
+			if errors.Is(saveErr, db.ErrConflict) {
+				auditAuthAction(ctx, "auth.identity.conflict", user.ID, "denied")
+				return WorkOSLoginResult{}, ErrAuthIdentityConflict
+			}
 			return WorkOSLoginResult{}, saveErr
 		}
 		identity.Email = email
@@ -142,6 +175,11 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 		return WorkOSLoginResult{}, err
 	}
 	if existing, emailErr := s.Store.GetUserByPrimaryEmail(ctx, email); emailErr == nil {
+		if fresh, getErr := s.Store.GetUser(ctx, existing.ID); getErr == nil {
+			existing = fresh
+		} else {
+			return WorkOSLoginResult{}, getErr
+		}
 		if workOSUserCanBeReactivated(existing) {
 			if !profile.EmailVerified {
 				auditAuthAction(ctx, "auth.identity.conflict", existing.ID, "denied")
@@ -154,10 +192,17 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 			existing.PrimaryEmail = email
 			existing.DisplayName = displayName
 			existing.AvatarURL = strings.TrimSpace(profile.ProfilePictureURL)
-			existing.Status = "active"
 			existing.DeletedAt = nil
 			existing.UpdatedAt = now
-			user, saveErr := s.Store.UpsertUser(ctx, existing)
+			existing, saveErr := s.Store.UpdateUserProfile(ctx, existing)
+			if saveErr != nil {
+				if errors.Is(saveErr, db.ErrConflict) {
+					auditAuthAction(ctx, "auth.identity.conflict", existing.ID, "denied")
+					return WorkOSLoginResult{}, ErrAuthIdentityConflict
+				}
+				return WorkOSLoginResult{}, saveErr
+			}
+			existing, saveErr = s.Store.SetUserStatus(ctx, existing.ID, "active", now)
 			if saveErr != nil {
 				if errors.Is(saveErr, db.ErrConflict) {
 					auditAuthAction(ctx, "auth.identity.conflict", existing.ID, "denied")
@@ -166,7 +211,7 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 				return WorkOSLoginResult{}, saveErr
 			}
 			identity, identityErr := s.Store.UpsertUserIdentity(ctx, db.UserIdentity{
-				UserID:              user.ID,
+				UserID:              existing.ID,
 				Provider:            sessionauth.WorkOSProvider,
 				Subject:             subject,
 				Email:               email,
@@ -178,8 +223,8 @@ func (s *Service) UpsertWorkOSUserForIntent(ctx context.Context, profile session
 			if identityErr != nil {
 				return WorkOSLoginResult{}, identityErr
 			}
-			auditAuthAction(ctx, "auth.user.reactivate", user.ID, "success")
-			return s.decorateWorkOSLoginResult(ctx, WorkOSLoginResult{User: user, Identity: identity}, profile.OrganizationID)
+			auditAuthAction(ctx, "auth.user.reactivate", existing.ID, "success")
+			return s.decorateWorkOSLoginResult(ctx, WorkOSLoginResult{User: existing, Identity: identity}, profile.OrganizationID)
 		}
 		auditAuthAction(ctx, "auth.identity.conflict", existing.ID, "denied")
 		return WorkOSLoginResult{}, ErrAuthIdentityConflict
@@ -414,15 +459,19 @@ func (s *Service) refreshSAMLIdentity(ctx context.Context, conn db.IdentityConne
 	if err != nil {
 		return SAMLLoginResult{}, err
 	}
+	if fresh, err := s.Store.GetUser(ctx, identity.UserID); err == nil {
+		user = fresh
+	} else {
+		return SAMLLoginResult{}, err
+	}
 	if user.Status != "active" {
 		auditAuthAction(ctx, "auth.saml.deprovisioned", user.ID, "denied")
 		return SAMLLoginResult{}, ErrSAMLUnprovisionedUser
 	}
 	user.PrimaryEmail = email
 	user.DisplayName = displayName
-	user.Status = "active"
 	user.UpdatedAt = now
-	savedUser, err := s.Store.UpsertUser(ctx, user)
+	savedUser, err := s.Store.UpdateUserProfile(ctx, user)
 	if err != nil {
 		if errors.Is(err, db.ErrConflict) {
 			auditAuthAction(ctx, "auth.identity.conflict", user.ID, "denied")
@@ -446,15 +495,19 @@ func (s *Service) attachSAMLIdentityToExistingUser(ctx context.Context, conn db.
 	if err != nil {
 		return SAMLLoginResult{}, err
 	}
+	if fresh, err := s.Store.GetUser(ctx, userID); err == nil {
+		user = fresh
+	} else {
+		return SAMLLoginResult{}, err
+	}
 	if user.Status != "active" {
 		auditAuthAction(ctx, "auth.saml.deprovisioned", user.ID, "denied")
 		return SAMLLoginResult{}, ErrSAMLUnprovisionedUser
 	}
 	user.PrimaryEmail = email
 	user.DisplayName = displayName
-	user.Status = "active"
 	user.UpdatedAt = now
-	savedUser, err := s.Store.UpsertUser(ctx, user)
+	savedUser, err := s.Store.UpdateUserProfile(ctx, user)
 	if err != nil {
 		if errors.Is(err, db.ErrConflict) {
 			auditAuthAction(ctx, "auth.identity.conflict", user.ID, "denied")
@@ -545,6 +598,15 @@ func (s *Service) UpsertManualUserSessionContext(ctx context.Context, input Manu
 			UpdatedAt:    now,
 		}
 	} else {
+		// Manual mode is the loopback-only dev convenience path and has no
+		// signup-intent escape hatch like the WorkOS flow. Treating every
+		// manual sign-in as a reactivation keeps a deactivate test from
+		// permanently locking a developer out of their dev tenant. The
+		// production refusal lives in the WorkOS path, which is what the
+		// account-deactivate feature is actually gating.
+		if workOSUserCanBeReactivated(user) {
+			user.DeletedAt = nil
+		}
 		user.DisplayName = displayName
 		user.Status = "active"
 		user.UpdatedAt = now

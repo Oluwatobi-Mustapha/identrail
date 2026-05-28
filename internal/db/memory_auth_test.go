@@ -263,6 +263,97 @@ func TestMemoryAuthRejectsMissingRecordsAndExpiredSessions(t *testing.T) {
 	}
 }
 
+func TestMemoryCreateSessionRejectsInactiveUsers(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	now := time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
+	sessionHash := sha256.Sum256([]byte("inactive-user-session"))
+	user, err := store.UpsertUser(ctx, User{
+		ID:           "11111111-1111-1111-1111-111111111111",
+		PrimaryEmail: "inactive@example.com",
+		CreatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("upsert user: %v", err)
+	}
+	if _, err := store.CreateSession(ctx, Session{
+		ID:                sessionHash[:],
+		UserID:            user.ID,
+		AuthMethod:        "manual",
+		IdleExpiresAt:     now.Add(15 * time.Minute),
+		AbsoluteExpiresAt: now.Add(time.Hour),
+		CreatedAt:         now,
+	}); err != nil {
+		t.Fatalf("create session for active user: %v", err)
+	}
+	if _, err := store.SetUserStatus(ctx, user.ID, "deactivated", now.Add(time.Minute)); err != nil {
+		t.Fatalf("deactivate user: %v", err)
+	}
+	sessionHash2 := sha256.Sum256([]byte("deactivated-user-session"))
+	if _, err := store.CreateSession(ctx, Session{
+		ID:                sessionHash2[:],
+		UserID:            user.ID,
+		AuthMethod:        "manual",
+		IdleExpiresAt:     now.Add(15 * time.Minute),
+		AbsoluteExpiresAt: now.Add(time.Hour),
+		CreatedAt:         now,
+	}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected deactivated user session to return ErrNotFound, got %v", err)
+	}
+
+	deletedAt := now.Add(-time.Minute)
+	if _, err := store.UpsertUser(ctx, User{
+		ID:           user.ID,
+		PrimaryEmail: "inactive@example.com",
+		Status:       "deleted",
+		DeletedAt:    &deletedAt,
+		UpdatedAt:    now.Add(2 * time.Minute),
+		CreatedAt:    user.CreatedAt,
+	}); err != nil {
+		t.Fatalf("mark user deleted: %v", err)
+	}
+	sessionHash3 := sha256.Sum256([]byte("deleted-user-session"))
+	if _, err := store.CreateSession(ctx, Session{
+		ID:                sessionHash3[:],
+		UserID:            user.ID,
+		AuthMethod:        "manual",
+		IdleExpiresAt:     now.Add(15 * time.Minute),
+		AbsoluteExpiresAt: now.Add(time.Hour),
+		CreatedAt:         now,
+	}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected deleted user session to return ErrNotFound, got %v", err)
+	}
+}
+
+func TestMemoryUpdateUserProfilePreservesStatus(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	now := time.Date(2026, 5, 12, 13, 0, 0, 0, time.UTC)
+	user, err := store.UpsertUser(ctx, User{
+		ID:           "11111111-1111-1111-1111-111111111111",
+		PrimaryEmail: "status-pinned@example.com",
+		CreatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("upsert user: %v", err)
+	}
+	if _, err := store.SetUserStatus(ctx, user.ID, "deactivated", now.Add(time.Minute)); err != nil {
+		t.Fatalf("deactivate user: %v", err)
+	}
+	updated, err := store.UpdateUserProfile(ctx, User{
+		ID:           user.ID,
+		PrimaryEmail: "status-pinned@example.com",
+		DisplayName:  "Updated",
+		UpdatedAt:    now.Add(2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("update user profile: %v", err)
+	}
+	if updated.Status != "deactivated" {
+		t.Fatalf("expected status to remain deactivated, got %q", updated.Status)
+	}
+}
+
 func TestAuthNormalizationRejectsInvalidInputs(t *testing.T) {
 	now := time.Date(2026, 5, 12, 11, 0, 0, 0, time.UTC)
 	if _, err := NormalizeUserForWrite(User{ID: "not-a-uuid", PrimaryEmail: "user@example.com"}); err == nil {
@@ -341,5 +432,70 @@ func TestAuthNormalizationRejectsInvalidInputs(t *testing.T) {
 		AbsoluteExpiresAt: now.Add(time.Hour),
 	}); err == nil {
 		t.Fatal("expected missing idle expiry to fail")
+	}
+}
+
+func TestMemorySetUserStatusTransitionsAndIdempotency(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	created := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+	user, err := store.UpsertUser(ctx, User{
+		ID:           "11111111-1111-1111-1111-111111111111",
+		PrimaryEmail: "carol@example.com",
+		DisplayName:  "Carol",
+		CreatedAt:    created,
+	})
+	if err != nil {
+		t.Fatalf("upsert user: %v", err)
+	}
+
+	deactivatedAt := created.Add(time.Hour)
+	deactivated, err := store.SetUserStatus(ctx, user.ID, "deactivated", deactivatedAt)
+	if err != nil {
+		t.Fatalf("deactivate: %v", err)
+	}
+	if deactivated.Status != "deactivated" {
+		t.Fatalf("expected status=deactivated, got %q", deactivated.Status)
+	}
+	if !deactivated.UpdatedAt.Equal(deactivatedAt) {
+		t.Fatalf("expected updated_at=%s, got %s", deactivatedAt, deactivated.UpdatedAt)
+	}
+
+	// Idempotent: setting the same status returns the row without error.
+	again, err := store.SetUserStatus(ctx, user.ID, "deactivated", deactivatedAt.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("repeat deactivate: %v", err)
+	}
+	if again.Status != "deactivated" {
+		t.Fatalf("expected idempotent deactivate, got %q", again.Status)
+	}
+
+	reactivated, err := store.SetUserStatus(ctx, user.ID, "active", deactivatedAt.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("reactivate: %v", err)
+	}
+	if reactivated.Status != "active" {
+		t.Fatalf("expected status=active after reactivate, got %q", reactivated.Status)
+	}
+}
+
+func TestMemorySetUserStatusRejectsInvalidInput(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
+	user, err := store.UpsertUser(ctx, User{
+		ID:           "11111111-1111-1111-1111-111111111111",
+		PrimaryEmail: "dan@example.com",
+		CreatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("upsert user: %v", err)
+	}
+
+	if _, err := store.SetUserStatus(ctx, user.ID, "locked", now); err == nil {
+		t.Fatal("expected invalid status to fail")
+	}
+	if _, err := store.SetUserStatus(ctx, "22222222-2222-2222-2222-222222222222", "deactivated", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing user, got %v", err)
 	}
 }

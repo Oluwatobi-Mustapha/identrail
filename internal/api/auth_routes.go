@@ -317,6 +317,7 @@ func workOSCallbackHandler(logger *zap.Logger, svc *Service, manager sessionauth
 }
 
 const (
+	authFailureReasonAccountDeleted      = "account_pending_deletion"
 	authFailureReasonAccountNotFound     = "account_not_found"
 	authFailureReasonCallbackError       = "callback_error"
 	authFailureReasonIdentityConflict    = "identity_conflict"
@@ -1302,5 +1303,118 @@ func registerMeRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, man
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"revoked": count})
+	})
+
+	v1.POST("/me/deactivate", func(c *gin.Context) {
+		current, ok := sessionauth.CurrentFromGin(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "session required"})
+			return
+		}
+		now := time.Now().UTC()
+		if svc.Now != nil {
+			now = svc.Now().UTC()
+		}
+		user, err := svc.Store.GetUser(c.Request.Context(), current.Session.UserID)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+				return
+			}
+			if logger != nil {
+				logger.Error("deactivate get user", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to deactivate account"})
+			return
+		}
+		if user.Status == "deleted" {
+			c.JSON(http.StatusConflict, gin.H{"error": "account is pending deletion", "code": authFailureReasonAccountDeleted})
+			return
+		}
+		// Three-step sandwich to close two distinct races without plumbing a
+		// transaction through the store interface:
+		//
+		//   1. Revoke all current sessions. Kills every cookie the user
+		//      already had — the obvious work the endpoint must do.
+		//   2. Persist status=deactivated. From here on TouchSession refuses
+		//      cookies for this user, and the WorkOS login-intent path
+		//      refuses fresh sign-ins with ErrAuthReactivationRequired.
+		//   3. Revoke again. Closes the race where a concurrent sign-in
+		//      (e.g. WorkOS callback finishing on another device) committed
+		//      a new session row in the gap between (1) and (2). Without
+		//      this, the orphan row would survive the status check by
+		//      virtue of being unrevoked, and a later signup-intent
+		//      reactivation flipping status back to active would let
+		//      TouchSession accept it — breaking the endpoint's contract.
+		//
+		// Ordering 1-2 (and not 2-1) keeps the partial-failure mode
+		// recoverable: if (2) errors after (1) succeeded, the account is
+		// still active with no live sessions — the user can just sign in
+		// again and retry the request.
+		if _, err := svc.Store.RevokeAllUserSessions(c.Request.Context(), user.ID, now); err != nil {
+			if logger != nil {
+				logger.Error("deactivate revoke sessions", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to deactivate account"})
+			return
+		}
+		if user.Status != "deactivated" {
+			if _, err := svc.Store.SetUserStatus(c.Request.Context(), user.ID, "deactivated", now); err != nil {
+				if logger != nil {
+					logger.Error("deactivate set status", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to deactivate account"})
+				return
+			}
+		}
+		if _, err := svc.Store.RevokeAllUserSessions(c.Request.Context(), user.ID, now); err != nil {
+			if logger != nil {
+				logger.Error("deactivate revoke sessions post-status", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to deactivate account"})
+			return
+		}
+		auditAuthAction(c.Request.Context(), "auth.account.deactivate", user.ID, "success")
+		http.SetCookie(c.Writer, manager.ClearCookie())
+		c.JSON(http.StatusOK, gin.H{"status": "deactivated"})
+	})
+
+	v1.POST("/me/reactivate", func(c *gin.Context) {
+		current, ok := sessionauth.CurrentFromGin(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "session required"})
+			return
+		}
+		now := time.Now().UTC()
+		if svc.Now != nil {
+			now = svc.Now().UTC()
+		}
+		user, err := svc.Store.GetUser(c.Request.Context(), current.Session.UserID)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+				return
+			}
+			if logger != nil {
+				logger.Error("reactivate get user", telemetry.ZapError(err))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reactivate account"})
+			return
+		}
+		if user.Status == "deleted" {
+			c.JSON(http.StatusConflict, gin.H{"error": "account is pending deletion", "code": authFailureReasonAccountDeleted})
+			return
+		}
+		if user.Status != "active" {
+			if _, err := svc.Store.SetUserStatus(c.Request.Context(), user.ID, "active", now); err != nil {
+				if logger != nil {
+					logger.Error("reactivate set status", telemetry.ZapError(err))
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reactivate account"})
+				return
+			}
+		}
+		auditAuthAction(c.Request.Context(), "auth.account.reactivate", user.ID, "success")
+		c.JSON(http.StatusOK, gin.H{"status": "active"})
 	})
 }
