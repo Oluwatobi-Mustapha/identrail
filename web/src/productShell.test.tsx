@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-rou
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   AuthConfigResponse,
+  AWSConnectorStartResponse,
   AWSConnectionStatus,
   CurrentUserContext,
   Finding,
@@ -102,6 +103,37 @@ const disconnectedAWS: AWSConnectionStatus = {
   permission_checks: [],
   diagnostics: [],
   capabilities: { requested: ['discovery'], validated: ['discovery'], effective: ['discovery'], unavailable: [] }
+};
+
+const connectedAWS: AWSConnectionStatus = {
+  provider: 'aws',
+  connected: true,
+  connector_id: 'aws-connector-1',
+  display_name: 'Production AWS',
+  status: 'active',
+  health_status: 'healthy',
+  role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly',
+  external_id_configured: true,
+  account_id: '123456789012',
+  principal_arn: 'arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/identrail',
+  region: 'us-east-1',
+  permission_checks: [
+    {
+      name: 'iam:GetRole',
+      passed: true,
+      message: 'Role metadata can be inspected.'
+    }
+  ],
+  diagnostics: [
+    {
+      code: 'cloudtrail_pending',
+      message: 'Runtime evidence is not wired for this environment yet.',
+      remediation: 'No action required for connector setup.'
+    }
+  ],
+  capabilities: { requested: ['discovery'], validated: ['discovery'], effective: ['discovery'], unavailable: [] },
+  updated_at: '2026-05-17T10:00:00Z',
+  last_validated_at: '2026-05-17T10:00:00Z'
 };
 
 const connectedGitHub: GitHubConnectionStatus = {
@@ -925,23 +957,117 @@ describe('Domain-first app routes', () => {
     );
   });
 
-  it('preserves the requested domain source when creating the first environment from connect', async () => {
+  it('renders the AWS Control Center with current and future capability labels', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+
+    const { ProductAWSControlCenterPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws" element={<ProductAWSControlCenterPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'AWS Control Center' })).toBeInTheDocument();
+    expect((await screen.findAllByText(/Account 123456789012/i)).length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: /Connect AWS/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/connect?environment=production'
+    );
+    expect(screen.getAllByText('Wired now').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Coming').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Not yet available').length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: /Resources and secrets/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/resources?environment=production'
+    );
+  });
+
+  it('ignores stale AWS Control Center status loads after switching environments', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        },
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'staging',
+          name: 'Staging',
+          slug: 'staging',
+          description: 'Staging AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z'
+        }
+      ]
+    });
+    const productionStatus = deferred<{ connection: AWSConnectionStatus }>();
+    const stagingStatus = deferred<{ connection: AWSConnectionStatus }>();
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockImplementation((_workspaceID, projectID) =>
+      projectID === 'production' ? productionStatus.promise : stagingStatus.promise
+    );
+
+    const { ProductAWSControlCenterPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws" element={<ProductAWSControlCenterPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('production');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
+
+    await act(async () => {
+      stagingStatus.resolve({
+        connection: { ...connectedAWS, display_name: 'Staging AWS', account_id: '222222222222', region: 'us-west-2' }
+      });
+    });
+    expect(await screen.findByText('Staging AWS')).toBeInTheDocument();
+    expect(screen.getAllByText(/Account 222222222222/i).length).toBeGreaterThan(0);
+
+    await act(async () => {
+      productionStatus.resolve({
+        connection: { ...connectedAWS, display_name: 'Production AWS', account_id: '111111111111', region: 'us-east-1' }
+      });
+    });
+    expect(screen.getByText('Staging AWS')).toBeInTheDocument();
+    expect(screen.queryByText('Production AWS')).not.toBeInTheDocument();
+  });
+
+  it('keeps AWS connect on the domain page when no environment exists', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
-    const project = {
-      tenant_id: 'tenant-a',
-      workspace_id: 'workspace-a',
-      project_id: 'production-platform',
-      name: 'Production Platform',
-      slug: 'production-platform',
-      description: 'Production identity boundary.',
-      created_at: '2026-01-01T00:00:00Z',
-      updated_at: '2026-01-02T00:00:00Z'
-    };
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
-    vi.spyOn(api.apiClient, 'upsertProject').mockResolvedValue({ project });
 
-    const { ProductAWSConnectPage, ProductProjectsPage } = await import('./productShell');
+    const { ProductAWSConnectPage } = await import('./productShell');
     function LocationProbe() {
       const location = useLocation();
       return <p data-testid="location">{`${location.pathname}${location.search}`}</p>;
@@ -950,40 +1076,308 @@ describe('Domain-first app routes', () => {
     render(
       <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect']}>
         <Routes>
-          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
           <Route
-            path="/app/:tenantID/:workspaceID/projects"
+            path="/app/:tenantID/:workspaceID/aws/connect"
             element={
               <>
                 <LocationProbe />
-                <ProductProjectsPage />
+                <ProductAWSConnectPage />
               </>
             }
           />
-          <Route path="/app/:tenantID/:workspaceID/projects/:projectID" element={<LocationProbe />} />
         </Routes>
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'Environments' })).toBeInTheDocument();
-    expect(screen.getByTestId('location')).toHaveTextContent('/app/tenant-a/workspace-a/projects?source=aws');
-
-    fireEvent.change(screen.getByLabelText(/Environment name/i), { target: { value: 'Production Platform' } });
-    fireEvent.click(screen.getByRole('button', { name: /Create environment/i }));
-
-    await waitFor(() =>
-      expect(screen.getByTestId('location')).toHaveTextContent(
-        '/app/tenant-a/workspace-a/projects/production-platform?source=aws'
-      )
-    );
-    expect(api.apiClient.upsertProject).toHaveBeenCalledWith(
-      'workspace-a',
-      expect.objectContaining({ project_id: 'production-platform' }),
-      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    expect(await screen.findByRole('heading', { level: 2, name: 'Connect AWS' })).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/app/tenant-a/workspace-a/aws/connect');
+    expect(screen.getByRole('heading', { level: 3, name: /Create an environment before connecting AWS/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open environments/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/projects?source=aws'
     );
   });
 
-  it('routes connect actions to the selected environment even when it is outside the first page', async () => {
+  it('clears stale AWS connect form values when the selected environment changes', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        },
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'staging',
+          name: 'Staging',
+          slug: 'staging',
+          description: 'Staging AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z'
+        }
+      ]
+    });
+    const productionStatus = deferred<{ connection: AWSConnectionStatus }>();
+    const stagingStatus = deferred<{ connection: AWSConnectionStatus }>();
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockImplementation((_workspaceID, projectID) =>
+      projectID === 'production' ? productionStatus.promise : stagingStatus.promise
+    );
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('production');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
+
+    await act(async () => {
+      stagingStatus.resolve({
+        connection: {
+          ...disconnectedAWS,
+          permission_checks: [],
+          diagnostics: []
+        }
+      });
+    });
+
+    expect(await screen.findByRole('heading', { level: 3, name: /AWS read-only connector/i })).toBeInTheDocument();
+    expect(screen.getByLabelText('Role ARN')).toHaveValue('');
+    expect(screen.getByLabelText('Display name')).toHaveValue('');
+    expect(screen.getByLabelText('Region')).toHaveValue('us-east-1');
+
+    await act(async () => {
+      productionStatus.resolve({ connection: connectedAWS });
+    });
+    expect(screen.getByLabelText('Role ARN')).toHaveValue('');
+    expect(screen.queryByDisplayValue('Production AWS')).not.toBeInTheDocument();
+  });
+
+  it('ignores stale AWS CloudFormation start responses after switching environments', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        },
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'staging',
+          name: 'Staging',
+          slug: 'staging',
+          description: 'Staging AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+    const startResponse = deferred<AWSConnectorStartResponse>();
+    vi.spyOn(api.apiClient, 'startAWSConnector').mockReturnValue(startResponse.promise);
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const launchButton = await screen.findByRole('button', { name: /Launch stack/i });
+    fireEvent.click(launchButton);
+    await waitFor(() =>
+      expect(api.apiClient.startAWSConnector).toHaveBeenCalledWith(
+        expect.objectContaining({ project_id: 'production' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
+
+    await act(async () => {
+      startResponse.resolve({
+        connection: connectedAWS,
+        connector_id: 'aws-connector-1',
+        external_id: 'stale-external-id',
+        launch_url: 'https://console.aws.amazon.com/cloudformation',
+        template_url: 'https://example.com/template.yaml',
+        role_name: 'IdentrailReadOnly',
+        stack_name: 'identrail-readonly-connector',
+        policy_hash: 'sha256:example',
+        permission_preview: [
+          { service: 'IAM', actions: ['iam:GetRole'], resources: ['*'], reason: 'Inspect role metadata.' }
+        ],
+        permission_tiers: []
+      });
+    });
+
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('staging');
+    expect(screen.getByLabelText('External ID')).toHaveValue('');
+    expect(screen.queryByText(/AWS CloudFormation launch is ready/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Preview permissions/i })).not.toBeInTheDocument();
+  });
+
+  it('ignores stale AWS poll responses after switching environments', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        },
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'staging',
+          name: 'Staging',
+          slug: 'staging',
+          description: 'Staging AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ connection: projectID === 'production' ? connectedAWS : disconnectedAWS })
+    );
+    const pollResponse = deferred<{ connection: AWSConnectionStatus }>();
+    vi.spyOn(api.apiClient, 'pollAWSConnector').mockReturnValue(pollResponse.promise);
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 3, name: /AWS read-only connector/i })).toBeInTheDocument();
+    const refreshButton = within(screen.getByLabelText('AWS connector setup')).getByRole('button', {
+      name: /Refresh status/i
+    });
+    fireEvent.click(refreshButton);
+    await waitFor(() =>
+      expect(api.apiClient.pollAWSConnector).toHaveBeenCalledWith(
+        'aws-connector-1',
+        'workspace-a',
+        'production',
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
+
+    await act(async () => {
+      pollResponse.resolve({
+        connection: { ...connectedAWS, display_name: 'Production poll AWS', account_id: '111111111111' }
+      });
+    });
+
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('staging');
+    expect(screen.queryByText('AWS connector is active.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Production poll AWS')).not.toBeInTheDocument();
+  });
+
+  it('ignores stale AWS validation responses after switching environments', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        },
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'staging',
+          name: 'Staging',
+          slug: 'staging',
+          description: 'Staging AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockImplementation((_workspaceID, projectID) =>
+      Promise.resolve({ connection: projectID === 'production' ? connectedAWS : disconnectedAWS })
+    );
+    const validationResponse = deferred<{ connection: AWSConnectionStatus }>();
+    vi.spyOn(api.apiClient, 'validateAWSConnector').mockReturnValue(validationResponse.promise);
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const submitButton = await screen.findByRole('button', { name: /Validate and save AWS/i });
+    fireEvent.click(submitButton);
+    await waitFor(() =>
+      expect(api.apiClient.validateAWSConnector).toHaveBeenCalledWith(
+        'aws-connector-1',
+        expect.objectContaining({ project_id: 'production' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
+
+    await act(async () => {
+      validationResponse.resolve({
+        connection: { ...connectedAWS, display_name: 'Validated production AWS', account_id: '111111111111' }
+      });
+    });
+
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('staging');
+    expect(screen.queryByText('AWS connector is active.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Validated production AWS')).not.toBeInTheDocument();
+  });
+
+  it('loads AWS connect actions for the selected environment even when it is outside the first page', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
     const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
@@ -1010,26 +1404,35 @@ describe('Domain-first app routes', () => {
         updated_at: '2025-01-02T00:00:00Z'
       }
     });
+    const getAWSProjectConnection = vi
+      .spyOn(api.apiClient, 'getAWSProjectConnection')
+      .mockResolvedValue({ connection: connectedAWS });
 
     const { ProductAWSConnectPage } = await import('./productShell');
-    function LocationProbe() {
-      const location = useLocation();
-      return <p data-testid="location">{`${location.pathname}${location.search}`}</p>;
-    }
 
     render(
       <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=older-production']}>
         <Routes>
           <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
-          <Route path="/app/:tenantID/:workspaceID/projects/:projectID" element={<LocationProbe />} />
         </Routes>
       </MemoryRouter>
     );
 
-    expect(await screen.findByTestId('location')).toHaveTextContent(
-      '/app/tenant-a/workspace-a/projects/older-production?source=aws'
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
+    expect(await screen.findByRole('heading', { level: 3, name: /AWS read-only connector/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /AWS home/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws?environment=older-production'
     );
-    expect(listProjects).not.toHaveBeenCalled();
+    const setupPayload = screen.getByLabelText('Setup payload');
+    expect(within(setupPayload).getByText('workspace-a')).toBeInTheDocument();
+    expect(within(setupPayload).getByText('older-production')).toBeInTheDocument();
+    expect(listProjects).toHaveBeenCalled();
+    expect(getAWSProjectConnection).toHaveBeenCalledWith(
+      'workspace-a',
+      'older-production',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
   });
 
   it('keeps requested environment selected when getProject check fails for a transient error', async () => {
@@ -1067,7 +1470,7 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText(/Unable to verify selected environment older-production/i)).toBeInTheDocument();
   });
 
-  it('does not silently route AWS connect to fallback environment when getProject check fails transiently', async () => {
+  it('does not silently switch AWS connect to a fallback environment when getProject check fails transiently', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     const api = await import('./api/client');
     const listProjects = vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
@@ -1085,6 +1488,9 @@ describe('Domain-first app routes', () => {
       ]
     });
     vi.spyOn(api.apiClient, 'getProject').mockRejectedValue(new api.ApiError('temporary outage', 503));
+    const getAWSProjectConnection = vi
+      .spyOn(api.apiClient, 'getAWSProjectConnection')
+      .mockResolvedValue({ connection: disconnectedAWS });
 
     const { ProductAWSConnectPage } = await import('./productShell');
 
@@ -1096,9 +1502,16 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 2, name: /Unable to open AWS setup/i })).toBeInTheDocument();
-    expect(screen.getByText(/temporary outage/i)).toBeInTheDocument();
-    expect(listProjects).not.toHaveBeenCalled();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Connect AWS' })).toBeInTheDocument();
+    expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('older-production');
+    expect(screen.getByText(/Unable to verify selected environment older-production/i)).toBeInTheDocument();
+    expect(screen.getByText('older-production')).toBeInTheDocument();
+    expect(listProjects).toHaveBeenCalled();
+    expect(getAWSProjectConnection).toHaveBeenCalledWith(
+      'workspace-a',
+      'older-production',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
   });
 
   it('falls back to an active environment when the requested environment is archived', async () => {
