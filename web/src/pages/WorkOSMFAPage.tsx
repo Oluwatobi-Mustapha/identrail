@@ -2,7 +2,6 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { OTPInput, REGEXP_ONLY_DIGITS } from 'input-otp';
 import { ApiError, apiClient, type WorkOSMFAPendingResponse } from '../api/client';
-import { EnterSubmitHint } from '../components/common/EnterSubmitHint';
 
 function sameOriginPath(value: string | null | undefined, fallback: string, pathPrefix?: string): string {
   const candidate = value?.trim();
@@ -63,6 +62,7 @@ export function WorkOSMFAPage() {
   const [error, setError] = useState('');
   const [code, setCode] = useState('');
   const [autoChallengeFactorID, setAutoChallengeFactorID] = useState('');
+  const lastAutoSubmittedCodeRef = useRef('');
   // Holds a deferred promise that resolves with the outcome of the silent
   // auto-challenge POST. Stored as a ref so we can populate it *during render*
   // — before the submittable form is committed to the DOM — and resolve it
@@ -132,6 +132,7 @@ export function WorkOSMFAPage() {
       setPending((current) => (current ? { ...current, challenge_started: true } : current));
       deferred?.resolve(true);
     } catch (challengeError) {
+      lastAutoSubmittedCodeRef.current = '';
       setError(mfaErrorMessage(challengeError));
       deferred?.resolve(false);
     } finally {
@@ -141,11 +142,27 @@ export function WorkOSMFAPage() {
     }
   }, []);
 
-  const submitCode = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const isEnrollment = pending?.mode === 'enrollment';
+  const needsChallengeStart = pending?.mode === 'challenge' && !pending.challenge_started;
+  const enrollmentChallengeStarted = Boolean(isEnrollment && pending?.challenge_started && !pending.totp);
+  const canEnterCode = Boolean(pending?.challenge_started || pending?.totp);
+  const availableTOTPFactors = totpFactors(pending);
+  const autoChallengeFactorIDCandidate =
+    !loading && needsChallengeStart && availableTOTPFactors.length === 1 ? availableTOTPFactors[0].id : '';
+  const autoChallengeStarting = Boolean(autoChallengeFactorIDCandidate && !error && !canEnterCode);
+  const showChallengePicker = Boolean(
+    !loading && pending && needsChallengeStart && (!autoChallengeFactorIDCandidate || error)
+  );
+
+  const verifyCode = useCallback(async (nextCode: string) => {
+    const verificationCode = nextCode.trim();
     if (busy) {
       return;
     }
+    if (verificationCode.length < 6) {
+      return;
+    }
+    lastAutoSubmittedCodeRef.current = verificationCode;
     setBusy(true);
     setError('');
     try {
@@ -161,29 +178,24 @@ export function WorkOSMFAPage() {
         const challengeOk = await inFlightChallenge.promise;
         if (!challengeOk) {
           // startChallenge already surfaced the error to state; abort verify.
+          lastAutoSubmittedCodeRef.current = '';
           return;
         }
       }
-      const response = await apiClient.verifyWorkOSMFA(code);
+      const response = await apiClient.verifyWorkOSMFA(verificationCode);
       redirectToCompletedSession(response.redirect_to || returnTo, navigate);
     } catch (verifyError) {
+      lastAutoSubmittedCodeRef.current = '';
       setError(mfaErrorMessage(verifyError));
     } finally {
       setBusy(false);
     }
-  };
+  }, [busy, canEnterCode, navigate, returnTo]);
 
-  const isEnrollment = pending?.mode === 'enrollment';
-  const needsChallengeStart = pending?.mode === 'challenge' && !pending.challenge_started;
-  const enrollmentChallengeStarted = Boolean(isEnrollment && pending?.challenge_started && !pending.totp);
-  const canEnterCode = Boolean(pending?.challenge_started || pending?.totp);
-  const availableTOTPFactors = totpFactors(pending);
-  const autoChallengeFactorIDCandidate =
-    !loading && needsChallengeStart && availableTOTPFactors.length === 1 ? availableTOTPFactors[0].id : '';
-  const autoChallengeStarting = Boolean(autoChallengeFactorIDCandidate && !error && !canEnterCode);
-  const showChallengePicker = Boolean(
-    !loading && pending && needsChallengeStart && (!autoChallengeFactorIDCandidate || error)
-  );
+  const submitCode = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void verifyCode(code);
+  };
 
   // Lazy-initialize the silent-challenge deferred in the same render that
   // decides to mount the submittable form, so the ref is non-null *before*
@@ -204,6 +216,42 @@ export function WorkOSMFAPage() {
     setAutoChallengeFactorID(autoChallengeFactorIDCandidate);
     void startChallenge(autoChallengeFactorIDCandidate, { silent: true });
   }, [autoChallengeFactorID, autoChallengeFactorIDCandidate, startChallenge]);
+
+  useEffect(() => {
+    const verificationCode = code.trim();
+    if (verificationCode.length < 6) {
+      lastAutoSubmittedCodeRef.current = '';
+      return;
+    }
+    if (loading || !pending || busy || (!canEnterCode && !autoChallengeStarting)) {
+      return;
+    }
+    if (error) {
+      return;
+    }
+    if (lastAutoSubmittedCodeRef.current === verificationCode) {
+      return;
+    }
+    lastAutoSubmittedCodeRef.current = verificationCode;
+    void verifyCode(verificationCode);
+  }, [autoChallengeStarting, busy, canEnterCode, code, error, loading, pending, verifyCode]);
+
+  const retryVerification = () => {
+    lastAutoSubmittedCodeRef.current = '';
+    void verifyCode(code);
+  };
+
+  const updateCode = (nextCode: string) => {
+    setCode(nextCode);
+    if (error && canEnterCode) {
+      setError('');
+    }
+    if (nextCode.trim().length < 6) {
+      lastAutoSubmittedCodeRef.current = '';
+    }
+  };
+
+  const canRetryVerification = Boolean(error && canEnterCode && code.trim().length === 6 && !busy);
 
   return (
     <section className="idt-auth-page idt-auth-page-login">
@@ -259,15 +307,16 @@ export function WorkOSMFAPage() {
         ) : null}
 
         {!loading && pending && (canEnterCode || autoChallengeStarting) ? (
-          <form className="idt-auth-manual-form idt-auth-mfa-form" onSubmit={submitCode}>
+          <form className="idt-auth-manual-form idt-auth-mfa-form" onSubmit={submitCode} aria-busy={busy}>
             <OTPInput
               aria-label="Authentication code"
               autoComplete="one-time-code"
               autoFocus
               containerClassName="idt-auth-otp"
+              disabled={busy}
               inputMode="numeric"
               maxLength={6}
-              onChange={setCode}
+              onChange={updateCode}
               pattern={REGEXP_ONLY_DIGITS}
               pushPasswordManagerStrategy="none"
               value={code}
@@ -292,17 +341,16 @@ export function WorkOSMFAPage() {
                 </div>
               )}
             />
-            <button className="idt-btn idt-btn-primary" type="submit" disabled={busy || !canEnterCode || code.length < 6}>
-              {busy ? (
-                'Verifying...'
-              ) : (
-                <>
-                  Continue
-                  <EnterSubmitHint />
-                </>
-              )}
-            </button>
+            <p className="idt-visually-hidden" role="status" aria-live="polite">
+              {busy ? 'Verifying code.' : ''}
+            </p>
           </form>
+        ) : null}
+
+        {canRetryVerification ? (
+          <button className="idt-btn idt-btn-secondary idt-auth-mfa-full" type="button" onClick={retryVerification}>
+            Try again
+          </button>
         ) : null}
 
       </article>
