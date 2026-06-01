@@ -1175,6 +1175,24 @@ func TestMemoryStoreScheduledScanPolicyPaginationAndClaim(t *testing.T) {
 	if claimed {
 		t.Fatal("expected duplicate claim to be rejected")
 	}
+
+	if _, err := store.SuspendWorkspace(ctx, "workspace-a", createdAt.Add(time.Hour)); err != nil {
+		t.Fatalf("suspend workspace: %v", err)
+	}
+	suspendedPage, err := store.ListScheduledTenancyScanPolicies(ctx, 10, 0)
+	if err != nil {
+		t.Fatalf("ListScheduledTenancyScanPolicies suspended: %v", err)
+	}
+	if len(suspendedPage) != 0 {
+		t.Fatalf("expected suspended workspace policies to be hidden, got %+v", suspendedPage)
+	}
+	claimed, err = store.ClaimTenancyScanPolicySchedule(ctx, "workspace-a", "project-1", page[1].PolicyID, claimTick.Add(time.Minute), now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("ClaimTenancyScanPolicySchedule suspended returned error: %v", err)
+	}
+	if claimed {
+		t.Fatal("expected suspended workspace claim to be rejected")
+	}
 }
 
 func TestMemoryStoreListWorkspaceMembershipsByUserUUIDAndTenantID(t *testing.T) {
@@ -1343,5 +1361,290 @@ func TestMemoryStoreListSoleOwnerWorkspacesIgnoresDeletedOwners(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].WorkspaceID != "ws-shared" {
 		t.Fatalf("expected ws-shared flagged with deleted co-owner excluded, got %+v", results)
+	}
+}
+
+// setupWorkspaceLifecycleStore seeds tenant-a/workspace-a with one active
+// owner member and returns the populated store + scoped context.
+func setupWorkspaceLifecycleStore(t *testing.T) (*MemoryStore, context.Context, string) {
+	t.Helper()
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "ws-1"})
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{WorkspaceID: "ws-1", DisplayName: "Workspace 1", Slug: "ws-1"}); err != nil {
+		t.Fatalf("upsert workspace: %v", err)
+	}
+	ownerUUID := "11111111-1111-1111-1111-111111111111"
+	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
+		WorkspaceID: "ws-1", MemberID: "m-owner", UserID: "subj-owner", UserUUID: ownerUUID,
+		Role: "owner", Status: "active",
+	}); err != nil {
+		t.Fatalf("upsert owner member: %v", err)
+	}
+	return store, ctx, ownerUUID
+}
+
+func TestMemoryStoreSuspendWorkspaceIsIdempotent(t *testing.T) {
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	first, err := store.SuspendWorkspace(ctx, "ws-1", now)
+	if err != nil {
+		t.Fatalf("first suspend: %v", err)
+	}
+	if first.Status != WorkspaceStatusSuspended || first.SuspendedAt == nil {
+		t.Fatalf("expected suspended status with timestamp, got %+v", first)
+	}
+	later := now.Add(48 * time.Hour)
+	second, err := store.SuspendWorkspace(ctx, "ws-1", later)
+	if err != nil {
+		t.Fatalf("second suspend: %v", err)
+	}
+	if !second.SuspendedAt.Equal(*first.SuspendedAt) {
+		t.Fatalf("expected idempotent suspended_at, first=%v second=%v", first.SuspendedAt, second.SuspendedAt)
+	}
+}
+
+func TestMemoryStoreSuspendWorkspaceRefusesDeleted(t *testing.T) {
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", now); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	if _, err := store.SuspendWorkspace(ctx, "ws-1", now.Add(time.Hour)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected ErrConflict when suspending deleted workspace, got %v", err)
+	}
+}
+
+func TestMemoryStoreReactivateWorkspaceClearsTimestamp(t *testing.T) {
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.SuspendWorkspace(ctx, "ws-1", now); err != nil {
+		t.Fatalf("suspend: %v", err)
+	}
+	saved, err := store.ReactivateWorkspace(ctx, "ws-1", now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("reactivate: %v", err)
+	}
+	if saved.Status != WorkspaceStatusActive || saved.SuspendedAt != nil {
+		t.Fatalf("expected reactivate to clear suspended_at, got %+v", saved)
+	}
+}
+
+func TestMemoryStoreReactivateWorkspaceRefusesDeleted(t *testing.T) {
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", now); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	if _, err := store.ReactivateWorkspace(ctx, "ws-1", now.Add(time.Hour)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected ErrConflict when reactivating deleted workspace, got %v", err)
+	}
+}
+
+func TestMemoryStoreSoftDeleteWorkspacePreservesDeletedAt(t *testing.T) {
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	first, err := store.SoftDeleteWorkspace(ctx, "ws-1", now)
+	if err != nil {
+		t.Fatalf("first delete: %v", err)
+	}
+	if first.Status != WorkspaceStatusDeleted || first.DeletedAt == nil {
+		t.Fatalf("expected deleted status with timestamp, got %+v", first)
+	}
+	second, err := store.SoftDeleteWorkspace(ctx, "ws-1", now.Add(72*time.Hour))
+	if err != nil {
+		t.Fatalf("second delete: %v", err)
+	}
+	if !second.DeletedAt.Equal(*first.DeletedAt) {
+		t.Fatalf("expected idempotent deleted_at, first=%v second=%v", first.DeletedAt, second.DeletedAt)
+	}
+}
+
+func TestMemoryStoreCancelWorkspaceDeletionRestoresActive(t *testing.T) {
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", now); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	saved, err := store.CancelWorkspaceDeletion(ctx, "ws-1", now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if saved.Status != WorkspaceStatusActive || saved.DeletedAt != nil {
+		t.Fatalf("expected cancel to clear deleted_at, got %+v", saved)
+	}
+}
+
+func TestMemoryStoreListSoleOwnerWorkspacesIgnoresDeleted(t *testing.T) {
+	store, ctx, ownerUUID := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", now); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	workspaces, err := store.ListSoleOwnerWorkspaces(context.Background(), ownerUUID)
+	if err != nil {
+		t.Fatalf("list sole-owner workspaces: %v", err)
+	}
+	if len(workspaces) != 0 {
+		t.Fatalf("expected deleted sole-owned workspace to be ignored, got %+v", workspaces)
+	}
+}
+
+func TestMemoryStoreUpsertWorkspacePreservesLifecycleFields(t *testing.T) {
+	// Casual UpsertWorkspace (e.g. a display-name rename) must not revive a
+	// deleted or suspended row by accident — lifecycle fields are owned by
+	// the dedicated Suspend/SoftDelete/Cancel/Reactivate paths.
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", now); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	if err := store.UpsertWorkspace(ctx, TenancyWorkspace{
+		WorkspaceID: "ws-1",
+		DisplayName: "Workspace 1 Renamed",
+		Slug:        "ws-1",
+	}); err != nil {
+		t.Fatalf("rename upsert: %v", err)
+	}
+	saved, err := store.GetWorkspace(ctx, "ws-1")
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if saved.Status != WorkspaceStatusDeleted || saved.DeletedAt == nil {
+		t.Fatalf("expected lifecycle preserved after upsert, got %+v", saved)
+	}
+	if saved.DisplayName != "Workspace 1 Renamed" {
+		t.Fatalf("expected rename to apply, got %q", saved.DisplayName)
+	}
+}
+
+func TestMemoryStoreLifecycleMissingWorkspaceReturnsNotFound(t *testing.T) {
+	// All four memory-store lifecycle methods must surface ErrNotFound
+	// when the workspace key is absent. Pin the contract so the service
+	// layer can rely on the sentinel rather than each method inventing
+	// its own shape.
+	store := NewMemoryStore()
+	ctx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "ws-1"})
+	if err := store.UpsertOrganization(ctx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("upsert org: %v", err)
+	}
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.SuspendWorkspace(ctx, "ws-missing", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("suspend missing: expected ErrNotFound, got %v", err)
+	}
+	if _, err := store.ReactivateWorkspace(ctx, "ws-missing", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("reactivate missing: expected ErrNotFound, got %v", err)
+	}
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-missing", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("soft delete missing: expected ErrNotFound, got %v", err)
+	}
+	if _, err := store.CancelWorkspaceDeletion(ctx, "ws-missing", now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cancel missing: expected ErrNotFound, got %v", err)
+	}
+	if _, err := store.ListWorkspaceStrandedActiveMembers(ctx, "ws-missing", "11111111-1111-1111-1111-111111111111"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("strand missing: expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestMemoryStoreStrandedMembersIncludesNullUserUUID(t *testing.T) {
+	// Legacy invited-only memberships can have an empty user_uuid. The
+	// Postgres query uses IS DISTINCT FROM so NULL user_uuid is counted
+	// as "not the caller"; this test pins the memory store to the same
+	// invariant so a sole owner cannot silently bypass the stranding
+	// guard when an unclaimed invitation is the only other member.
+	store, ctx, ownerUUID := setupWorkspaceLifecycleStore(t)
+	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
+		WorkspaceID: "ws-1", MemberID: "m-invited", UserID: "subj-invited",
+		// UserUUID intentionally empty — invited but unclaimed.
+		Role: "analyst", Status: "active",
+	}); err != nil {
+		t.Fatalf("add invited member: %v", err)
+	}
+	stranded, err := store.ListWorkspaceStrandedActiveMembers(ctx, "ws-1", ownerUUID)
+	if err != nil {
+		t.Fatalf("strand check: %v", err)
+	}
+	if len(stranded) != 1 || stranded[0].MemberID != "m-invited" {
+		t.Fatalf("expected invited member in stranded list, got %+v", stranded)
+	}
+}
+
+func TestMemoryStoreStrandedMembersExcludesDeletedCoOwner(t *testing.T) {
+	// Codex round-10 cross-store parity pin: a co-owner whose user
+	// account is soft-deleted is not a valid ownership-transfer target
+	// (their access is gone), so they must not surface in the stranded
+	// list. Postgres aligned on this behavior in round-10 of #1445;
+	// this test pins the same invariant on the memory store so the two
+	// backends keep stepping in lock-step on cross-store parity tests.
+	store, ctx, ownerUUID := setupWorkspaceLifecycleStore(t)
+	deletedAt := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	deletedUser, err := store.UpsertUser(context.Background(), User{
+		PrimaryEmail: "ghost@example.com",
+		DisplayName:  "Ghost",
+		Status:       "deleted",
+		DeletedAt:    &deletedAt,
+	})
+	if err != nil {
+		t.Fatalf("upsert deleted user: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
+		WorkspaceID: "ws-1", MemberID: "m-ghost-owner", UserID: "subj-ghost",
+		UserUUID: deletedUser.ID,
+		Role:     "owner", Status: "active",
+	}); err != nil {
+		t.Fatalf("add deleted-user co-owner: %v", err)
+	}
+	stranded, err := store.ListWorkspaceStrandedActiveMembers(ctx, "ws-1", ownerUUID)
+	if err != nil {
+		t.Fatalf("strand check: %v", err)
+	}
+	if len(stranded) != 0 {
+		t.Fatalf("expected deleted-user co-owner not to be stranded, got %+v", stranded)
+	}
+}
+
+func TestMemoryStoreListWorkspaceStrandedActiveMembers(t *testing.T) {
+	store, ctx, ownerUUID := setupWorkspaceLifecycleStore(t)
+	// No other members yet — stranding should be empty so suspend/delete can proceed.
+	stranded, err := store.ListWorkspaceStrandedActiveMembers(ctx, "ws-1", ownerUUID)
+	if err != nil {
+		t.Fatalf("strand check: %v", err)
+	}
+	if len(stranded) != 0 {
+		t.Fatalf("expected no stranded members with single owner, got %+v", stranded)
+	}
+
+	// Add an active analyst. Sole owner with another active member → guard fires.
+	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
+		WorkspaceID: "ws-1", MemberID: "m-analyst", UserID: "subj-analyst",
+		UserUUID: "22222222-2222-2222-2222-222222222222",
+		Role:     "analyst", Status: "active",
+	}); err != nil {
+		t.Fatalf("add analyst: %v", err)
+	}
+	stranded, err = store.ListWorkspaceStrandedActiveMembers(ctx, "ws-1", ownerUUID)
+	if err != nil {
+		t.Fatalf("strand check after analyst: %v", err)
+	}
+	if len(stranded) != 1 || stranded[0].MemberID != "m-analyst" {
+		t.Fatalf("expected analyst in stranded list, got %+v", stranded)
+	}
+
+	// Add a co-owner. Guard no longer fires — ownership can transfer.
+	if err := store.UpsertWorkspaceMember(ctx, TenancyWorkspaceMember{
+		WorkspaceID: "ws-1", MemberID: "m-coowner", UserID: "subj-coowner",
+		UserUUID: "33333333-3333-3333-3333-333333333333",
+		Role:     "owner", Status: "active",
+	}); err != nil {
+		t.Fatalf("add coowner: %v", err)
+	}
+	stranded, err = store.ListWorkspaceStrandedActiveMembers(ctx, "ws-1", ownerUUID)
+	if err != nil {
+		t.Fatalf("strand check after coowner: %v", err)
+	}
+	if len(stranded) != 0 {
+		t.Fatalf("expected no stranded members with co-owner present, got %+v", stranded)
 	}
 }

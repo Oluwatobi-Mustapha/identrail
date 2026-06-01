@@ -517,6 +517,43 @@ var ErrInvalidTenancyRequest = errors.New("invalid tenancy request")
 // ErrWorkspaceAccessDenied indicates the caller cannot switch to target workspace.
 var ErrWorkspaceAccessDenied = errors.New("workspace access denied")
 
+// ErrWorkspaceSoleOwnerRequiresTransfer indicates a workspace suspend or
+// delete was refused because the caller is the only active owner of a
+// workspace that still has other active members. The structured 409 surfaced
+// to the caller carries the affected-member list so the UI can deep-link to
+// the member-management screen for ownership transfer.
+var ErrWorkspaceSoleOwnerRequiresTransfer = errors.New("workspace sole owner requires transfer")
+
+// ErrWorkspaceDeletionGraceExpired indicates a cancel-deletion request
+// arrived after the grace window closed. The hard-delete worker is
+// authoritative past the deadline.
+var ErrWorkspaceDeletionGraceExpired = errors.New("workspace deletion grace period has expired")
+
+// ErrWorkspaceOwnerRequired indicates a caller tried to flip a workspace's
+// lifecycle without holding an active owner membership. The authz route table
+// grants the action to "owner"-role memberships, but this service-level check
+// is the authoritative gate so role claims alone cannot bypass membership.
+var ErrWorkspaceOwnerRequired = errors.New("workspace owner role required")
+
+// ErrWorkspaceNotReactivatable indicates a reactivate request hit a
+// workspace that is not in the suspended state. Soft-deleted workspaces
+// must go through cancel-deletion (which enforces the grace window)
+// rather than reactivate, otherwise the worker's purge deadline could be
+// silently dodged.
+var ErrWorkspaceNotReactivatable = errors.New("workspace is not suspended")
+
+// ErrWorkspaceNotSuspendable indicates a suspend request hit a workspace
+// that is already soft-deleted. Without this guard a delete→suspend→
+// reactivate sequence could transition the row back to active while the
+// hard-delete worker still considers it pending purge (because deleted_at
+// is preserved across non-cancel transitions), creating a hidden tombstone
+// that survives in an "active" workspace.
+var ErrWorkspaceNotSuspendable = errors.New("workspace is not suspendable")
+
+// ErrWorkspaceDeletionNotPending indicates cancel-deletion was called for a
+// workspace that is not pending deletion.
+var ErrWorkspaceDeletionNotPending = errors.New("workspace deletion is not pending")
+
 // NewService creates an API service with defaults.
 func NewService(store db.Store, scanner ScannerRunner, provider string) *Service {
 	svc := &Service{
@@ -737,6 +774,21 @@ func (s *Service) ProcessNextQueuedScan(ctx context.Context) (bool, error) {
 		TenantID:    record.TenantID,
 		WorkspaceID: record.WorkspaceID,
 	})
+	// Workspace lifecycle gate — a scan queued before the workspace was
+	// suspended/soft-deleted will still surface through
+	// ClaimNextQueuedScanAnyScope (the claim SQL filters only on scan
+	// status), so without this check the worker would execute scans
+	// against an inactive workspace and contradict the lifecycle pause
+	// contract. Refuse the claimed record by marking it terminal with a
+	// clear error so it does not retry forever; the workspace owner can
+	// requeue after reactivate/cancel-deletion.
+	if skipped, skipErr := s.skipScanIfWorkspaceInactive(recordScopeCtx, record); skipErr != nil {
+		s.recordWorkerJob("scan", "failure")
+		return true, skipErr
+	} else if skipped {
+		s.recordWorkerJob("scan", "skipped_workspace_inactive")
+		return true, nil
+	}
 	s.recordAutomationLag("api_queue", "scan", s.Now().UTC().Sub(record.StartedAt.UTC()))
 	recordScopeCtx = continueQueueTraceContext(recordScopeCtx, record.TraceParent, record.TraceState)
 	s.appendScanLifecycleEvent(recordScopeCtx, record.ID, scanLifecycleRunning, map[string]any{"provider": record.Provider})
@@ -1455,6 +1507,26 @@ func (s *Service) ProcessNextQueuedRepoScan(ctx context.Context) (bool, error) {
 		TenantID:    record.TenantID,
 		WorkspaceID: record.WorkspaceID,
 	})
+	// Workspace lifecycle gate — a repo scan queued before the workspace
+	// was suspended/soft-deleted still surfaces through
+	// ClaimNextQueuedRepoScanAnyScope (the claim SQL filters only on
+	// repo_scans.status='queued'). Mirror the regular-scan gate added
+	// in ProcessNextQueuedScan so a paused workspace genuinely stops
+	// every scan execution path — including this codex round-8 gap.
+	if skipped, skipErr := s.skipRepoScanIfWorkspaceInactive(recordScopeCtx, record); skipErr != nil {
+		s.recordWorkerJob("repo_scan", "failure")
+		return true, skipErr
+	} else if skipped {
+		s.recordWorkerJob("repo_scan", "skipped_workspace_inactive")
+		s.emitRepoScanQueueEvent(RepoScanQueueEvent{
+			Kind:       "failed",
+			RepoScanID: record.ID,
+			Repository: record.Repository,
+			Status:     "failed",
+			Reason:     "workspace_inactive",
+		})
+		return true, nil
+	}
 	s.recordAutomationLag("api_queue", "repo_scan", s.Now().UTC().Sub(record.StartedAt.UTC()))
 	recordScopeCtx = continueQueueTraceContext(recordScopeCtx, record.TraceParent, record.TraceState)
 	requeue := false
@@ -2584,6 +2656,212 @@ func (s *Service) GetWorkspace(ctx context.Context, workspaceID string) (db.Tena
 func (s *Service) DeleteWorkspace(ctx context.Context, workspaceID string) error {
 	ctx = s.scopeContext(ctx)
 	return s.Store.DeleteWorkspace(ctx, strings.TrimSpace(workspaceID))
+}
+
+// WorkspaceSoleOwnerStranding is the structured result of the sole-owner
+// guard. When StrandedMembers is non-empty the caller is the only active
+// owner and there are other active members who would lose their access if
+// the workspace were suspended or deleted.
+type WorkspaceSoleOwnerStranding struct {
+	Workspace       db.TenancyWorkspace
+	StrandedMembers []db.TenancyWorkspaceMember
+}
+
+// SuspendWorkspace flips an active workspace into the suspended state.
+// Refuses with ErrWorkspaceNotSuspendable when the workspace is already
+// soft-deleted: otherwise a deleted→suspended→reactivated sequence could
+// sneak past the cancel-deletion grace check and leave the row "active"
+// with a non-NULL deleted_at scheduled for hard purge.
+//
+// callerUserUUID gates both the owner-role check and the sole-owner guard.
+// Empty callers are refused: route-level owner claims are not enough for
+// lifecycle writes without a verifiable workspace membership row.
+func (s *Service) SuspendWorkspace(ctx context.Context, workspaceID string, callerUserUUID string) (WorkspaceSoleOwnerStranding, db.TenancyWorkspace, error) {
+	ctx = s.scopeContext(ctx)
+	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
+	if normalizedWorkspaceID == "" {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, ErrInvalidTenancyRequest
+	}
+	if err := s.requireWorkspaceOwner(ctx, normalizedWorkspaceID, callerUserUUID); err != nil {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
+	}
+	workspace, err := s.Store.GetWorkspace(ctx, normalizedWorkspaceID)
+	if err != nil {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
+	}
+	if workspace.Status == db.WorkspaceStatusDeleted || workspace.DeletedAt != nil {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, ErrWorkspaceNotSuspendable
+	}
+	stranding, err := s.checkWorkspaceSoleOwnerStranding(ctx, normalizedWorkspaceID, callerUserUUID)
+	if err != nil {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
+	}
+	if len(stranding.StrandedMembers) > 0 {
+		return stranding, db.TenancyWorkspace{}, ErrWorkspaceSoleOwnerRequiresTransfer
+	}
+	saved, err := s.Store.SuspendWorkspace(ctx, normalizedWorkspaceID, s.now())
+	if err != nil {
+		if errors.Is(err, db.ErrConflict) {
+			return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, ErrWorkspaceNotSuspendable
+		}
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
+	}
+	return WorkspaceSoleOwnerStranding{}, saved, nil
+}
+
+// ReactivateWorkspace reverses a suspend. Refuses if the workspace is in
+// the `deleted` state — that path must go through cancel-deletion so the
+// 30-day grace window stays authoritative. An already-active workspace is
+// a no-op (idempotent) success.
+func (s *Service) ReactivateWorkspace(ctx context.Context, workspaceID string, callerUserUUID string) (db.TenancyWorkspace, error) {
+	ctx = s.scopeContext(ctx)
+	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
+	if normalizedWorkspaceID == "" {
+		return db.TenancyWorkspace{}, ErrInvalidTenancyRequest
+	}
+	if err := s.requireWorkspaceOwner(ctx, normalizedWorkspaceID, callerUserUUID); err != nil {
+		return db.TenancyWorkspace{}, err
+	}
+	workspace, err := s.Store.GetWorkspace(ctx, normalizedWorkspaceID)
+	if err != nil {
+		return db.TenancyWorkspace{}, err
+	}
+	switch workspace.Status {
+	case db.WorkspaceStatusActive:
+		return workspace, nil
+	case db.WorkspaceStatusSuspended:
+		// Fall through to the store transition below.
+	default:
+		// Deleted (or any unknown future status) cannot be reactivated;
+		// the cancel-deletion route is the only legal revival path.
+		return db.TenancyWorkspace{}, ErrWorkspaceNotReactivatable
+	}
+	saved, err := s.Store.ReactivateWorkspace(ctx, normalizedWorkspaceID, s.now())
+	if err != nil {
+		if errors.Is(err, db.ErrConflict) {
+			return db.TenancyWorkspace{}, ErrWorkspaceNotReactivatable
+		}
+		return db.TenancyWorkspace{}, err
+	}
+	return saved, nil
+}
+
+// SoftDeleteWorkspace flips the workspace into the deleted state with a
+// reversible grace window. Same sole-owner guard semantics as Suspend.
+func (s *Service) SoftDeleteWorkspace(ctx context.Context, workspaceID string, callerUserUUID string) (WorkspaceSoleOwnerStranding, db.TenancyWorkspace, error) {
+	ctx = s.scopeContext(ctx)
+	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
+	if normalizedWorkspaceID == "" {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, ErrInvalidTenancyRequest
+	}
+	if err := s.requireWorkspaceOwner(ctx, normalizedWorkspaceID, callerUserUUID); err != nil {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
+	}
+	stranding, err := s.checkWorkspaceSoleOwnerStranding(ctx, normalizedWorkspaceID, callerUserUUID)
+	if err != nil {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
+	}
+	if len(stranding.StrandedMembers) > 0 {
+		return stranding, db.TenancyWorkspace{}, ErrWorkspaceSoleOwnerRequiresTransfer
+	}
+	saved, err := s.Store.SoftDeleteWorkspace(ctx, normalizedWorkspaceID, s.now())
+	if err != nil {
+		return WorkspaceSoleOwnerStranding{}, db.TenancyWorkspace{}, err
+	}
+	return WorkspaceSoleOwnerStranding{}, saved, nil
+}
+
+// CancelWorkspaceDeletion reverses a soft delete inside the grace window.
+// Refuses with ErrWorkspaceDeletionGraceExpired once the worker is
+// authoritative for the purge so a stale UI cannot resurrect a workspace
+// the caller has already lost the option to keep.
+func (s *Service) CancelWorkspaceDeletion(ctx context.Context, workspaceID string, callerUserUUID string) (db.TenancyWorkspace, error) {
+	ctx = s.scopeContext(ctx)
+	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
+	if normalizedWorkspaceID == "" {
+		return db.TenancyWorkspace{}, ErrInvalidTenancyRequest
+	}
+	if err := s.requireWorkspaceOwner(ctx, normalizedWorkspaceID, callerUserUUID); err != nil {
+		return db.TenancyWorkspace{}, err
+	}
+	workspace, err := s.Store.GetWorkspace(ctx, normalizedWorkspaceID)
+	if err != nil {
+		return db.TenancyWorkspace{}, err
+	}
+	if workspace.DeletedAt != nil && s.now().UTC().Sub(workspace.DeletedAt.UTC()) > db.WorkspaceDeletionGracePeriod {
+		return db.TenancyWorkspace{}, ErrWorkspaceDeletionGraceExpired
+	}
+	if workspace.Status == db.WorkspaceStatusActive && workspace.DeletedAt == nil {
+		return workspace, nil
+	}
+	if workspace.Status != db.WorkspaceStatusDeleted && workspace.DeletedAt == nil {
+		return db.TenancyWorkspace{}, ErrWorkspaceDeletionNotPending
+	}
+	return s.Store.CancelWorkspaceDeletion(ctx, normalizedWorkspaceID, s.now())
+}
+
+// WorkspaceDeletionGraceDeadline returns the wall-clock deadline by which the
+// hard-delete worker will purge the workspace. Returns the zero time when the
+// workspace is not pending deletion.
+func WorkspaceDeletionGraceDeadline(workspace db.TenancyWorkspace) time.Time {
+	if workspace.DeletedAt == nil {
+		return time.Time{}
+	}
+	return workspace.DeletedAt.UTC().Add(db.WorkspaceDeletionGracePeriod)
+}
+
+// requireWorkspaceOwner is the authoritative owner-only gate for workspace
+// lifecycle endpoints. The authz route table restricts tenancy.owner to the
+// role string "owner", but that string alone is forgeable by non-session
+// principals carrying an owner claim. This service-level check is the
+// authoritative gate: every caller must present a verifiable user UUID that
+// resolves to an active owner membership row for the target workspace.
+//
+// Order is important — GetWorkspace runs first so a missing id returns
+// ErrNotFound (404) rather than masquerading as an authorization failure,
+// which would otherwise leak "you don't own this" for a workspace that
+// does not exist.
+func (s *Service) requireWorkspaceOwner(ctx context.Context, workspaceID string, callerUserUUID string) error {
+	if _, err := s.Store.GetWorkspace(ctx, workspaceID); err != nil {
+		return err
+	}
+	normalizedUUID := strings.TrimSpace(callerUserUUID)
+	if normalizedUUID == "" {
+		return ErrWorkspaceOwnerRequired
+	}
+	member, err := s.Store.GetWorkspaceMemberByUserUUID(ctx, workspaceID, normalizedUUID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return ErrWorkspaceOwnerRequired
+		}
+		return err
+	}
+	if member.Status != "active" || member.Role != "owner" {
+		return ErrWorkspaceOwnerRequired
+	}
+	return nil
+}
+
+func (s *Service) checkWorkspaceSoleOwnerStranding(ctx context.Context, workspaceID string, callerUserUUID string) (WorkspaceSoleOwnerStranding, error) {
+	workspace, err := s.Store.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return WorkspaceSoleOwnerStranding{}, err
+	}
+	if strings.TrimSpace(callerUserUUID) == "" {
+		return WorkspaceSoleOwnerStranding{Workspace: workspace}, nil
+	}
+	stranded, err := s.Store.ListWorkspaceStrandedActiveMembers(ctx, workspaceID, callerUserUUID)
+	if err != nil {
+		return WorkspaceSoleOwnerStranding{}, err
+	}
+	return WorkspaceSoleOwnerStranding{Workspace: workspace, StrandedMembers: stranded}, nil
+}
+
+func (s *Service) now() time.Time {
+	if s.Now != nil {
+		return s.Now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 // ListWorkspaceMembers returns members for one scoped workspace with optional role/status filters.
@@ -4034,6 +4312,88 @@ func continueQueueTraceContext(ctx context.Context, traceParent string, traceSta
 
 func (s *Service) terminalWriteContext(ctx context.Context) context.Context {
 	return db.WithScope(context.Background(), db.ScopeFromContext(s.scopeContext(ctx)))
+}
+
+// skipScanIfWorkspaceInactive enforces the workspace lifecycle pause on
+// scans claimed from the queue. The scheduler already filters out
+// inactive workspaces when enqueuing new scheduled scans, and the route
+// table refuses ad-hoc POST /v1/scans for inactive workspaces, but a
+// scan that was queued BEFORE the suspend/soft-delete will still surface
+// here because ClaimNextQueuedScanAnyScope filters only on scan status.
+// Mark it terminal with a clear error so it does not retry forever; the
+// workspace owner can requeue after reactivate/cancel-deletion.
+//
+// Returns (true, nil) when the scan was skipped, (false, nil) when the
+// workspace is active and the scan should proceed.
+func (s *Service) skipScanIfWorkspaceInactive(ctx context.Context, record db.ScanRecord) (bool, error) {
+	workspaceID := strings.TrimSpace(record.WorkspaceID)
+	tenantID := strings.TrimSpace(record.TenantID)
+	if workspaceID == "" || tenantID == "" {
+		return false, nil
+	}
+	workspace, err := s.Store.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		// A missing workspace is a different failure mode — let the
+		// regular scan executor surface it rather than silently
+		// skipping a record whose tenant scope might be misconfigured.
+		if errors.Is(err, db.ErrNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("workspace lifecycle gate: %w", err)
+	}
+	if workspace.Status == db.WorkspaceStatusActive && workspace.DeletedAt == nil {
+		return false, nil
+	}
+	reason := fmt.Sprintf("workspace lifecycle is %s; scan refused (see #1420)", workspace.Status)
+	s.appendScanLifecycleEvent(ctx, record.ID, scanLifecycleFailed, map[string]any{
+		"provider":         record.Provider,
+		"reason":           "workspace_inactive",
+		"workspace_status": workspace.Status,
+	})
+	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelWarn, reason, map[string]any{
+		"workspace_status": workspace.Status,
+	})
+	if err := s.completeScanTerminal(ctx, record.ID, scanLifecycleFailed, s.Now().UTC(), 0, 0, reason); err != nil {
+		return false, fmt.Errorf("mark scan failed for inactive workspace: %w", err)
+	}
+	return true, nil
+}
+
+// skipRepoScanIfWorkspaceInactive mirrors skipScanIfWorkspaceInactive
+// for the repo-scan queue. ClaimNextQueuedRepoScanAnyScope filters only
+// on repo_scans.status='queued', so a record queued before the
+// workspace was suspended/soft-deleted will still surface to the
+// worker; without this gate runRepoScanWithRecord would execute that
+// scan against an inactive workspace, contradicting the lifecycle
+// pause contract (codex round 8 on PR #1445).
+//
+// Marks the claimed record terminal-failed with a workspace_lifecycle
+// reason so it does not retry forever; the workspace owner can requeue
+// after reactivate/cancel-deletion.
+func (s *Service) skipRepoScanIfWorkspaceInactive(ctx context.Context, record db.RepoScanRecord) (bool, error) {
+	workspaceID := strings.TrimSpace(record.WorkspaceID)
+	tenantID := strings.TrimSpace(record.TenantID)
+	if workspaceID == "" || tenantID == "" {
+		return false, nil
+	}
+	workspace, err := s.Store.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		// A missing workspace is a different failure mode — let the
+		// regular repo-scan executor surface it rather than silently
+		// skipping a record whose tenant scope might be misconfigured.
+		if errors.Is(err, db.ErrNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("repo scan workspace lifecycle gate: %w", err)
+	}
+	if workspace.Status == db.WorkspaceStatusActive && workspace.DeletedAt == nil {
+		return false, nil
+	}
+	reason := fmt.Sprintf("workspace lifecycle is %s; repo scan refused (see #1420)", workspace.Status)
+	if err := s.completeRepoScanTerminal(ctx, record.ID, "failed", s.Now().UTC(), 0, 0, 0, false, db.RepoScanContext{}, reason); err != nil {
+		return false, fmt.Errorf("mark repo scan failed for inactive workspace: %w", err)
+	}
+	return true, nil
 }
 
 func (s *Service) completeScanTerminal(

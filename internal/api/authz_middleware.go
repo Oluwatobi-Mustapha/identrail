@@ -34,6 +34,7 @@ const (
 	policyActionOnboardingWrite = "onboarding.write"
 	policyActionTenancyRead     = "tenancy.read"
 	policyActionTenancyWrite    = "tenancy.write"
+	policyActionTenancyOwner    = "tenancy.owner"
 	policyActionEnterpriseRead  = "enterprise.read"
 	policyActionEnterpriseWrite = "enterprise.write"
 
@@ -71,6 +72,15 @@ func defaultRouteActionRoleGrants() map[string][]string {
 	writeRoles := []string{scopeWrite, scopeAdmin}
 	tenancyReadRoles := []string{scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
 	tenancyWriteRoles := []string{scopeWrite, scopeAdmin, "owner", "admin"}
+	// tenancy.owner gates destructive workspace lifecycle actions (suspend,
+	// delete, cancel-deletion). The route grant is intentionally narrow:
+	// ONLY the workspace-membership "owner" role. scopeWrite and scopeAdmin
+	// are deliberately excluded — scopeAdmin is the literal string "admin"
+	// and would collide with the workspace-membership admin role, silently
+	// admitting workspace admins to owner-only routes. Platform operators
+	// performing emergency lifecycle changes must do so via a session
+	// authenticated as a workspace owner, not via an API key scope.
+	tenancyOwnerRoles := []string{"owner"}
 	enterpriseReadRoles := []string{scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
 	enterpriseWriteRoles := []string{scopeWrite, scopeAdmin, "owner", "admin"}
 	authenticatedRoles := []string{"authenticated", scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
@@ -91,6 +101,7 @@ func defaultRouteActionRoleGrants() map[string][]string {
 		policyActionOnboardingWrite: authenticatedRoles,
 		policyActionTenancyRead:     tenancyReadRoles,
 		policyActionTenancyWrite:    tenancyWriteRoles,
+		policyActionTenancyOwner:    tenancyOwnerRoles,
 		policyActionEnterpriseRead:  enterpriseReadRoles,
 		policyActionEnterpriseWrite: enterpriseWriteRoles,
 	}
@@ -124,6 +135,7 @@ func defaultRouteActionABACPolicies() map[string]abacActionPolicy {
 		policyActionOnboardingWrite: passThroughPolicy,
 		policyActionTenancyRead:     passThroughPolicy,
 		policyActionTenancyWrite:    passThroughPolicy,
+		policyActionTenancyOwner:    passThroughPolicy,
 		policyActionEnterpriseRead:  passThroughPolicy,
 		policyActionEnterpriseWrite: passThroughPolicy,
 		policyActionFindingsTriage: {
@@ -347,8 +359,73 @@ func requireCentralPolicyMiddleware(resolver centralPolicyRuntimeResolver, write
 			return
 		}
 
+		blocked, workspace, err := inactiveWorkspaceBlock(c, policy, store)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "authorization failed"})
+			return
+		}
+		if blocked {
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+				"error":        "workspace is not active",
+				"code":         "workspace_inactive",
+				"status":       workspace.Status,
+				"suspended_at": workspace.SuspendedAt,
+				"deleted_at":   workspace.DeletedAt,
+			})
+			return
+		}
+
 		c.Next()
 	}
+}
+
+func inactiveWorkspaceBlock(c *gin.Context, policy routePolicy, store db.Store) (bool, db.TenancyWorkspace, error) {
+	if c == nil || c.Request == nil || store == nil || !requiresActiveWorkspace(policy) {
+		return false, db.TenancyWorkspace{}, nil
+	}
+	scope := db.ScopeFromContext(c.Request.Context())
+	workspaceID := strings.TrimSpace(c.Param("workspace_id"))
+	if workspaceID == "" {
+		workspaceID = strings.TrimSpace(scope.WorkspaceID)
+	}
+	if workspaceID == "" || strings.TrimSpace(scope.TenantID) == "" {
+		return false, db.TenancyWorkspace{}, nil
+	}
+	resolvedWorkspaceID, err := db.ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return false, db.TenancyWorkspace{}, nil
+	}
+	scopedCtx := db.WithScope(c.Request.Context(), db.Scope{
+		TenantID:    scope.TenantID,
+		WorkspaceID: resolvedWorkspaceID,
+	})
+	workspace, err := store.GetWorkspace(scopedCtx, resolvedWorkspaceID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return false, db.TenancyWorkspace{}, nil
+		}
+		return false, db.TenancyWorkspace{}, err
+	}
+	if workspace.Status == db.WorkspaceStatusActive && workspace.DeletedAt == nil {
+		return false, db.TenancyWorkspace{}, nil
+	}
+	return true, workspace, nil
+}
+
+func requiresActiveWorkspace(policy routePolicy) bool {
+	switch strings.TrimSpace(policy.Action) {
+	case policyActionFindingsTriage,
+		policyActionScansRun,
+		policyActionScansReplay,
+		policyActionRepoScansRun:
+		return true
+	case policyActionTenancyWrite:
+		switch strings.TrimSpace(policy.ResourceType) {
+		case "connector", "project", "scan_policy", "workspace_member":
+			return true
+		}
+	}
+	return false
 }
 
 func policyInputForMissingRoutePolicy(c *gin.Context, fullPath string, writeKeys []string, scopedKeys map[string][]string) PolicyInput {

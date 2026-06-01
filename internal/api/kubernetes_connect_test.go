@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -395,6 +396,122 @@ func TestRouterKubernetesAgentEnrollmentSingleUseAndHeartbeat(t *testing.T) {
 	if statusBody.Connection.ConnectorID != "kubernetes-prod" || statusBody.Connection.AgentID != "agent-a" {
 		t.Fatalf("expected persisted agent status, got %+v", statusBody.Connection)
 	}
+}
+
+func TestRouterKubernetesAgentRoutesRefuseInactiveWorkspace(t *testing.T) {
+	// Public agent routes do not run through the authz middleware gate,
+	// so they must refuse writes themselves when workspace lifecycle is not
+	// active.
+	for _, state := range []string{"suspended", "deleted"} {
+		t.Run(state, func(t *testing.T) {
+			r, store := newKubernetesConnectorV2TestRouter(t)
+			startResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s", `{
+				"workspace_id":"workspace-a",
+				"project_id":"project-1",
+				"connector_id":"kubernetes-prod",
+				"display_name":"Production Cluster",
+				"api_url":"https://api.identrail.test"
+			}`)
+			if startResp.Code != http.StatusOK {
+				t.Fatalf("expected start connector 200, got %d body=%s", startResp.Code, startResp.Body.String())
+			}
+			var startBody KubernetesConnectorStartResponse
+			if err := json.Unmarshal(startResp.Body.Bytes(), &startBody); err != nil {
+				t.Fatalf("decode start response: %v", err)
+			}
+
+			enrollResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s/enroll", `{
+				"enrollment_token":`+quoteJSON(startBody.EnrollmentToken)+`,
+				"agent_id":"agent-a"
+			}`)
+			if enrollResp.Code != http.StatusOK {
+				t.Fatalf("baseline enroll 200, got %d body=%s", enrollResp.Code, enrollResp.Body.String())
+			}
+			var enrollBody KubernetesAgentEnrollResponse
+			if err := json.Unmarshal(enrollResp.Body.Bytes(), &enrollBody); err != nil {
+				t.Fatalf("decode enroll response: %v", err)
+			}
+
+			// Flip the workspace lifecycle out of active. After this
+			// flip the authenticated /v1/connectors/k8s POST would also
+			// refuse (it routes through requireCentralPolicyMiddleware
+			// which gates on workspace_inactive too), so any fresh
+			// enrollment token must be minted BEFORE the flip.
+			scopedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+			now := time.Now().UTC()
+			switch state {
+			case "suspended":
+				if _, err := store.SuspendWorkspace(scopedCtx, "workspace-a", now); err != nil {
+					t.Fatalf("suspend workspace: %v", err)
+				}
+			case "deleted":
+				if _, err := store.SoftDeleteWorkspace(scopedCtx, "workspace-a", now); err != nil {
+					t.Fatalf("soft delete workspace: %v", err)
+				}
+			}
+
+			// Heartbeat with the previously-enrolled agent token. The
+			// inactive-workspace gate runs AFTER CredentialMatches, so
+			// this valid agent receives the 409 workspace_inactive
+			// response — exactly the contract that proves an agent
+			// running in a remote cluster cannot continue updating
+			// connector metadata once the workspace is paused.
+			heartbeatResp := doKubernetesAgentAPI(t, r, http.MethodPost, "/v1/connectors/k8s/heartbeat", `{"connector_id":"kubernetes-prod"}`, enrollBody.AgentToken)
+			if heartbeatResp.Code != http.StatusConflict {
+				t.Fatalf("expected heartbeat 409 for %s workspace, got %d body=%s", state, heartbeatResp.Code, heartbeatResp.Body.String())
+			}
+			if !strings.Contains(heartbeatResp.Body.String(), `"code":"workspace_inactive"`) {
+				t.Fatalf("expected workspace_inactive code, got %s", heartbeatResp.Body.String())
+			}
+
+			// Forged-enroll probe: a base64-decodable token with the
+			// correct locator shape but a random secret must NOT learn
+			// the workspace's lifecycle state from this public route.
+			// CredentialMatches fails first, returning 401 invalid
+			// credentials, and the workspace_inactive gate must never
+			// fire. Pins the round-5 codex fix in place — without the
+			// reordering this probe would have surfaced 409 and leaked
+			// workspace existence/state to an unauthenticated caller.
+			forgedEnrollResp := doKubernetesConnectionAPI(t, r, http.MethodPost, "/v1/connectors/k8s/enroll", `{
+				"enrollment_token":`+quoteJSON(forgeEnrollmentToken(t, "tenant-a", "workspace-a", "project-1", "kubernetes-prod"))+`
+			}`)
+			if forgedEnrollResp.Code == http.StatusConflict {
+				t.Fatalf("forged enrollment leaked workspace state via 409 for %s workspace, body=%s", state, forgedEnrollResp.Body.String())
+			}
+			if strings.Contains(forgedEnrollResp.Body.String(), `"code":"workspace_inactive"`) {
+				t.Fatalf("forged enrollment leaked workspace_inactive code, body=%s", forgedEnrollResp.Body.String())
+			}
+
+			// Forged-heartbeat probe: same security contract for the
+			// heartbeat route. An unauthenticated caller forging a
+			// locator must receive the invalid-credentials response,
+			// never workspace_inactive.
+			forgedHeartbeatResp := doKubernetesAgentAPI(t, r, http.MethodPost, "/v1/connectors/k8s/heartbeat", `{"connector_id":"kubernetes-prod"}`, forgeEnrollmentToken(t, "tenant-a", "workspace-a", "project-1", "kubernetes-prod"))
+			if forgedHeartbeatResp.Code == http.StatusConflict {
+				t.Fatalf("forged heartbeat leaked workspace state via 409 for %s workspace, body=%s", state, forgedHeartbeatResp.Body.String())
+			}
+			if strings.Contains(forgedHeartbeatResp.Body.String(), `"code":"workspace_inactive"`) {
+				t.Fatalf("forged heartbeat leaked workspace_inactive code, body=%s", forgedHeartbeatResp.Body.String())
+			}
+		})
+	}
+}
+
+// forgeEnrollmentToken builds a token with the correct structural shape
+// but a random secret, so parseKubernetesEnrollmentToken decodes the
+// locator while CredentialMatches still rejects it. Used to verify the
+// inactive-workspace gate does not leak state to unauthenticated probes.
+func forgeEnrollmentToken(t *testing.T, tenantID, workspaceID, projectID, connectorID string) string {
+	t.Helper()
+	secret, err := k8sconnector.GenerateCredential()
+	if err != nil {
+		t.Fatalf("forge credential: %v", err)
+	}
+	token, err := buildKubernetesEnrollmentToken(tenantID, workspaceID, projectID, connectorID, secret)
+	if err != nil {
+		t.Fatalf("forge token: %v", err)
+	}
+	return token
 }
 
 func TestRouterKubernetesAgentEnrollmentConcurrentSingleUse(t *testing.T) {

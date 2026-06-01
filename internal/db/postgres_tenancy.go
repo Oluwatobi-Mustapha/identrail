@@ -130,6 +130,12 @@ func (p *PostgresStore) UpsertWorkspace(ctx context.Context, workspace TenancyWo
 	if err != nil {
 		return err
 	}
+	// Upsert intentionally writes only the identity columns (display_name,
+	// slug, updated_at). Lifecycle columns (status, suspended_at, deleted_at)
+	// are owned by the lifecycle UPDATEs (SuspendWorkspace,
+	// SoftDeleteWorkspace, ...) so a casual UpsertWorkspace from a
+	// non-lifecycle code path cannot revive a deleted row or drop a suspend
+	// timestamp by accident.
 	_, err = p.execContext(
 		ctx,
 		`INSERT INTO tenancy_workspaces (tenant_id, workspace_id, display_name, slug, created_at, updated_at)
@@ -173,28 +179,14 @@ func (p *PostgresStore) GetWorkspace(ctx context.Context, workspaceID string) (T
 	}
 	row := p.queryRowContext(
 		ctx,
-		`SELECT tenant_id, workspace_id, display_name, slug, created_at, updated_at
+		`SELECT tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at
 		 FROM tenancy_workspaces
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2`,
 		scope.TenantID,
 		resolvedWorkspaceID,
 	)
-	var workspace TenancyWorkspace
-	if err := row.Scan(
-		&workspace.TenantID,
-		&workspace.WorkspaceID,
-		&workspace.DisplayName,
-		&workspace.Slug,
-		&workspace.CreatedAt,
-		&workspace.UpdatedAt,
-	); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return TenancyWorkspace{}, ErrNotFound
-		}
-		return TenancyWorkspace{}, err
-	}
-	return workspace, nil
+	return scanTenancyWorkspaceLifecycle(row)
 }
 
 // ListWorkspaces returns all tenant-scoped workspaces ordered by creation time.
@@ -208,7 +200,7 @@ func (p *PostgresStore) ListWorkspaces(ctx context.Context, limit int) ([]Tenanc
 	}
 	rows, err := p.queryContext(
 		ctx,
-		`SELECT tenant_id, workspace_id, display_name, slug, created_at, updated_at
+		`SELECT tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at
 		 FROM tenancy_workspaces
 		 WHERE tenant_id = $1
 		 ORDER BY created_at DESC
@@ -223,20 +215,329 @@ func (p *PostgresStore) ListWorkspaces(ctx context.Context, limit int) ([]Tenanc
 
 	workspaces := make([]TenancyWorkspace, 0, limit)
 	for rows.Next() {
-		var workspace TenancyWorkspace
-		if err := rows.Scan(
-			&workspace.TenantID,
-			&workspace.WorkspaceID,
-			&workspace.DisplayName,
-			&workspace.Slug,
-			&workspace.CreatedAt,
-			&workspace.UpdatedAt,
-		); err != nil {
+		workspace, err := scanTenancyWorkspaceLifecycle(rows)
+		if err != nil {
 			return nil, err
 		}
 		workspaces = append(workspaces, workspace)
 	}
 	return workspaces, rows.Err()
+}
+
+// SuspendWorkspace flips the workspace to status=suspended and stamps
+// suspended_at. The COALESCE preserves any existing suspended_at so a repeat
+// suspend cannot drift the recorded timestamp under a concurrent caller.
+func (p *PostgresStore) SuspendWorkspace(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyWorkspace{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyWorkspace{}, err
+	}
+	row := p.queryRowContext(
+		ctx,
+		`UPDATE tenancy_workspaces
+			 SET status = 'suspended',
+			     suspended_at = COALESCE(suspended_at, $3::timestamptz),
+			     updated_at = $3::timestamptz
+			 WHERE tenant_id = $1
+			   AND workspace_id = $2
+			   AND status <> 'deleted'
+			   AND deleted_at IS NULL
+			 RETURNING tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		now.UTC(),
+	)
+	workspace, err := scanTenancyWorkspaceLifecycle(row)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			existing, lookupErr := p.GetWorkspace(ctx, resolvedWorkspaceID)
+			if lookupErr != nil {
+				return TenancyWorkspace{}, lookupErr
+			}
+			if existing.Status == WorkspaceStatusDeleted || existing.DeletedAt != nil {
+				return TenancyWorkspace{}, ErrConflict
+			}
+			return TenancyWorkspace{}, ErrNotFound
+		}
+		return TenancyWorkspace{}, err
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace.suspend",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_workspace",
+		ResourceID:   resolvedWorkspaceID,
+		Outcome:      "success",
+	})
+	return workspace, nil
+}
+
+// ReactivateWorkspace flips a suspended workspace back to active and clears
+// suspended_at. Callers that want active-workspace idempotency should check
+// before issuing the store transition.
+func (p *PostgresStore) ReactivateWorkspace(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyWorkspace{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyWorkspace{}, err
+	}
+	row := p.queryRowContext(
+		ctx,
+		`UPDATE tenancy_workspaces
+		 SET status = 'active',
+		     suspended_at = NULL,
+			     updated_at = $3::timestamptz
+			 WHERE tenant_id = $1
+			   AND workspace_id = $2
+			   AND status = 'suspended'
+			   AND deleted_at IS NULL
+			 RETURNING tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		now.UTC(),
+	)
+	workspace, err := scanTenancyWorkspaceLifecycle(row)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			existing, lookupErr := p.GetWorkspace(ctx, resolvedWorkspaceID)
+			if lookupErr != nil {
+				return TenancyWorkspace{}, lookupErr
+			}
+			if existing.Status != WorkspaceStatusSuspended || existing.DeletedAt != nil {
+				return TenancyWorkspace{}, ErrConflict
+			}
+			return TenancyWorkspace{}, ErrNotFound
+		}
+		return TenancyWorkspace{}, err
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace.reactivate",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_workspace",
+		ResourceID:   resolvedWorkspaceID,
+		Outcome:      "success",
+	})
+	return workspace, nil
+}
+
+// SoftDeleteWorkspace flips the workspace to status=deleted and stamps
+// deleted_at to open the reversible grace window. COALESCE keeps any existing
+// deleted_at so a repeat delete cannot push the purge deadline back.
+func (p *PostgresStore) SoftDeleteWorkspace(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyWorkspace{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyWorkspace{}, err
+	}
+	row := p.queryRowContext(
+		ctx,
+		`UPDATE tenancy_workspaces
+		 SET status = 'deleted',
+		     deleted_at = COALESCE(deleted_at, $3::timestamptz),
+		     updated_at = $3::timestamptz
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		 RETURNING tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		now.UTC(),
+	)
+	workspace, err := scanTenancyWorkspaceLifecycle(row)
+	if err != nil {
+		return TenancyWorkspace{}, err
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace.delete",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_workspace",
+		ResourceID:   resolvedWorkspaceID,
+		Outcome:      "success",
+	})
+	return workspace, nil
+}
+
+// CancelWorkspaceDeletion reverses a soft delete during the grace window:
+// clears deleted_at and returns the workspace to status=active.
+func (p *PostgresStore) CancelWorkspaceDeletion(ctx context.Context, workspaceID string, now time.Time) (TenancyWorkspace, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyWorkspace{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyWorkspace{}, err
+	}
+	// Cancel-deletion restores to fully active — clear any stale
+	// suspended_at too so the row does not surface as "active with
+	// suspension metadata" in the UI after restoration.
+	row := p.queryRowContext(
+		ctx,
+		`UPDATE tenancy_workspaces
+		 SET status = 'active',
+		     deleted_at = NULL,
+		     suspended_at = NULL,
+		     updated_at = $3::timestamptz
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		 RETURNING tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		now.UTC(),
+	)
+	workspace, err := scanTenancyWorkspaceLifecycle(row)
+	if err != nil {
+		return TenancyWorkspace{}, err
+	}
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace.delete.cancel",
+		TenantID:     scope.TenantID,
+		WorkspaceID:  resolvedWorkspaceID,
+		ResourceType: "tenancy_workspace",
+		ResourceID:   resolvedWorkspaceID,
+		Outcome:      "success",
+	})
+	return workspace, nil
+}
+
+// ListWorkspaceStrandedActiveMembers returns the other active members in the
+// workspace iff the caller is the sole active owner. Soft-deleted owners are
+// not counted as live so a caller never strands a workspace by treating a
+// deleted co-owner as a transfer target.
+func (p *PostgresStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, workspaceID string, userUUID string) ([]TenancyWorkspaceMember, error) {
+	normalizedUserUUID := strings.TrimSpace(userUUID)
+	if normalizedUserUUID == "" {
+		return []TenancyWorkspaceMember{}, nil
+	}
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.GetWorkspace(ctx, resolvedWorkspaceID); err != nil {
+		return nil, err
+	}
+	// `<> NULLIF($3, '')::uuid` returns NULL (not true) for rows whose own
+	// user_uuid is NULL — legacy invited/email-only memberships — so a
+	// naive predicate silently drops them from the stranded result and
+	// lets a sole owner sneak past the guard. IS DISTINCT FROM treats
+	// NULL as a comparable value, so NULL user_uuid is correctly counted
+	// as "not the caller" and therefore stranded if otherwise active.
+	// Outer LEFT JOIN on users so the result-row exclusion below can
+	// see the linked account's lifecycle state. The memory store skips
+	// deleted-user co-owners from the stranded list (they cannot
+	// receive an ownership transfer) — codex round-10 on PR #1445
+	// flagged that the postgres path was inconsistently returning
+	// them, so a workspace whose only other owner was a soft-deleted
+	// account would surface a 409 sole_owner_requires_transfer that
+	// pointed at a phantom transfer target. Aligning the SQL with the
+	// memory-store predicate closes the parity gap.
+	rows, err := p.queryContext(
+		ctx,
+		`SELECT m.tenant_id, m.workspace_id, m.member_id, m.user_id, COALESCE(m.user_uuid::text, ''),
+		        m.email, m.role, m.status, m.joined_at, m.updated_at
+		 FROM tenancy_workspace_members m
+		 LEFT JOIN users mu ON mu.id = m.user_uuid
+		 WHERE m.tenant_id = $1
+		   AND m.workspace_id = $2
+		   AND m.status = 'active'
+		   AND m.user_uuid IS DISTINCT FROM NULLIF($3, '')::uuid
+		   AND NOT (m.role = 'owner' AND mu.id IS NOT NULL AND mu.status = 'deleted')
+		   AND EXISTS (
+		       SELECT 1 FROM tenancy_workspace_members caller
+		       WHERE caller.tenant_id = m.tenant_id
+		         AND caller.workspace_id = m.workspace_id
+		         AND caller.user_uuid = NULLIF($3, '')::uuid
+		         AND caller.status = 'active'
+		         AND caller.role = 'owner'
+		   )
+		   AND NOT EXISTS (
+		       SELECT 1
+		       FROM tenancy_workspace_members other
+		       LEFT JOIN users other_u ON other_u.id = other.user_uuid
+		       WHERE other.tenant_id = m.tenant_id
+		         AND other.workspace_id = m.workspace_id
+		         AND other.user_uuid IS DISTINCT FROM NULLIF($3, '')::uuid
+		         AND other.status = 'active'
+		         AND other.role = 'owner'
+		         AND (other_u.id IS NULL OR other_u.status <> 'deleted')
+		   )
+		 ORDER BY m.member_id ASC`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		normalizedUserUUID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	members := make([]TenancyWorkspaceMember, 0)
+	for rows.Next() {
+		var member TenancyWorkspaceMember
+		if err := rows.Scan(
+			&member.TenantID,
+			&member.WorkspaceID,
+			&member.MemberID,
+			&member.UserID,
+			&member.UserUUID,
+			&member.Email,
+			&member.Role,
+			&member.Status,
+			&member.JoinedAt,
+			&member.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		members = append(members, member)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return members, nil
+}
+
+func scanTenancyWorkspaceLifecycle(row interface{ Scan(dest ...any) error }) (TenancyWorkspace, error) {
+	var workspace TenancyWorkspace
+	var suspendedAt, deletedAt sql.NullTime
+	if err := row.Scan(
+		&workspace.TenantID,
+		&workspace.WorkspaceID,
+		&workspace.DisplayName,
+		&workspace.Slug,
+		&workspace.Status,
+		&suspendedAt,
+		&deletedAt,
+		&workspace.CreatedAt,
+		&workspace.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return TenancyWorkspace{}, ErrNotFound
+		}
+		return TenancyWorkspace{}, err
+	}
+	if suspendedAt.Valid {
+		t := suspendedAt.Time.UTC()
+		workspace.SuspendedAt = &t
+	}
+	if deletedAt.Valid {
+		t := deletedAt.Time.UTC()
+		workspace.DeletedAt = &t
+	}
+	return workspace, nil
 }
 
 // DeleteWorkspace deletes one scoped workspace by id.
@@ -604,17 +905,19 @@ func (p *PostgresStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID st
 	// invariant this guard exists to enforce.
 	rows, err := p.queryContextAnyScope(
 		ctx,
-		`SELECT w.tenant_id, w.workspace_id, w.display_name, w.slug, w.created_at, w.updated_at
-		 FROM tenancy_workspaces w
-		 JOIN tenancy_workspace_members caller
-		   ON caller.tenant_id = w.tenant_id
-		  AND caller.workspace_id = w.workspace_id
-		  AND caller.user_uuid = NULLIF($1, '')::uuid
-		  AND caller.status = 'active'
-		  AND caller.role = 'owner'
-		 WHERE NOT EXISTS (
-		     SELECT 1
-		     FROM tenancy_workspace_members other
+		`SELECT w.tenant_id, w.workspace_id, w.display_name, w.slug, w.status, w.suspended_at, w.deleted_at, w.created_at, w.updated_at
+			 FROM tenancy_workspaces w
+			 JOIN tenancy_workspace_members caller
+			   ON caller.tenant_id = w.tenant_id
+			  AND caller.workspace_id = w.workspace_id
+			  AND caller.user_uuid = NULLIF($1, '')::uuid
+			  AND caller.status = 'active'
+			  AND caller.role = 'owner'
+			 WHERE w.status <> 'deleted'
+			   AND w.deleted_at IS NULL
+			   AND NOT EXISTS (
+			     SELECT 1
+			     FROM tenancy_workspace_members other
 		     LEFT JOIN users other_u ON other_u.id = other.user_uuid
 		     WHERE other.tenant_id = w.tenant_id
 		       AND other.workspace_id = w.workspace_id
@@ -632,15 +935,8 @@ func (p *PostgresStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID st
 	defer rows.Close()
 	workspaces := make([]TenancyWorkspace, 0)
 	for rows.Next() {
-		var workspace TenancyWorkspace
-		if err := rows.Scan(
-			&workspace.TenantID,
-			&workspace.WorkspaceID,
-			&workspace.DisplayName,
-			&workspace.Slug,
-			&workspace.CreatedAt,
-			&workspace.UpdatedAt,
-		); err != nil {
+		workspace, err := scanTenancyWorkspaceLifecycle(rows)
+		if err != nil {
 			return nil, err
 		}
 		workspaces = append(workspaces, workspace)
@@ -1170,13 +1466,18 @@ func (p *PostgresStore) ListScheduledTenancyScanPolicies(ctx context.Context, li
 	// Intentionally bypass scoped wrappers to allow worker enumeration across tenants.
 	rows, err := p.db.QueryContext(
 		ctx,
-		`SELECT tenant_id, workspace_id, project_id, policy_id, name, enabled, trigger_mode, COALESCE(cron, ''),
-		        max_concurrent_scans, history_limit, max_findings, last_scheduled_at, created_at, updated_at
-		 FROM tenancy_scan_policies
-		 WHERE enabled = TRUE
-		   AND trigger_mode IN ($1, $2)
-		 ORDER BY created_at ASC, tenant_id ASC, workspace_id ASC, project_id ASC, policy_id ASC
-		 LIMIT $3 OFFSET $4`,
+		`SELECT p.tenant_id, p.workspace_id, p.project_id, p.policy_id, p.name, p.enabled, p.trigger_mode, COALESCE(p.cron, ''),
+			        p.max_concurrent_scans, p.history_limit, p.max_findings, p.last_scheduled_at, p.created_at, p.updated_at
+			 FROM tenancy_scan_policies p
+			 JOIN tenancy_workspaces w
+			   ON w.tenant_id = p.tenant_id
+			  AND w.workspace_id = p.workspace_id
+			  AND w.status = 'active'
+			  AND w.deleted_at IS NULL
+			 WHERE p.enabled = TRUE
+			   AND p.trigger_mode IN ($1, $2)
+			 ORDER BY p.created_at ASC, p.tenant_id ASC, p.workspace_id ASC, p.project_id ASC, p.policy_id ASC
+			 LIMIT $3 OFFSET $4`,
 		string(domain.ScanTriggerModeScheduled),
 		string(domain.ScanTriggerModeHybrid),
 		limit,
@@ -1231,10 +1532,18 @@ func (p *PostgresStore) ClaimTenancyScanPolicySchedule(ctx context.Context, work
 		 WHERE tenant_id = $1
 		   AND workspace_id = $2
 		   AND project_id = $3
-		   AND policy_id = $4
-		   AND enabled = TRUE
-		   AND trigger_mode IN ($7, $8)
-		   AND (last_scheduled_at IS NULL OR last_scheduled_at < $5)`,
+			   AND policy_id = $4
+			   AND enabled = TRUE
+			   AND trigger_mode IN ($7, $8)
+			   AND (last_scheduled_at IS NULL OR last_scheduled_at < $5)
+			   AND EXISTS (
+			       SELECT 1
+			       FROM tenancy_workspaces w
+			       WHERE w.tenant_id = tenancy_scan_policies.tenant_id
+			         AND w.workspace_id = tenancy_scan_policies.workspace_id
+			         AND w.status = 'active'
+			         AND w.deleted_at IS NULL
+			   )`,
 		scope.TenantID,
 		resolvedWorkspaceID,
 		strings.TrimSpace(projectID),
