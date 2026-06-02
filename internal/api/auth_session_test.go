@@ -183,6 +183,42 @@ func TestCurrentSessionUpdateCurrentUserProfileAcceptsImageDataAvatar(t *testing
 	}
 }
 
+func TestCurrentSessionUpdateCurrentUserProfileAcceptsFiveMegabyteDataAvatarThroughRouter(t *testing.T) {
+	harness, cookieValue, _ := setupSessionRouter(t)
+	avatarDataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(make([]byte, currentUserAvatarMaxDataBytes))
+	req := patchCurrentUserProfileRequest(cookieValue, `{"avatar_url":"`+avatarDataURL+`"}`)
+	w := httptest.NewRecorder()
+	harness.router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected PATCH /v1/me to accept a 5 MB data avatar, got %d body=%s", w.Code, w.Body.String())
+	}
+	var response struct {
+		Me CurrentUserContext `json:"me"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("decode profile update response: %v", err)
+	}
+	if response.Me.User.AvatarURL != avatarDataURL {
+		t.Fatalf("unexpected avatar_url length: got %d want %d", len(response.Me.User.AvatarURL), len(avatarDataURL))
+	}
+}
+
+func TestNormalizeCurrentUserAvatarDataURLAllowsFiveMegabytes(t *testing.T) {
+	allowed := base64.StdEncoding.EncodeToString(make([]byte, currentUserAvatarMaxDataBytes))
+	if _, err := normalizeCurrentUserAvatarURL("data:image/png;base64," + allowed); err != nil {
+		t.Fatalf("expected 5 MB data avatar to be accepted, got %v", err)
+	}
+
+	tooLarge := base64.StdEncoding.EncodeToString(make([]byte, currentUserAvatarMaxDataBytes+1))
+	_, err := normalizeCurrentUserAvatarURL("data:image/png;base64," + tooLarge)
+	if err == nil {
+		t.Fatal("expected avatar data over 5 MB to be rejected")
+	}
+	if !strings.Contains(err.Error(), "profile photo must be smaller than 5 MB") {
+		t.Fatalf("unexpected oversized avatar error: %v", err)
+	}
+}
+
 func TestCurrentSessionUpdateCurrentUserProfileRejectsInvalidPayloads(t *testing.T) {
 	cases := []struct {
 		name string

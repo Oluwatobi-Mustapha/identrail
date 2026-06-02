@@ -312,6 +312,7 @@ async function renderProductSettingsPage(options: {
   me?: CurrentUserContext;
   authConfig?: AuthConfigResponse;
   updateMe?: CurrentUserContext | Error;
+  updateMeApiError?: { message: string; status: number };
 } = {}) {
   vi.resetModules();
   const me = options.me ?? loggedInWithWorkspace;
@@ -337,7 +338,9 @@ async function renderProductSettingsPage(options: {
   vi.spyOn(api.apiClient, 'getAuthConfig').mockResolvedValue(options.authConfig ?? settingsAuthConfig);
   vi.spyOn(api.apiClient, 'listCurrentUserSessions').mockResolvedValue({ items: [] });
   const updateMe = vi.spyOn(api.apiClient, 'updateMe');
-  if (options.updateMe instanceof Error) {
+  if (options.updateMeApiError) {
+    updateMe.mockRejectedValue(new api.ApiError(options.updateMeApiError.message, options.updateMeApiError.status));
+  } else if (options.updateMe instanceof Error) {
     updateMe.mockRejectedValue(options.updateMe);
   } else {
     updateMe.mockResolvedValue({ me: options.updateMe ?? me });
@@ -572,6 +575,27 @@ describe('ProductSettingsPage profile', () => {
     await waitFor(() => expect(primeMeCache).toHaveBeenLastCalledWith(updatedMe));
   });
 
+  it('keeps readonly profile details lean before editing', async () => {
+    await renderProductSettingsPage();
+
+    const profileHeading = await screen.findByRole('heading', { name: 'Profile' });
+    const profileCard = profileHeading.closest('section');
+    expect(profileCard).not.toBeNull();
+    expect(within(profileCard!).getByText('Name')).toBeInTheDocument();
+    expect(within(profileCard!).getByText('Email')).toBeInTheDocument();
+    expect(within(profileCard!).queryByText(/Account status/i)).not.toBeInTheDocument();
+  });
+
+  it('marks the profile form as an editing state', async () => {
+    await renderProductSettingsPage();
+
+    expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }));
+
+    expect(screen.getByRole('status')).toHaveTextContent('Editing profile');
+    expect(screen.getByRole('button', { name: 'Save profile' })).toBeInTheDocument();
+  });
+
   it('uploads profile photos from the avatar menu without exposing a URL field', async () => {
     const updatedMe: CurrentUserContext = {
       ...loggedInWithWorkspace,
@@ -599,6 +623,44 @@ describe('ProductSettingsPage profile', () => {
         avatar_url: expect.stringMatching(/^data:image\/png;base64,/)
       })
     );
+  });
+
+  it('uses helpful profile photo upload errors instead of raw backend field names', async () => {
+    const { updateMe } = await renderProductSettingsPage({
+      updateMeApiError: { message: 'avatar_url must be a valid https URL', status: 400 }
+    });
+
+    expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Update or delete profile photo/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Update photo' }));
+    const avatarInput = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(avatarInput).toBeTruthy();
+    fireEvent.change(avatarInput!, {
+      target: { files: [new File(['avatar'], 'avatar.png', { type: 'image/png' })] }
+    });
+
+    await waitFor(() => expect(updateMe).toHaveBeenCalled());
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Upload failed. Use a PNG, JPG, WebP, or GIF under 5 MB.'
+    );
+    expect(screen.queryByText(/avatar_url/i)).not.toBeInTheDocument();
+  });
+
+  it('allows profile photos up to 5 MB and rejects larger files before uploading', async () => {
+    const { updateMe } = await renderProductSettingsPage();
+
+    expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Update or delete profile photo/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Update photo' }));
+    const avatarInput = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(avatarInput).toBeTruthy();
+
+    fireEvent.change(avatarInput!, {
+      target: { files: [new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'huge.png', { type: 'image/png' })] }
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Profile photo must be smaller than 5 MB.');
+    expect(updateMe).not.toHaveBeenCalled();
   });
 
   it('keeps unsaved profile edits when deleting the profile photo', async () => {
@@ -717,6 +779,7 @@ describe('ProductSettingsPage profile', () => {
 
 describe('ProductShellLayout', () => {
   afterEach(() => {
+    window.localStorage.removeItem('idt:sidebar:collapsed');
     vi.restoreAllMocks();
     vi.doUnmock('./pages/onboarding/onboardingUtils');
     vi.doUnmock('./hooks/useBackendFeatures');
@@ -767,6 +830,7 @@ describe('ProductShellLayout', () => {
 
 describe('ProductShellLayout', () => {
   afterEach(() => {
+    window.localStorage.removeItem('idt:sidebar:collapsed');
     vi.doUnmock('./hooks/useMe');
     vi.doUnmock('./hooks/useBackendFeatures');
     vi.doUnmock('./pages/onboarding/onboardingUtils');
@@ -805,7 +869,7 @@ describe('ProductShellLayout', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
 
     fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
-    const githubFlyout = screen.getByRole('dialog', { name: 'GitHub' });
+    const githubFlyout = screen.getByRole('region', { name: 'GitHub' });
     expect(within(githubFlyout).queryByText('Section')).not.toBeInTheDocument();
     expect(within(githubFlyout).queryByRole('heading', { name: 'GitHub' })).not.toBeInTheDocument();
     expect(within(githubFlyout).getByRole('link', { name: 'GitHub Control center' })).toBeInTheDocument();
@@ -860,7 +924,7 @@ describe('ProductShellLayout', () => {
     const githubButton = screen.getByRole('button', { name: 'GitHub' });
     expect(githubButton).not.toBeDisabled();
     fireEvent.click(githubButton);
-    expect(screen.getByRole('dialog', { name: 'GitHub' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'GitHub' })).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: '/' });
     expect(screen.getByRole('dialog', { name: /Workspace finder/i })).toBeInTheDocument();
@@ -927,6 +991,7 @@ describe('ProductShellLayout', () => {
 
 describe('Domain-first app routes', () => {
   afterEach(() => {
+    window.localStorage.removeItem('idt:sidebar:collapsed');
     vi.restoreAllMocks();
     vi.doUnmock('./hooks/useBackendFeatures');
     vi.doUnmock('./pages/onboarding/onboardingUtils');
@@ -2492,7 +2557,7 @@ describe('Domain-first app routes', () => {
     expect(payload.project_id).not.toBe('default-environment');
   });
 
-  it('opens nested GitHub AI risk routes from the sidebar domain flyout', async () => {
+  it('opens nested GitHub AI risk routes inline from the sidebar domain flyout', async () => {
     mockConnectorFeatureFlags({ github: true, kubernetes: true });
     mockBackendFeatures({ github: true, kubernetes: true });
     const { ProductShellLayout } = await import('./productShell');
@@ -2510,13 +2575,41 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByRole('heading', { level: 2, name: /MCP tools content/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'GitHub' }));
 
-    const githubFlyout = screen.getByRole('dialog', { name: 'GitHub' });
+    const githubFlyout = screen.getByRole('region', { name: 'GitHub' });
     expect(within(githubFlyout).getAllByText('AI / Agentic Risk').length).toBeGreaterThan(0);
     expect(within(githubFlyout).getByRole('link', { name: 'GitHub AI / Agentic Risk MCP / tools' })).toHaveAttribute(
       'aria-current',
       'page'
     );
+    expect(screen.queryByRole('dialog', { name: 'GitHub' })).not.toBeInTheDocument();
+    expect(container.querySelector('.idt-domain-flyout-backdrop')).not.toBeInTheDocument();
     expect(container.querySelector('details.idt-domain-flyout-nested')).toHaveAttribute('open');
+  });
+
+  it('expands the collapsed sidebar before opening an inline domain flyout', async () => {
+    window.localStorage.setItem('idt:sidebar:collapsed', '1');
+    mockConnectorFeatureFlags({ github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const { ProductShellLayout } = await import('./productShell');
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductShellLayout />}>
+            <Route index element={<h2>Overview content</h2>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const sidebar = container.querySelector('.idt-app-sidebar');
+    expect(sidebar).toHaveAttribute('data-collapsed', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'AWS' }));
+
+    await waitFor(() => expect(sidebar).toHaveAttribute('data-collapsed', 'false'));
+    expect(screen.getByRole('region', { name: 'AWS' })).toBeInTheDocument();
+    expect(container.querySelector('.idt-domain-flyout-backdrop')).not.toBeInTheDocument();
   });
 });
 
