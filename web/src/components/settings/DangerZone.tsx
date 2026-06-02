@@ -1,4 +1,7 @@
-import { ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react';
+
+const HOLD_TO_CONFIRM_MS = 900;
+const HOLD_REJECT_RESET_MS = 320;
 
 type DangerZoneProps = {
   description?: string;
@@ -92,17 +95,59 @@ export function ConfirmDestructiveModal({
   const helpId = useId();
   const [checked, setChecked] = useState(false);
   const [typed, setTyped] = useState('');
+  const [holding, setHolding] = useState(false);
+  const [rejectedHold, setRejectedHold] = useState(false);
   const confirmRef = useRef<HTMLButtonElement | null>(null);
+  const holdTimerRef = useRef<number | null>(null);
+  const rejectTimerRef = useRef<number | null>(null);
+  // Tracks whether the current activation was initiated through the
+  // pointer/keyboard hold flow. If a click arrives without this flag set
+  // (assistive tech, voice control, programmatic .click()), we fall back to
+  // a direct confirmation so those flows remain operable.
+  const holdInteractionRef = useRef(false);
+
+  const clearHoldTimer = useCallback(() => {
+    if (holdTimerRef.current !== null) {
+      window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  }, []);
+
+  const clearRejectTimer = useCallback(() => {
+    if (rejectTimerRef.current !== null) {
+      window.clearTimeout(rejectTimerRef.current);
+      rejectTimerRef.current = null;
+    }
+  }, []);
 
   // Reset confirmation state every time the modal opens so a previously
   // accepted checkbox or typed value does not silently re-arm Continue on the
   // next destructive action.
   useEffect(() => {
-    if (open) {
-      setChecked(false);
-      setTyped('');
+    if (!open) {
+      // The component can stay mounted across an open→close transition (the
+      // parent re-renders with open=false). Any hold timer started before the
+      // close would otherwise still fire onConfirm after the destructive
+      // dialog was dismissed.
+      clearHoldTimer();
+      clearRejectTimer();
+      return;
     }
-  }, [open]);
+    setChecked(false);
+    setTyped('');
+    setHolding(false);
+    setRejectedHold(false);
+    holdInteractionRef.current = false;
+    clearHoldTimer();
+    clearRejectTimer();
+  }, [clearHoldTimer, clearRejectTimer, open]);
+
+  useEffect(() => {
+    return () => {
+      clearHoldTimer();
+      clearRejectTimer();
+    };
+  }, [clearHoldTimer, clearRejectTimer]);
 
   useEffect(() => {
     if (!open) {
@@ -128,6 +173,45 @@ export function ConfirmDestructiveModal({
   // trimming here would defeat the whole purpose of the friction.
   const canContinue =
     confirmation.kind === 'checkbox' ? checked : typed === confirmation.expectedValue;
+
+  const startConfirmHold = () => {
+    if (!canContinue || pending || holdTimerRef.current !== null) {
+      return;
+    }
+    clearRejectTimer();
+    setRejectedHold(false);
+    setHolding(true);
+    holdTimerRef.current = window.setTimeout(() => {
+      holdTimerRef.current = null;
+      setHolding(false);
+      onConfirm();
+    }, HOLD_TO_CONFIRM_MS);
+  };
+
+  const cancelConfirmHold = (showRejection = true) => {
+    if (holdTimerRef.current === null) {
+      return;
+    }
+    clearHoldTimer();
+    setHolding(false);
+    if (!showRejection) {
+      return;
+    }
+    setRejectedHold(true);
+    clearRejectTimer();
+    rejectTimerRef.current = window.setTimeout(() => {
+      rejectTimerRef.current = null;
+      setRejectedHold(false);
+    }, HOLD_REJECT_RESET_MS);
+  };
+
+  const confirmButtonClassName = [
+    'idt-btn',
+    'idt-btn-danger',
+    'idt-hold-confirm',
+    holding ? 'is-holding' : '',
+    rejectedHold ? 'is-rejected' : ''
+  ].filter(Boolean).join(' ');
 
   return (
     <div className="idt-modal-backdrop idt-danger-modal-backdrop" role="presentation" onClick={onCancel}>
@@ -202,14 +286,47 @@ export function ConfirmDestructiveModal({
             {cancelLabel}
           </button>
           <button
-            className="idt-btn idt-btn-danger"
+            className={confirmButtonClassName}
             data-testid="idt-danger-modal-continue"
             disabled={!canContinue || pending}
-            onClick={onConfirm}
+            onClick={(event) => {
+              event.preventDefault();
+              if (holdInteractionRef.current) {
+                holdInteractionRef.current = false;
+                return;
+              }
+              if (!canContinue || pending) {
+                return;
+              }
+              onConfirm();
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                holdInteractionRef.current = true;
+                startConfirmHold();
+              }
+            }}
+            onKeyUp={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                cancelConfirmHold();
+              }
+            }}
+            onPointerCancel={() => cancelConfirmHold(false)}
+            onPointerDown={(event) => {
+              if (event.button !== 0) {
+                return;
+              }
+              holdInteractionRef.current = true;
+              startConfirmHold();
+            }}
+            onPointerLeave={() => cancelConfirmHold(false)}
+            onPointerUp={() => cancelConfirmHold()}
             ref={confirmRef}
             type="button"
           >
-            {pending ? 'Working…' : continueLabel}
+            <span>{pending ? 'Working…' : canContinue ? `Hold ${continueLabel}` : continueLabel}</span>
           </button>
         </footer>
       </section>
