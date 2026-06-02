@@ -2,12 +2,16 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/domain"
+	"github.com/identrail/identrail/internal/providers"
 	"github.com/identrail/identrail/internal/secretstore"
 )
 
@@ -1517,6 +1521,627 @@ func TestMemoryStoreUpsertWorkspacePreservesLifecycleFields(t *testing.T) {
 	}
 	if saved.DisplayName != "Workspace 1 Renamed" {
 		t.Fatalf("expected rename to apply, got %q", saved.DisplayName)
+	}
+}
+
+func TestMemoryStoreListWorkspacesPendingHardDeleteFiltersByGrace(t *testing.T) {
+	// #1420 PR 2: only soft-deleted workspaces past the grace cutoff
+	// show up in the pending list. Active workspaces, suspended
+	// workspaces, and within-grace deletions must all be excluded so
+	// the purge worker never touches data it shouldn't.
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+	future := now.Add(-(WorkspaceDeletionGracePeriod / 2))
+
+	// Soft-delete ws-1 past grace.
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", past); err != nil {
+		t.Fatalf("soft delete ws-1: %v", err)
+	}
+	// Add ws-2 still within grace.
+	scoped2 := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "ws-2"})
+	if err := store.UpsertWorkspace(scoped2, TenancyWorkspace{WorkspaceID: "ws-2", DisplayName: "Workspace 2", Slug: "ws-2"}); err != nil {
+		t.Fatalf("upsert ws-2: %v", err)
+	}
+	if _, err := store.SoftDeleteWorkspace(scoped2, "ws-2", future); err != nil {
+		t.Fatalf("soft delete ws-2: %v", err)
+	}
+	// Add ws-3 fully active.
+	scoped3 := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "ws-3"})
+	if err := store.UpsertWorkspace(scoped3, TenancyWorkspace{WorkspaceID: "ws-3", DisplayName: "Workspace 3", Slug: "ws-3"}); err != nil {
+		t.Fatalf("upsert ws-3: %v", err)
+	}
+
+	cutoff := now.Add(-WorkspaceDeletionGracePeriod)
+	pending, err := store.ListWorkspacesPendingHardDelete(context.Background(), cutoff, 100)
+	if err != nil {
+		t.Fatalf("list pending: %v", err)
+	}
+	if len(pending) != 1 || pending[0].WorkspaceID != "ws-1" {
+		t.Fatalf("expected only ws-1 in pending list, got %+v", pending)
+	}
+}
+
+func TestMemoryStoreHardDeleteWorkspaceRefusesActive(t *testing.T) {
+	// HardDeleteWorkspace refuses any row that is not in the
+	// soft-deleted state. Defends against a programming error that
+	// would otherwise silently destroy live data.
+	store, _, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", now, now); err == nil {
+		t.Fatal("expected hard delete to refuse active workspace")
+	}
+}
+
+// hasMemoryKeyWithPrefix reports whether any key in m starts with the
+// given prefix. Used by the HardDeleteWorkspace cascade test below.
+func hasMemoryKeyWithPrefix[V any](m map[string]V, prefix string) bool {
+	for key := range m {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestMemoryStoreHardDeleteWorkspaceCascadesScanArtifacts(t *testing.T) {
+	// Codex round-4 P2 on #1450: the postgres backend cascades
+	// scan/repo_scan child rows via FK ON DELETE CASCADE, but the
+	// memory backend has no such cascade. The previous purge dropped
+	// only the parent scan/repo_scan map entries and left every child
+	// artifact map (rawAssets, identities, policies, relationships,
+	// permissions, findings, scanFindings, events) populated for the
+	// purged workspace's scans. Pin the explicit cascade so memory +
+	// postgres reach the same hard-delete end state.
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+
+	scanRecord, err := store.CreateScan(ctx, "aws", now)
+	if err != nil {
+		t.Fatalf("create scan: %v", err)
+	}
+	if err := store.UpsertArtifacts(ctx, scanRecord.ID, ScanArtifacts{
+		RawAssets: []providers.RawAsset{{SourceID: "raw-1", Kind: "iam_role"}},
+		Bundle: providers.NormalizedBundle{
+			Identities: []domain.Identity{{ID: "id-1"}},
+			Policies:   []domain.Policy{{ID: "p-1"}},
+		},
+		Relationships: []domain.Relationship{{ID: "r-1", FromNodeID: "id-1", ToNodeID: "p-1"}},
+	}); err != nil {
+		t.Fatalf("upsert scan artifacts: %v", err)
+	}
+
+	saved, err := store.SoftDeleteWorkspace(ctx, "ws-1", past)
+	if err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", *saved.DeletedAt, now); err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+
+	prefix := scanRecord.ID + "|"
+	if hasMemoryKeyWithPrefix(store.rawAssets, prefix) {
+		t.Fatalf("expected rawAssets entries for purged scan %s removed", scanRecord.ID)
+	}
+	if hasMemoryKeyWithPrefix(store.identities, prefix) {
+		t.Fatalf("expected identities entries for purged scan %s removed", scanRecord.ID)
+	}
+	if hasMemoryKeyWithPrefix(store.policies, prefix) {
+		t.Fatalf("expected policies entries for purged scan %s removed", scanRecord.ID)
+	}
+	if hasMemoryKeyWithPrefix(store.relationships, prefix) {
+		t.Fatalf("expected relationships entries for purged scan %s removed", scanRecord.ID)
+	}
+	if _, ok := store.scanFindings[scanRecord.ID]; ok {
+		t.Fatalf("expected scanFindings entry for %s removed", scanRecord.ID)
+	}
+	if _, ok := store.events[scanRecord.ID]; ok {
+		t.Fatalf("expected events entry for %s removed", scanRecord.ID)
+	}
+}
+
+func TestMemoryStoreHardDeleteWorkspacePurgesAuthzAndTriageMaps(t *testing.T) {
+	// Codex round-3 P2 on #1450: the memory backend's authz + triage
+	// maps live outside the cascade chain (they don't reference
+	// tenancy_workspaces). Pin that HardDeleteWorkspace explicitly
+	// drains every workspace-scoped entry so the in-memory store
+	// matches the postgres purge behavior (and so scoped reads after
+	// the purge correctly return ErrNotFound).
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+
+	if err := store.UpsertAuthzEntityAttributes(ctx, AuthzEntityAttributes{
+		EntityKind: "subject", EntityType: "user", EntityID: "u-1",
+		OwnerTeam: "core",
+	}); err != nil {
+		t.Fatalf("upsert authz attrs: %v", err)
+	}
+	if err := store.UpsertAuthzPolicySet(ctx, AuthzPolicySet{PolicySetID: "default", DisplayName: "Default"}); err != nil {
+		t.Fatalf("upsert authz policy set: %v", err)
+	}
+	if err := store.UpsertFindingTriageState(ctx, FindingTriageState{
+		FindingID: "finding-1", Status: domain.FindingLifecycleOpen,
+	}); err != nil {
+		t.Fatalf("upsert triage state: %v", err)
+	}
+
+	saved, err := store.SoftDeleteWorkspace(ctx, "ws-1", past)
+	if err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", *saved.DeletedAt, now); err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+
+	if _, err := store.GetAuthzEntityAttributes(ctx, "subject", "user", "u-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected authz attrs purged, got %v", err)
+	}
+	if _, err := store.GetAuthzPolicySet(ctx, "default"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected authz policy set purged, got %v", err)
+	}
+	if _, err := store.GetFindingTriageState(ctx, "finding-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected triage state purged, got %v", err)
+	}
+}
+
+func TestMemoryStoreHardDeleteWorkspacePurgesAuthzPolicyEventIDs(t *testing.T) {
+	// Codex round-4 P2 on #1450: when hard-deleting an authz event
+	// bucket, we must also clear the in-memory dedupe set of event IDs.
+	// Otherwise, re-appending a historic event ID in the same process after
+	// a purge returns ErrAlreadyExists and violates the contract that a hard
+	// delete wipes all workspace-scoped authz state.
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+
+	if err := store.UpsertAuthzPolicySet(ctx, AuthzPolicySet{PolicySetID: "default", DisplayName: "Default"}); err != nil {
+		t.Fatalf("upsert authz policy set: %v", err)
+	}
+	versionOne := 1
+	if err := store.AppendAuthzPolicyEvent(ctx, AuthzPolicyEvent{
+		ID:          "event-delete-me",
+		PolicySetID: "default",
+		EventType:   "publish",
+		ToVersion:   &versionOne,
+		Actor:       "owner",
+	}); err != nil {
+		t.Fatalf("append policy event for deleted workspace: %v", err)
+	}
+
+	otherCtx := WithScope(context.Background(), Scope{TenantID: "tenant-a", WorkspaceID: "ws-2"})
+	if err := store.UpsertWorkspace(otherCtx, TenancyWorkspace{WorkspaceID: "ws-2", DisplayName: "Workspace 2", Slug: "ws-2"}); err != nil {
+		t.Fatalf("upsert other workspace: %v", err)
+	}
+	if err := store.UpsertAuthzPolicySet(otherCtx, AuthzPolicySet{PolicySetID: "other", DisplayName: "Other"}); err != nil {
+		t.Fatalf("upsert other workspace authz policy set: %v", err)
+	}
+	if err := store.AppendAuthzPolicyEvent(otherCtx, AuthzPolicyEvent{
+		ID:          "event-kept",
+		PolicySetID: "other",
+		EventType:   "publish",
+		ToVersion:   &versionOne,
+		Actor:       "owner",
+	}); err != nil {
+		t.Fatalf("append policy event for non-deleted workspace: %v", err)
+	}
+
+	saved, err := store.SoftDeleteWorkspace(ctx, "ws-1", past)
+	if err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", *saved.DeletedAt, now); err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+
+	if _, exists := store.authzEventIDs["event-delete-me"]; exists {
+		t.Fatalf("expected event id removed from dedupe set")
+	}
+	if _, exists := store.authzEventIDs["event-kept"]; !exists {
+		t.Fatalf("expected unrelated event id to remain in dedupe set")
+	}
+}
+
+func TestMemoryStoreHardDeleteWorkspaceClearsSessionAndOnboardingScope(t *testing.T) {
+	// Codex unresolved on #1450: session and onboarding rows keep
+	// workspace/project scope even after a hard workspace purge. Postgres
+	// cascades those foreign keys to NULL, so memory store should mirror by
+	// clearing matching scope fields only for the deleted tenant/workspace.
+	store, ctx, ownerUUID := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+
+	owner, err := store.UpsertUser(context.Background(), User{
+		ID:           ownerUUID,
+		PrimaryEmail: "owner@example.com",
+		CreatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("seed owner user: %v", err)
+	}
+
+	sessionHash := sha256.Sum256([]byte("workspace-deletion"))
+	session, err := store.CreateSession(ctx, Session{
+		ID:                sessionHash[:],
+		UserID:            owner.ID,
+		AuthMethod:        "manual",
+		IdleExpiresAt:     now.Add(15 * time.Minute),
+		AbsoluteExpiresAt: now.Add(24 * time.Hour),
+		LastSeenAt:        now,
+		CreatedAt:         now,
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if _, err := store.UpdateSessionContext(ctx, owner.ID, session.ID, "tenant-a", "ws-1", "project-a", now); err != nil {
+		t.Fatalf("update session context: %v", err)
+	}
+
+	_, err = store.UpsertOnboardingState(ctx, OnboardingState{
+		UserID:      owner.ID,
+		CurrentStep: "connect",
+		OrgID:       "tenant-a",
+		WorkspaceID: "ws-1",
+		ProjectID:   "project-a",
+		StartedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("upsert onboarding state: %v", err)
+	}
+
+	tenantBCtx := WithScope(context.Background(), Scope{TenantID: "tenant-b", WorkspaceID: "ws-1"})
+	if err := store.UpsertOrganization(tenantBCtx, TenancyOrganization{DisplayName: "Tenant B", Slug: "tenant-b"}); err != nil {
+		t.Fatalf("seed tenant b org: %v", err)
+	}
+	if err := store.UpsertWorkspace(tenantBCtx, TenancyWorkspace{WorkspaceID: "ws-1", DisplayName: "Tenant B Workspace", Slug: "ws-1"}); err != nil {
+		t.Fatalf("seed tenant b workspace: %v", err)
+	}
+	if err := store.UpsertProject(tenantBCtx, TenancyProject{
+		WorkspaceID: "ws-1",
+		ProjectID:   "project-b",
+		Name:        "Back to work",
+		Slug:        "project-b",
+	}); err != nil {
+		t.Fatalf("seed tenant b project: %v", err)
+	}
+
+	tenantBUserUUID := "22222222-2222-2222-2222-222222222222"
+	tenantBUser, err := store.UpsertUser(context.Background(), User{
+		ID:           tenantBUserUUID,
+		PrimaryEmail: "tenant-b-owner@example.com",
+		CreatedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("seed tenant b owner: %v", err)
+	}
+	tenantBSessionHash := sha256.Sum256([]byte("tenant-b-workspace-deletion"))
+	tenantBSession, err := store.CreateSession(context.Background(), Session{
+		ID:                tenantBSessionHash[:],
+		UserID:            tenantBUser.ID,
+		AuthMethod:        "manual",
+		IdleExpiresAt:     now.Add(15 * time.Minute),
+		AbsoluteExpiresAt: now.Add(24 * time.Hour),
+		LastSeenAt:        now,
+		CreatedAt:         now,
+	})
+	if err != nil {
+		t.Fatalf("create tenant b session: %v", err)
+	}
+	if _, err := store.UpdateSessionContext(tenantBCtx, tenantBUser.ID, tenantBSession.ID, "tenant-b", "ws-1", "project-b", now); err != nil {
+		t.Fatalf("update tenant b session context: %v", err)
+	}
+	tenantBOnboardingState, err := store.UpsertOnboardingState(context.Background(), OnboardingState{
+		UserID:      tenantBUser.ID,
+		CurrentStep: "connect",
+		OrgID:       "tenant-b",
+		WorkspaceID: "ws-1",
+		ProjectID:   "project-b",
+		StartedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("upsert tenant b onboarding state: %v", err)
+	}
+
+	saved, err := store.SoftDeleteWorkspace(ctx, "ws-1", past)
+	if err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", *saved.DeletedAt, now); err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+
+	sessions, err := store.ListUserSessions(context.Background(), owner.ID, now, 10)
+	if err != nil {
+		t.Fatalf("list user sessions: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected one active session, got %d", len(sessions))
+	}
+	if sessions[0].CurrentWorkspaceID != "" || sessions[0].CurrentProjectID != "" {
+		t.Fatalf("expected stale session scope cleared, got workspace=%q project=%q", sessions[0].CurrentWorkspaceID, sessions[0].CurrentProjectID)
+	}
+	if sessions[0].CurrentOrgID != "" {
+		t.Fatalf("expected stale session tenant scope cleared, got org=%q", sessions[0].CurrentOrgID)
+	}
+
+	state, err := store.GetOnboardingState(context.Background(), owner.ID)
+	if err != nil {
+		t.Fatalf("get onboarding state: %v", err)
+	}
+	if state.OrgID != "" || state.WorkspaceID != "" || state.ProjectID != "" {
+		t.Fatalf("expected stale onboarding scope cleared, got org=%q workspace=%q project=%q", state.OrgID, state.WorkspaceID, state.ProjectID)
+	}
+
+	tenantBSessions, err := store.ListUserSessions(context.Background(), tenantBUser.ID, now, 10)
+	if err != nil {
+		t.Fatalf("list tenant b user sessions: %v", err)
+	}
+	if len(tenantBSessions) != 1 {
+		t.Fatalf("expected one active session for tenant b user, got %d", len(tenantBSessions))
+	}
+	if tenantBSessions[0].CurrentOrgID != "tenant-b" || tenantBSessions[0].CurrentWorkspaceID != "ws-1" || tenantBSessions[0].CurrentProjectID != "project-b" {
+		t.Fatalf(
+			"expected tenant b session to remain untouched, got org=%q workspace=%q project=%q",
+			tenantBSessions[0].CurrentOrgID,
+			tenantBSessions[0].CurrentWorkspaceID,
+			tenantBSessions[0].CurrentProjectID,
+		)
+	}
+
+	state, err = store.GetOnboardingState(context.Background(), tenantBUser.ID)
+	if err != nil {
+		t.Fatalf("get tenant b onboarding state: %v", err)
+	}
+	if state.OrgID != tenantBOnboardingState.OrgID || state.WorkspaceID != tenantBOnboardingState.WorkspaceID || state.ProjectID != tenantBOnboardingState.ProjectID {
+		t.Fatalf(
+			"expected tenant b onboarding scope to remain untouched after tenant a purge, got org=%q workspace=%q project=%q",
+			state.OrgID,
+			state.WorkspaceID,
+			state.ProjectID,
+		)
+	}
+}
+
+func TestMemoryStoreHardDeleteWorkspaceRefusesDeletedAtDrift(t *testing.T) {
+	// Race protection (#1450 round 2): the worker lists a workspace
+	// past grace, then between the list and the purge call an owner
+	// cancels deletion and re-deletes the workspace with a fresh
+	// deleted_at. Calling HardDeleteWorkspace with the worker's
+	// originally-observed deleted_at must refuse, so the new 30-day
+	// grace window can run instead of being silently bypassed.
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+	original, err := store.SoftDeleteWorkspace(ctx, "ws-1", past)
+	if err != nil {
+		t.Fatalf("soft delete (original): %v", err)
+	}
+	// Cancel and re-soft-delete to simulate the race.
+	if _, err := store.CancelWorkspaceDeletion(ctx, "ws-1", now); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if _, err := store.SoftDeleteWorkspace(ctx, "ws-1", now); err != nil {
+		t.Fatalf("soft delete (re-delete): %v", err)
+	}
+	// The worker still thinks the deletedAt is `original.DeletedAt`,
+	// but the row now carries `now`. Purge must refuse.
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", *original.DeletedAt, now); err == nil {
+		t.Fatal("expected hard delete to refuse stale deletedAt")
+	}
+	// Workspace must remain — refusal protected it.
+	saved, err := store.GetWorkspace(ctx, "ws-1")
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if saved.Status != WorkspaceStatusDeleted || saved.DeletedAt == nil {
+		t.Fatalf("expected workspace to remain in soft-deleted state, got %+v", saved)
+	}
+}
+
+func TestMemoryStoreHardDeleteWorkspaceMissingReturnsNotFound(t *testing.T) {
+	store, _, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-missing", now, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing workspace, got %v", err)
+	}
+}
+
+func TestMemoryStoreHardDeleteWorkspacePurgesChildRows(t *testing.T) {
+	// Past-grace purge removes the workspace row and all child rows:
+	// members, projects, connectors, scan policies, secret envelopes,
+	// AWS coverage. Scan and repo-scan history (carried on tables
+	// without a FK back to tenancy_workspaces) must also be purged so
+	// workspace-scoped data does not outlive the 30-day grace window.
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+
+	// Seed a project so cascade behavior is non-trivial.
+	if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "ws-1", ProjectID: "project-a", Name: "Project A", Slug: "project-a"}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	saved, err := store.SoftDeleteWorkspace(ctx, "ws-1", past)
+	if err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", *saved.DeletedAt, now); err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+	if _, err := store.GetWorkspace(ctx, "ws-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ws-1 purged, got %v", err)
+	}
+	if _, err := store.GetProject(ctx, "ws-1", "project-a"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected project purged with workspace, got %v", err)
+	}
+}
+
+// captureAuditSink records every audit event written through a
+// db.WithSink context. Used in tests below to assert the hard-delete
+// audit payload carries the anonymized workspace marker.
+type captureAuditSink struct {
+	mu     sync.Mutex
+	events []audit.AuditEvent
+}
+
+func (c *captureAuditSink) Write(_ context.Context, event audit.AuditEvent) error {
+	c.mu.Lock()
+	c.events = append(c.events, event)
+	c.mu.Unlock()
+	return nil
+}
+func (c *captureAuditSink) Close() error { return nil }
+func (c *captureAuditSink) snapshot() []audit.AuditEvent {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]audit.AuditEvent, len(c.events))
+	copy(out, c.events)
+	return out
+}
+
+func TestMemoryStoreHardDeleteWorkspacePurgesEveryChildTable(t *testing.T) {
+	// End-to-end purge against every child surface the store knows
+	// about. Without this test the cascade branches in HardDeleteWorkspace
+	// (connectors, secret envelopes, AWS coverage, scan history) are
+	// unreached by the higher-level lifecycle tests, since those only
+	// seed the workspace + project + member fixtures.
+	store, ctx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+
+	if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "ws-1", ProjectID: "project-a", Name: "Project A", Slug: "project-a"}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	if err := store.UpsertTenancyConnector(ctx, TenancyConnector{
+		WorkspaceID: "ws-1", ProjectID: "project-a", ConnectorID: "aws-prod",
+		Type:        domain.ConnectorTypeAWS,
+		DisplayName: "Production AWS",
+		Status:      domain.ConnectorStatusActive,
+	}, TenancyConnectorState{
+		WorkspaceID: "ws-1", ProjectID: "project-a", ConnectorID: "aws-prod",
+		HealthStatus: "healthy",
+	}); err != nil {
+		t.Fatalf("upsert connector: %v", err)
+	}
+	if err := store.UpsertTenancyConnectorSecretEnvelope(ctx, TenancyConnectorSecretEnvelope{
+		WorkspaceID:     "ws-1",
+		ProjectID:       "project-a",
+		ConnectorID:     "aws-prod",
+		SecretName:      "external-id",
+		EnvelopeVersion: 1,
+		Envelope: secretstore.Envelope{
+			Version:    1,
+			Algorithm:  secretstore.AlgorithmAES256GCM,
+			KeyVersion: "v1",
+			Nonce:      []byte("123456789012"),
+			Ciphertext: []byte("ciphertext"),
+		},
+	}); err != nil {
+		t.Fatalf("upsert secret envelope: %v", err)
+	}
+	if err := store.UpsertTenancyScanPolicy(ctx, TenancyScanPolicy{
+		WorkspaceID: "ws-1", ProjectID: "project-a", PolicyID: "default",
+		Name: "Default", Enabled: true, TriggerMode: domain.ScanTriggerModeManual,
+	}); err != nil {
+		t.Fatalf("upsert scan policy: %v", err)
+	}
+	if _, err := store.UpsertAWSAccountRegionCoverage(ctx, AWSAccountRegionCoverage{
+		WorkspaceID:    "ws-1",
+		ProjectID:      "project-a",
+		ConnectorID:    "aws-prod",
+		AccountID:      "123456789012",
+		Partition:      "aws",
+		Region:         "us-east-1",
+		CoverageStatus: "covered",
+	}); err != nil {
+		t.Fatalf("upsert AWS coverage: %v", err)
+	}
+	saved, err := store.SoftDeleteWorkspace(ctx, "ws-1", past)
+	if err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "ws-1", *saved.DeletedAt, now); err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+
+	// Workspace gone.
+	if _, err := store.GetWorkspace(ctx, "ws-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected workspace purged, got %v", err)
+	}
+	// Connector + state + secret all gone.
+	if _, err := store.GetTenancyConnector(ctx, "ws-1", "project-a", "aws-prod"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected connector purged with workspace, got %v", err)
+	}
+	if _, err := store.GetTenancyConnectorSecretEnvelope(ctx, "ws-1", "project-a", "aws-prod", "external-id"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected secret envelope purged with workspace, got %v", err)
+	}
+	// Scan policy gone.
+	if _, err := store.GetTenancyScanPolicy(ctx, "ws-1", "project-a", "default"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected scan policy purged with workspace, got %v", err)
+	}
+	// AWS coverage gone.
+	coverages, err := store.ListAWSAccountRegionCoverages(ctx, AWSAccountRegionCoverageFilter{ProjectID: "project-a"})
+	if err != nil {
+		t.Fatalf("list AWS coverage: %v", err)
+	}
+	if len(coverages) != 0 {
+		t.Fatalf("expected AWS coverage purged with workspace, got %+v", coverages)
+	}
+}
+
+func TestMemoryStoreHardDeleteWorkspaceEmitsAuditAction(t *testing.T) {
+	// The hard-delete code path must emit a `tenancy.workspace.hard_delete`
+	// audit event with the right scope context. The downstream audit
+	// pipeline fingerprints the resource id (which is why we cannot
+	// assert against a raw marker here), but this test pins that the
+	// audit call actually fires — a regression that drops it would
+	// fail this test rather than silently breaking observability.
+	store, scopedCtx, _ := setupWorkspaceLifecycleStore(t)
+	now := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	past := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+	saved, err := store.SoftDeleteWorkspace(scopedCtx, "ws-1", past)
+	if err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	sink := &captureAuditSink{}
+	purgeCtx := audit.WithSink(scopedCtx, sink)
+	if _, err := store.HardDeleteWorkspace(purgeCtx, "tenant-a", "ws-1", *saved.DeletedAt, now); err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+	found := false
+	for _, event := range sink.snapshot() {
+		if event.Action == "tenancy.workspace.hard_delete" && event.ResourceType == "tenancy_workspace" && event.Outcome == "success" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected tenancy.workspace.hard_delete audit event, got %+v", sink.snapshot())
+	}
+}
+
+func TestHardDeletedWorkspaceMarkerShape(t *testing.T) {
+	// Direct unit test of the marker helper. The audit pipeline
+	// fingerprints resource ids before writing, so the integration test
+	// above only asserts the action emission. This test pins the
+	// marker format itself — `deleted-workspace:<id>` — so a future
+	// change to the prefix surfaces here rather than as a downstream
+	// audit-consumer mismatch.
+	if got := HardDeletedWorkspaceMarker("ws-1"); got != "deleted-workspace:ws-1" {
+		t.Fatalf("unexpected marker: %q", got)
+	}
+	if got := HardDeletedWorkspaceMarker("  ws-2  "); got != "deleted-workspace:ws-2" {
+		t.Fatalf("expected trimmed marker, got %q", got)
+	}
+	if !IsHardDeletedWorkspaceMarker("deleted-workspace:ws-1") {
+		t.Fatal("expected marker to be detected")
+	}
+	if IsHardDeletedWorkspaceMarker("ws-1") {
+		t.Fatal("expected raw id not to be detected as marker")
 	}
 }
 

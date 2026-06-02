@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -1658,5 +1660,420 @@ func TestPostgresStoreListWorkspaceStrandedActiveMembersEmptyUUID(t *testing.T) 
 	}
 	if len(members) != 0 {
 		t.Fatalf("expected no members for empty UUID, got %d", len(members))
+	}
+}
+
+func TestPostgresStoreListWorkspacesPendingHardDelete(t *testing.T) {
+	// #1420 PR 2: the hard-delete worker queries soft-deleted
+	// workspaces past the grace cutoff via this method. Pin the SQL
+	// filter (status='deleted', deleted_at IS NOT NULL, deleted_at <
+	// cutoff) and the deterministic ORDER BY so the worker drains
+	// the oldest entries first.
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	cutoff := now.Add(-WorkspaceDeletionGracePeriod)
+	pastGrace := cutoff.Add(-time.Hour)
+
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "status", "suspended_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "Workspace A", "workspace-a", "deleted", nil, pastGrace, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at
+		 FROM tenancy_workspaces
+		 WHERE status = 'deleted'
+		   AND deleted_at IS NOT NULL
+		   AND deleted_at < $1::timestamptz
+		 ORDER BY deleted_at ASC, workspace_id ASC
+		 LIMIT $2`)).
+		WithArgs(cutoff.UTC(), 100).
+		WillReturnRows(rows)
+
+	result, err := store.ListWorkspacesPendingHardDelete(context.Background(), cutoff, 100)
+	if err != nil {
+		t.Fatalf("list pending: %v", err)
+	}
+	if len(result) != 1 || result[0].WorkspaceID != "workspace-a" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreHardDeleteWorkspacePurgesChildTables(t *testing.T) {
+	// Happy-path sqlmock: the worker is past grace and HardDeleteWorkspace
+	// must run the full transactional purge — SELECT FOR UPDATE the
+	// soft-deleted row, DELETE scan/repo_scan/coverage rows (those carry
+	// tenant/workspace columns but no FK back), then DELETE the workspace
+	// row itself with the same status+deleted_at guard so a concurrent
+	// cancel-deletion landing mid-transaction cannot drop live data.
+	// Pinning every DELETE here means a regression that drops one of
+	// them (e.g. forgets to purge scans) fails this test instead of
+	// silently leaving workspace data behind.
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	deletedAt := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+
+	mock.ExpectBegin()
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "status", "suspended_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "Workspace A", "workspace-a", "deleted", nil, deletedAt, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at
+		 FROM tenancy_workspaces
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND status = 'deleted'
+		   AND deleted_at = $3::timestamptz
+		 FOR UPDATE`)).
+		WithArgs("tenant-a", "workspace-a", deletedAt.UTC()).
+		WillReturnRows(rows)
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE sessions
+		 SET current_org_id = NULL,
+		     current_workspace_id = NULL,
+		     current_project_id = NULL
+		 WHERE current_org_id = $1
+		   AND current_workspace_id = $2
+		   AND current_project_id IS NULL`)).
+		WithArgs("tenant-a", "workspace-a").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE onboarding_state
+		 SET org_id = NULL,
+		     workspace_id = NULL,
+		     project_id = NULL
+		 WHERE org_id = $1
+		   AND workspace_id = $2
+		   AND project_id IS NULL`)).
+		WithArgs("tenant-a", "workspace-a").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	// Every non-cascading workspace-scoped table is purged in
+	// declaration order: scans, repo_scans, AWS coverage, then the
+	// authz suite, then finding triage. Pin each so a regression
+	// dropping one fails this test.
+	// The purge iterates a static table list. Required tables (scans,
+	// repo_scans) run without a savepoint wrapper. Optional tables run
+	// inside a SAVEPOINT/RELEASE pair so a `relation does not exist`
+	// error rolls back only that DELETE without poisoning the
+	// transaction (codex round-2 P2 on #1450).
+	purgeOrder := []struct {
+		table    string
+		optional bool
+	}{
+		{table: "scans"},
+		{table: "repo_scans"},
+		{table: "repo_scan_cursors", optional: true},
+		{table: "aws_account_region_coverages", optional: true},
+		{table: "authz_entity_attributes", optional: true},
+		{table: "authz_relationships", optional: true},
+		{table: "authz_policy_sets", optional: true},
+		{table: "authz_policy_versions", optional: true},
+		{table: "authz_policy_rollouts", optional: true},
+		{table: "authz_policy_events", optional: true},
+		{table: "finding_triage_states", optional: true},
+		{table: "finding_triage_events", optional: true},
+	}
+	for i, entry := range purgeOrder {
+		savepoint := fmt.Sprintf("workspace_purge_%d", i)
+		if entry.optional {
+			mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT " + savepoint)).
+				WillReturnResult(sqlmock.NewResult(0, 0))
+		}
+		mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM `+entry.table+` WHERE tenant_id = $1 AND workspace_id = $2`)).
+			WithArgs("tenant-a", "workspace-a").
+			WillReturnResult(sqlmock.NewResult(0, 0))
+		if entry.optional {
+			mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT " + savepoint)).
+				WillReturnResult(sqlmock.NewResult(0, 0))
+		}
+	}
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM tenancy_workspaces
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND status = 'deleted'
+		   AND deleted_at = $3::timestamptz`)).
+		WithArgs("tenant-a", "workspace-a", deletedAt.UTC()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	workspace, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "workspace-a", deletedAt, now)
+	if err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+	if workspace.WorkspaceID != "workspace-a" || workspace.TenantID != "tenant-a" {
+		t.Fatalf("unexpected returned workspace: %+v", workspace)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreHardDeleteWorkspaceClearsWorkspaceOnlyContextRows(t *testing.T) {
+	// Session and onboarding records can hold workspace-level context where
+	// `project_id` is empty (`NULLIF` in Write code). Since the FK to
+	// `tenancy_projects` does not match with a NULL project, hard deletes
+	// need an explicit update to clear that context before removing the
+	// workspace row.
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	deletedAt := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+
+	mock.ExpectBegin()
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "status", "suspended_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "Workspace A", "workspace-a", "deleted", nil, deletedAt, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at
+		 FROM tenancy_workspaces
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND status = 'deleted'
+		   AND deleted_at = $3::timestamptz
+		 FOR UPDATE`)).
+		WithArgs("tenant-a", "workspace-a", deletedAt.UTC()).
+		WillReturnRows(rows)
+
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE sessions
+		 SET current_org_id = NULL,
+		     current_workspace_id = NULL,
+		     current_project_id = NULL
+		 WHERE current_org_id = $1
+		   AND current_workspace_id = $2
+		   AND current_project_id IS NULL`)).
+		WithArgs("tenant-a", "workspace-a").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE onboarding_state
+		 SET org_id = NULL,
+		     workspace_id = NULL,
+		     project_id = NULL
+		 WHERE org_id = $1
+		   AND workspace_id = $2
+		   AND project_id IS NULL`)).
+		WithArgs("tenant-a", "workspace-a").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	purgeOrder := []struct {
+		table    string
+		optional bool
+	}{
+		{table: "scans"},
+		{table: "repo_scans"},
+		{table: "repo_scan_cursors", optional: true},
+		{table: "aws_account_region_coverages", optional: true},
+		{table: "authz_entity_attributes", optional: true},
+		{table: "authz_relationships", optional: true},
+		{table: "authz_policy_sets", optional: true},
+		{table: "authz_policy_versions", optional: true},
+		{table: "authz_policy_rollouts", optional: true},
+		{table: "authz_policy_events", optional: true},
+		{table: "finding_triage_states", optional: true},
+		{table: "finding_triage_events", optional: true},
+	}
+	for i, entry := range purgeOrder {
+		savepoint := fmt.Sprintf("workspace_purge_%d", i)
+		if entry.optional {
+			mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT " + savepoint)).
+				WillReturnResult(sqlmock.NewResult(0, 0))
+		}
+		mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM `+entry.table+` WHERE tenant_id = $1 AND workspace_id = $2`)).
+			WithArgs("tenant-a", "workspace-a").
+			WillReturnResult(sqlmock.NewResult(0, 0))
+		if entry.optional {
+			mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT " + savepoint)).
+				WillReturnResult(sqlmock.NewResult(0, 0))
+		}
+	}
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM tenancy_workspaces
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND status = 'deleted'
+		   AND deleted_at = $3::timestamptz`)).
+		WithArgs("tenant-a", "workspace-a", deletedAt.UTC()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	workspace, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "workspace-a", deletedAt, now)
+	if err != nil {
+		t.Fatalf("hard delete: %v", err)
+	}
+	if workspace.WorkspaceID != "workspace-a" || workspace.TenantID != "tenant-a" {
+		t.Fatalf("unexpected returned workspace: %+v", workspace)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreHardDeleteWorkspaceRollsBackMissingOptionalTable(t *testing.T) {
+	// Codex round-2 P2 on #1450: when an optional table is genuinely
+	// absent, `DELETE FROM <missing_table>` returns
+	// `relation does not exist` AND poisons the surrounding
+	// transaction. The savepoint wrapper must ROLLBACK TO SAVEPOINT so
+	// the next DELETE (and the final workspace DELETE) can still run.
+	// Without the savepoint, the next statement would fail with
+	// "current transaction is aborted".
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	deletedAt := now.Add(-(WorkspaceDeletionGracePeriod + time.Hour))
+
+	mock.ExpectBegin()
+	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "display_name", "slug", "status", "suspended_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow("tenant-a", "workspace-a", "Workspace A", "workspace-a", "deleted", nil, deletedAt, now, now)
+	mock.ExpectQuery(regexp.QuoteMeta("FOR UPDATE")).
+		WithArgs("tenant-a", "workspace-a", deletedAt.UTC()).
+		WillReturnRows(rows)
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE sessions
+		 SET current_org_id = NULL,
+		     current_workspace_id = NULL,
+		     current_project_id = NULL
+		 WHERE current_org_id = $1
+		   AND current_workspace_id = $2
+		   AND current_project_id IS NULL`)).
+		WithArgs("tenant-a", "workspace-a").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE onboarding_state
+		 SET org_id = NULL,
+		     workspace_id = NULL,
+		     project_id = NULL
+		 WHERE org_id = $1
+		   AND workspace_id = $2
+		   AND project_id IS NULL`)).
+		WithArgs("tenant-a", "workspace-a").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	// scans + repo_scans (required) — no savepoint wrapper.
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM scans WHERE tenant_id = $1 AND workspace_id = $2`)).
+		WithArgs("tenant-a", "workspace-a").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM repo_scans WHERE tenant_id = $1 AND workspace_id = $2`)).
+		WithArgs("tenant-a", "workspace-a").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	// repo_scan_cursors (optional) is the absent table here. The
+	// savepoint is created, the DELETE fails with "relation does not
+	// exist", and the code rolls back to the savepoint instead of
+	// aborting the transaction.
+	mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT workspace_purge_2")).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM repo_scan_cursors WHERE tenant_id = $1 AND workspace_id = $2`)).
+		WithArgs("tenant-a", "workspace-a").
+		WillReturnError(fmt.Errorf("pq: relation \"repo_scan_cursors\" does not exist"))
+	mock.ExpectExec(regexp.QuoteMeta("ROLLBACK TO SAVEPOINT workspace_purge_2")).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	// All remaining optional tables succeed (treat them as installed
+	// for simplicity). The next iterations issue SAVEPOINT + DELETE +
+	// RELEASE.
+	remaining := []string{"aws_account_region_coverages", "authz_entity_attributes", "authz_relationships", "authz_policy_sets", "authz_policy_versions", "authz_policy_rollouts", "authz_policy_events", "finding_triage_states", "finding_triage_events"}
+	for i, table := range remaining {
+		savepoint := fmt.Sprintf("workspace_purge_%d", i+3)
+		mock.ExpectExec(regexp.QuoteMeta("SAVEPOINT " + savepoint)).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM `+table+` WHERE tenant_id = $1 AND workspace_id = $2`)).
+			WithArgs("tenant-a", "workspace-a").
+			WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectExec(regexp.QuoteMeta("RELEASE SAVEPOINT " + savepoint)).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM tenancy_workspaces`)).
+		WithArgs("tenant-a", "workspace-a", deletedAt.UTC()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "workspace-a", deletedAt, now); err != nil {
+		t.Fatalf("hard delete with missing optional table: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreHardDeleteWorkspaceMissingReturnsNotFound(t *testing.T) {
+	// If both the FOR UPDATE scan AND the fallback existence check
+	// return no rows, the workspace genuinely does not exist and the
+	// store surfaces ErrNotFound. Distinct from the not-pending-deletion
+	// case above so the worker can tell "row gone" from "row still
+	// active" — a regression collapsing the two would let the runner
+	// silently skip records that should error.
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	deletedAt := now.Add(-time.Hour)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`FOR UPDATE`)).
+		WithArgs("tenant-a", "workspace-missing", deletedAt.UTC()).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT status, deleted_at FROM tenancy_workspaces WHERE tenant_id = $1 AND workspace_id = $2`)).
+		WithArgs("tenant-a", "workspace-missing").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
+
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "workspace-missing", deletedAt, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStoreHardDeleteWorkspaceRefusesActive(t *testing.T) {
+	// The SELECT FOR UPDATE inside HardDeleteWorkspace carries a
+	// `status='deleted' AND deleted_at IS NOT NULL` guard, so an
+	// active workspace surfaces as ErrNotFound from the first scan.
+	// The fallback SELECT then reports the actual status so the
+	// returned error explains what happened — a regression that drops
+	// the predicate would silently destroy live data.
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	store := NewPostgresStoreWithDB(db)
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	deletedAt := now.Add(-time.Hour)
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at
+		 FROM tenancy_workspaces
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND status = 'deleted'
+		   AND deleted_at = $3::timestamptz
+		 FOR UPDATE`)).
+		WithArgs("tenant-a", "workspace-a", deletedAt.UTC()).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT status, deleted_at FROM tenancy_workspaces WHERE tenant_id = $1 AND workspace_id = $2`)).
+		WithArgs("tenant-a", "workspace-a").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "deleted_at"}).AddRow("active", nil))
+	mock.ExpectRollback()
+
+	if _, err := store.HardDeleteWorkspace(context.Background(), "tenant-a", "workspace-a", deletedAt, now); err == nil {
+		t.Fatal("expected hard delete to refuse active workspace")
+	} else if !strings.Contains(err.Error(), "lifecycle drifted") {
+		t.Fatalf("expected lifecycle-drifted message, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
 	}
 }

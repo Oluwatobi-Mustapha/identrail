@@ -540,6 +540,222 @@ func scanTenancyWorkspaceLifecycle(row interface{ Scan(dest ...any) error }) (Te
 	return workspace, nil
 }
 
+// ListWorkspacesPendingHardDelete returns soft-deleted workspaces whose
+// grace window closed (deleted_at < deletedBefore). Bypasses scope so the
+// purge worker can enumerate across tenants in a single pass.
+func (p *PostgresStore) ListWorkspacesPendingHardDelete(ctx context.Context, deletedBefore time.Time, limit int) ([]TenancyWorkspace, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := p.queryContextAnyScope(
+		ctx,
+		`SELECT tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at
+		 FROM tenancy_workspaces
+		 WHERE status = 'deleted'
+		   AND deleted_at IS NOT NULL
+		   AND deleted_at < $1::timestamptz
+		 ORDER BY deleted_at ASC, workspace_id ASC
+		 LIMIT $2`,
+		deletedBefore.UTC(),
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	workspaces := make([]TenancyWorkspace, 0)
+	for rows.Next() {
+		workspace, err := scanTenancyWorkspaceLifecycle(rows)
+		if err != nil {
+			return nil, err
+		}
+		workspaces = append(workspaces, workspace)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return workspaces, nil
+}
+
+// HardDeleteWorkspace purges every row tied to a soft-deleted workspace
+// past its grace window. The destructive predicate lives on the SQL
+// itself — `status='deleted' AND deleted_at = $expected` — so:
+//   - workspace_id alone is not globally unique (defaults like "default"
+//     repeat across tenants); requiring tenant_id locks the purge to
+//     the row the worker actually listed.
+//   - matching against the worker's observed deleted_at refuses any
+//     workspace that was cancelled and re-deleted between the worker's
+//     list and its purge call, so a fresh-grace re-deletion is not
+//     prematurely hard-deleted.
+//
+// The transaction also explicitly purges every workspace-scoped table
+// that does NOT have an FK back to tenancy_workspaces, so the cascade
+// from the workspace DELETE alone would leave them orphaned: scans,
+// repo_scans, aws_account_region_coverages, the authz suite
+// (entity_attributes, relationships, policy_sets, policy_versions,
+// policy_rollouts, policy_events), and finding-triage state/events.
+// Tables that DO have an FK (members, projects, connectors, secret
+// envelopes, scan policies) are deleted by the cascade from the
+// workspace row itself.
+func (p *PostgresStore) HardDeleteWorkspace(ctx context.Context, tenantID, workspaceID string, expectedDeletedAt time.Time, now time.Time) (TenancyWorkspace, error) {
+	tenant := strings.TrimSpace(tenantID)
+	id := strings.TrimSpace(workspaceID)
+	expected := expectedDeletedAt.UTC()
+	when := now.UTC()
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return TenancyWorkspace{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	row := tx.QueryRowContext(
+		ctx,
+		`SELECT tenant_id, workspace_id, display_name, slug, status, suspended_at, deleted_at, created_at, updated_at
+		 FROM tenancy_workspaces
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND status = 'deleted'
+		   AND deleted_at = $3::timestamptz
+		 FOR UPDATE`,
+		tenant, id, expected,
+	)
+	workspace, err := scanTenancyWorkspaceLifecycle(row)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			// Distinguish "row gone" from "row state changed" so the
+			// worker can tell whether to retry or just skip. The
+			// fallback lookup uses the composite key so the right
+			// tenant's row is examined.
+			var status string
+			var deletedAt sql.NullTime
+			lookupErr := tx.QueryRowContext(
+				ctx,
+				`SELECT status, deleted_at FROM tenancy_workspaces WHERE tenant_id = $1 AND workspace_id = $2`,
+				tenant, id,
+			).Scan(&status, &deletedAt)
+			if errors.Is(lookupErr, sql.ErrNoRows) {
+				return TenancyWorkspace{}, ErrNotFound
+			}
+			if lookupErr != nil {
+				return TenancyWorkspace{}, lookupErr
+			}
+			return TenancyWorkspace{}, fmt.Errorf("hard delete: workspace %s/%s lifecycle drifted (status=%q deleted_at_present=%v); the row was likely re-deleted within grace and must restart the 30-day window", tenant, id, status, deletedAt.Valid)
+		}
+		return TenancyWorkspace{}, err
+	}
+	// A workspace-scoped session/onboarding context may still exist with no
+	// selected project (both context columns are NULL). In that case there is
+	// no matching `tenancy_projects` FK child, so ON DELETE SET NULL on project
+	// rows does not fire.
+	if _, err := tx.ExecContext(
+		ctx,
+		`UPDATE sessions
+		 SET current_org_id = NULL,
+		     current_workspace_id = NULL,
+		     current_project_id = NULL
+		 WHERE current_org_id = $1
+		   AND current_workspace_id = $2
+		   AND current_project_id IS NULL`,
+		tenant,
+		id,
+	); err != nil {
+		return TenancyWorkspace{}, fmt.Errorf("clear session context: %w", err)
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`UPDATE onboarding_state
+		 SET org_id = NULL,
+		     workspace_id = NULL,
+		     project_id = NULL
+		 WHERE org_id = $1
+		   AND workspace_id = $2
+		   AND project_id IS NULL`,
+		tenant,
+		id,
+	); err != nil {
+		return TenancyWorkspace{}, fmt.Errorf("clear onboarding context: %w", err)
+	}
+	// Purge every workspace-scoped non-FK table. These rows would
+	// otherwise survive the cascading workspace DELETE below and
+	// outlive the 30-day grace contract. Each entry is wrapped in a
+	// SAVEPOINT so a `relation does not exist` for an optional table
+	// (older deployment, integration test fixture) rolls back ONLY
+	// that DELETE — Postgres otherwise poisons the whole transaction
+	// on the error and every subsequent statement (including the
+	// final workspace DELETE) fails with "current transaction is
+	// aborted" (codex round-2 P2 on #1450).
+	nonCascading := []struct {
+		table           string
+		tolerateMissing bool
+	}{
+		{table: "scans"},
+		{table: "repo_scans"},
+		{table: "repo_scan_cursors", tolerateMissing: true},
+		{table: "aws_account_region_coverages", tolerateMissing: true},
+		{table: "authz_entity_attributes", tolerateMissing: true},
+		{table: "authz_relationships", tolerateMissing: true},
+		{table: "authz_policy_sets", tolerateMissing: true},
+		{table: "authz_policy_versions", tolerateMissing: true},
+		{table: "authz_policy_rollouts", tolerateMissing: true},
+		{table: "authz_policy_events", tolerateMissing: true},
+		{table: "finding_triage_states", tolerateMissing: true},
+		{table: "finding_triage_events", tolerateMissing: true},
+	}
+	for i, target := range nonCascading {
+		savepoint := fmt.Sprintf("workspace_purge_%d", i)
+		if target.tolerateMissing {
+			if _, err := tx.ExecContext(ctx, "SAVEPOINT "+savepoint); err != nil {
+				return TenancyWorkspace{}, fmt.Errorf("create savepoint for %s: %w", target.table, err)
+			}
+		}
+		// #nosec G201 -- table name is hardcoded from this slice, not user-supplied.
+		stmt := fmt.Sprintf(`DELETE FROM %s WHERE tenant_id = $1 AND workspace_id = $2`, target.table)
+		if _, err := tx.ExecContext(ctx, stmt, tenant, id); err != nil {
+			if target.tolerateMissing && strings.Contains(strings.ToLower(err.Error()), "does not exist") {
+				if _, rollbackErr := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+savepoint); rollbackErr != nil {
+					return TenancyWorkspace{}, fmt.Errorf("rollback savepoint for missing %s: %w", target.table, rollbackErr)
+				}
+				continue
+			}
+			return TenancyWorkspace{}, fmt.Errorf("hard delete %s: %w", target.table, err)
+		}
+		if target.tolerateMissing {
+			if _, err := tx.ExecContext(ctx, "RELEASE SAVEPOINT "+savepoint); err != nil {
+				return TenancyWorkspace{}, fmt.Errorf("release savepoint for %s: %w", target.table, err)
+			}
+		}
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`DELETE FROM tenancy_workspaces
+		 WHERE tenant_id = $1
+		   AND workspace_id = $2
+		   AND status = 'deleted'
+		   AND deleted_at = $3::timestamptz`,
+		tenant, id, expected,
+	); err != nil {
+		return TenancyWorkspace{}, fmt.Errorf("hard delete workspace: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return TenancyWorkspace{}, err
+	}
+	committed = true
+	workspace.UpdatedAt = when
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace.hard_delete",
+		TenantID:     tenant,
+		WorkspaceID:  HardDeletedWorkspaceMarker(id),
+		ResourceType: "tenancy_workspace",
+		ResourceID:   HardDeletedWorkspaceMarker(id),
+		Outcome:      "success",
+	})
+	return workspace, nil
+}
+
 // DeleteWorkspace deletes one scoped workspace by id.
 func (p *PostgresStore) DeleteWorkspace(ctx context.Context, workspaceID string) error {
 	scope, err := RequireScope(ctx)

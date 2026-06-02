@@ -509,6 +509,267 @@ func (m *MemoryStore) DeleteWorkspace(ctx context.Context, workspaceID string) e
 	return nil
 }
 
+// ListWorkspacesPendingHardDelete returns soft-deleted workspaces whose
+// grace window closed. Bypasses scope so the worker can enumerate across
+// all tenants in a single pass. Results are stable-sorted by deleted_at
+// then workspace_id to make worker progress deterministic.
+func (m *MemoryStore) ListWorkspacesPendingHardDelete(ctx context.Context, deletedBefore time.Time, limit int) ([]TenancyWorkspace, error) {
+	cutoff := deletedBefore.UTC()
+	if limit <= 0 {
+		limit = 100
+	}
+	m.mu.RLock()
+	pending := make([]TenancyWorkspace, 0)
+	for _, workspace := range m.workspaces {
+		if workspace.Status != WorkspaceStatusDeleted || workspace.DeletedAt == nil {
+			continue
+		}
+		if !workspace.DeletedAt.UTC().Before(cutoff) {
+			continue
+		}
+		pending = append(pending, workspace)
+	}
+	m.mu.RUnlock()
+	sort.Slice(pending, func(i, j int) bool {
+		if pending[i].DeletedAt.Equal(*pending[j].DeletedAt) {
+			return pending[i].WorkspaceID < pending[j].WorkspaceID
+		}
+		return pending[i].DeletedAt.Before(*pending[j].DeletedAt)
+	})
+	if len(pending) > limit {
+		pending = pending[:limit]
+	}
+	return pending, nil
+}
+
+// HardDeleteWorkspace permanently removes a soft-deleted workspace and all
+// of its child rows. Refuses the purge unless the workspace is genuinely
+// past grace (status='deleted', deleted_at matches the value the worker
+// observed when it listed the row) so:
+//   - workspace_id alone is not globally unique; requiring tenant_id
+//     locks the purge to the correct row.
+//   - a cancel-deletion + re-delete race between the worker's list and
+//     its purge call advances deleted_at to a fresh value; matching
+//     against the listed deleted_at refuses that case and lets the new
+//     30-day window run.
+func (m *MemoryStore) HardDeleteWorkspace(ctx context.Context, tenantID, workspaceID string, expectedDeletedAt time.Time, now time.Time) (TenancyWorkspace, error) {
+	tenant := strings.TrimSpace(tenantID)
+	id := strings.TrimSpace(workspaceID)
+	expected := expectedDeletedAt.UTC()
+	when := now.UTC()
+	m.mu.Lock()
+	key := tenancyWorkspaceKey(tenant, id)
+	workspace, exists := m.workspaces[key]
+	if !exists {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, ErrNotFound
+	}
+	if workspace.Status != WorkspaceStatusDeleted || workspace.DeletedAt == nil {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, fmt.Errorf("hard delete: workspace %s/%s is not pending deletion (status=%q)", tenant, id, workspace.Status)
+	}
+	if !workspace.DeletedAt.UTC().Equal(expected) {
+		m.mu.Unlock()
+		return TenancyWorkspace{}, fmt.Errorf("hard delete: workspace %s/%s deleted_at drifted (worker saw %s, row now %s); the row was likely re-deleted within grace", tenant, id, expected, workspace.DeletedAt.UTC())
+	}
+	delete(m.workspaces, key)
+	for memberKey, member := range m.members {
+		if member.TenantID == tenant && member.WorkspaceID == id {
+			delete(m.members, memberKey)
+		}
+	}
+	for projectKey, project := range m.projects {
+		if project.TenantID == tenant && project.WorkspaceID == id {
+			delete(m.projects, projectKey)
+		}
+	}
+	for policyKey, policy := range m.scanPolicies {
+		if policy.TenantID == tenant && policy.WorkspaceID == id {
+			delete(m.scanPolicies, policyKey)
+		}
+	}
+	for connectorKey, connector := range m.connectors {
+		if connector.TenantID == tenant && connector.WorkspaceID == id {
+			delete(m.connectors, connectorKey)
+			delete(m.connStates, connectorKey)
+		}
+	}
+	for secretKey, secret := range m.connSecrets {
+		if secret.TenantID == tenant && secret.WorkspaceID == id {
+			delete(m.connSecrets, secretKey)
+		}
+	}
+	for coverageKey, coverage := range m.awsCoverages {
+		if coverage.TenantID == tenant && coverage.WorkspaceID == id {
+			delete(m.awsCoverages, coverageKey)
+		}
+	}
+	// Collect scan + repo-scan IDs first so the second pass can drain
+	// their child artifact maps. The postgres backend gets this "for
+	// free" via FK ON DELETE CASCADE on scans/repo_scans; the memory
+	// store has no such cascade so we must replicate it explicitly
+	// (codex round-4 P2 on #1450). Without this the memory backend
+	// retained workspace-scoped findings, raw assets, identities,
+	// policies, relationships, permissions, scan events, and repo
+	// findings after a hard delete — diverging from postgres and
+	// leaking dev/test fixtures across purges.
+	scanIDs := make([]string, 0)
+	for scanID, record := range m.scans {
+		if record.TenantID == tenant && record.WorkspaceID == id {
+			scanIDs = append(scanIDs, scanID)
+			delete(m.scans, scanID)
+		}
+	}
+	repoScanIDs := make([]string, 0)
+	for scanID, record := range m.repoScans {
+		if record.TenantID == tenant && record.WorkspaceID == id {
+			repoScanIDs = append(repoScanIDs, scanID)
+			delete(m.repoScans, scanID)
+		}
+	}
+	// Per-scan child artifacts. Each map uses a composite key whose
+	// first `|`-separated segment is the scan id (see
+	// UpsertScanArtifacts in memory.go), so a HasPrefix match drains
+	// every entry tied to a purged scan id in one pass.
+	for _, scanID := range scanIDs {
+		prefix := scanID + "|"
+		for key := range m.rawAssets {
+			if strings.HasPrefix(key, prefix) {
+				delete(m.rawAssets, key)
+			}
+		}
+		for key := range m.identities {
+			if strings.HasPrefix(key, prefix) {
+				delete(m.identities, key)
+			}
+		}
+		for key := range m.policies {
+			if strings.HasPrefix(key, prefix) {
+				delete(m.policies, key)
+			}
+		}
+		for key := range m.relationships {
+			if strings.HasPrefix(key, prefix) {
+				delete(m.relationships, key)
+			}
+		}
+		for key := range m.permissions {
+			if strings.HasPrefix(key, prefix) {
+				delete(m.permissions, key)
+			}
+		}
+		// scanFindings indexes finding keys; drop those finding rows
+		// first then the index entry.
+		for _, findingKey := range m.scanFindings[scanID] {
+			delete(m.findings, findingKey)
+		}
+		delete(m.scanFindings, scanID)
+		delete(m.events, scanID)
+	}
+	for _, repoScanID := range repoScanIDs {
+		for _, findingKey := range m.repoFindingIDs[repoScanID] {
+			delete(m.repoFindings, findingKey)
+		}
+		delete(m.repoFindingIDs, repoScanID)
+	}
+	// repo_scan_cursors hold tenant/workspace-scoped incremental scan
+	// state with no FK back to tenancy_workspaces; codex round-2 P2 on
+	// #1450 flagged that leaving these rows behind violates the
+	// "every workspace-scoped row is purged" contract.
+	for cursorKey, cursor := range m.repoCursors {
+		if cursor.TenantID == tenant && cursor.WorkspaceID == id {
+			delete(m.repoCursors, cursorKey)
+		}
+	}
+	// Authz + triage state lives in dedicated maps keyed by
+	// scope-derived strings. Codex round-3 P2 on #1450 flagged that
+	// the postgres path purges those tables but the memory store left
+	// them behind — divergent behaviour between backends, and the
+	// memory store's scoped API would continue returning rows for a
+	// workspace that has just been hard-deleted. Iterate each map and
+	// drop every entry whose TenantID/WorkspaceID matches.
+	for key, attrs := range m.authzAttrs {
+		if attrs.TenantID == tenant && attrs.WorkspaceID == id {
+			delete(m.authzAttrs, key)
+		}
+	}
+	for key, rel := range m.authzRels {
+		if rel.TenantID == tenant && rel.WorkspaceID == id {
+			delete(m.authzRels, key)
+		}
+	}
+	for key, set := range m.authzSets {
+		if set.TenantID == tenant && set.WorkspaceID == id {
+			delete(m.authzSets, key)
+		}
+	}
+	for key, version := range m.authzVersions {
+		if version.TenantID == tenant && version.WorkspaceID == id {
+			delete(m.authzVersions, key)
+		}
+	}
+	for key, rollout := range m.authzRollouts {
+		if rollout.TenantID == tenant && rollout.WorkspaceID == id {
+			delete(m.authzRollouts, key)
+		}
+	}
+	for key, events := range m.authzEvents {
+		// authzEvents is map[string][]AuthzPolicyEvent — every event
+		// in a single slot shares the same scope (the key is derived
+		// from it), so checking the first entry is sufficient.
+		if len(events) > 0 && events[0].TenantID == tenant && events[0].WorkspaceID == id {
+			for _, event := range events {
+				delete(m.authzEventIDs, event.ID)
+			}
+			delete(m.authzEvents, key)
+		}
+	}
+	for sessionKey, session := range m.sessions {
+		if session.CurrentOrgID == tenant && session.CurrentWorkspaceID == id {
+			session.CurrentOrgID = ""
+			session.CurrentWorkspaceID = ""
+			session.CurrentProjectID = ""
+			m.sessions[sessionKey] = session
+		}
+	}
+	for userID, state := range m.onboardingStates {
+		if state.OrgID == tenant && state.WorkspaceID == id {
+			state.OrgID = ""
+			state.WorkspaceID = ""
+			state.ProjectID = ""
+			m.onboardingStates[userID] = state
+		}
+	}
+	// FindingTriageState/Event don't carry TenantID/WorkspaceID on
+	// the value itself — the map key embeds the scope as
+	// `tenant|workspace|finding_id` (see findingScopeKey). Prefix
+	// match on the scope segments to purge every triage row tied to
+	// the workspace.
+	triagePrefix := tenant + "|" + id + "|"
+	for key := range m.triageStates {
+		if strings.HasPrefix(key, triagePrefix) {
+			delete(m.triageStates, key)
+		}
+	}
+	for key := range m.triageEvents {
+		if strings.HasPrefix(key, triagePrefix) {
+			delete(m.triageEvents, key)
+		}
+	}
+	workspace.UpdatedAt = when
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.workspace.hard_delete",
+		TenantID:     tenant,
+		WorkspaceID:  HardDeletedWorkspaceMarker(id),
+		ResourceType: "tenancy_workspace",
+		ResourceID:   HardDeletedWorkspaceMarker(id),
+		Outcome:      "success",
+	})
+	return workspace, nil
+}
+
 // UpsertWorkspaceMember persists one workspace member assignment.
 func (m *MemoryStore) UpsertWorkspaceMember(ctx context.Context, member TenancyWorkspaceMember) error {
 	m.mu.Lock()
