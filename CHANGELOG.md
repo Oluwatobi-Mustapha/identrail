@@ -1,6 +1,16 @@
 # Changelog
 
 ## Unreleased
+- Added the AWS live app validation harness for #1475. The API now exposes
+  `GET /v1/workspaces/:workspace_id/projects/:project_id/aws/validation-harness`
+  as a read-only, project-scoped proof path for AWS setup, scan state, graph
+  state, runtime evidence, remediation, and governance app flows. The harness
+  returns deterministic success, empty, degraded, partial-failure,
+  permission-denied, and unsupported-service fixture states with evidence,
+  confidence, timestamps, account/region context, browser/API validation steps,
+  and remediation hints. The AWS Control Center and Connect AWS pages surface
+  the harness beside the baseline gate and dependency index, and the web client,
+  OpenAPI contract, tests, and docs cover the reusable PR validation workflow.
 - Stopped the GitHub overview (`/app/.../github`) from briefly showing a
   "Not connected for this environment" subtitle, an "Install the GitHub
   App" banner, and a Connect GitHub primary CTA on every load before the
