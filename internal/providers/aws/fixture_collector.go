@@ -101,6 +101,14 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	var eksIdentity EKSWorkloadIdentity
+	if err := json.Unmarshal(payload, &eksIdentity); err == nil {
+		sourceID := eksWorkloadIdentitySourceID(eksIdentity)
+		if isEKSWorkloadIdentityFixture(eksIdentity) {
+			return rawKindEKSWorkloadIdentity, sourceID
+		}
+	}
+
 	var ecsRole ECSTaskRole
 	if err := json.Unmarshal(payload, &ecsRole); err == nil {
 		sourceID := ecsTaskRoleSourceID(ecsRole)
@@ -163,6 +171,33 @@ func isLambdaExecutionRoleFixture(record LambdaExecutionRole) bool {
 		strings.TrimSpace(record.KMSKeyARN) != "" ||
 		len(record.EventSourceARNs) > 0 ||
 		len(record.DisabledEventSourceARNs) > 0
+}
+
+func isEKSWorkloadIdentityFixture(record EKSWorkloadIdentity) bool {
+	if service := strings.TrimSpace(record.Service); service != "" {
+		return strings.EqualFold(service, eksServiceName)
+	}
+	if collectorName := strings.TrimSpace(record.CollectorName); collectorName != "" {
+		return strings.EqualFold(collectorName, eksWorkloadIdentityCollectorName)
+	}
+	if isExplicitEKSRoleKind(record.RoleKind) {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(record.WorkloadType)) {
+	case "eks_service_account", "eks_node_group", "eks_fargate_profile", "eks_fargate_pod_execution_role":
+		return true
+	}
+	return strings.TrimSpace(record.OIDCIssuer) != "" ||
+		strings.TrimSpace(record.Namespace) != "" ||
+		strings.TrimSpace(record.ServiceAccount) != "" ||
+		strings.TrimSpace(record.AssociationARN) != "" ||
+		strings.TrimSpace(record.NodegroupARN) != "" ||
+		strings.TrimSpace(record.FargateProfileARN) != ""
+}
+
+func isExplicitEKSRoleKind(roleKind string) bool {
+	_, ok := canonicalEKSRoleKindAlias(roleKind)
+	return ok
 }
 
 func isEC2InstanceProfileFixture(record EC2InstanceProfile) bool {

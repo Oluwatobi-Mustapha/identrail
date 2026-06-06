@@ -77,7 +77,15 @@ The response envelope is:
       "lambda:ListAliases",
       "lambda:ListVersionsByFunction",
       "lambda:ListEventSourceMappings",
-      "lambda:ListTags"
+      "lambda:ListTags",
+      "eks:ListClusters",
+      "eks:DescribeCluster",
+      "eks:ListPodIdentityAssociations",
+      "eks:DescribePodIdentityAssociation",
+      "eks:ListNodegroups",
+      "eks:DescribeNodegroup",
+      "eks:ListFargateProfiles",
+      "eks:DescribeFargateProfile"
     ],
     "read_only_boundaries": [
       "collect metadata and policy documents only; never collect secret values, customer payloads, prompts, completions, object contents, or database rows"
@@ -150,7 +158,11 @@ ECS workload collector adds metadata-only reads: `ecs:ListClusters`,
 `ecs:DescribeTaskDefinition`. The Lambda workload collector adds metadata-only
 reads: `lambda:ListFunctions`, `lambda:ListAliases`,
 `lambda:ListVersionsByFunction`, `lambda:ListEventSourceMappings`, and
-`lambda:ListTags`.
+`lambda:ListTags`. The EKS workload identity collector adds metadata-only
+reads: `eks:ListClusters`, `eks:DescribeCluster`,
+`eks:ListPodIdentityAssociations`, `eks:DescribePodIdentityAssociation`,
+`eks:ListNodegroups`, `eks:DescribeNodegroup`, `eks:ListFargateProfiles`, and
+`eks:DescribeFargateProfile`.
 
 Future service collectors may add service-specific read-only metadata
 permissions, but must not add actions that read secret values, object contents,
@@ -160,6 +172,13 @@ customer payloads by default.
 For ECS, `secret_refs` are only secret or parameter names/source references and
 `environment_keys` are only variable names. Plaintext environment values and
 secret values are intentionally outside the collector contract.
+
+For EKS, AWS-side metadata proves clusters, OIDC issuer relationships, Pod
+Identity associations, managed node roles, and Fargate pod execution roles.
+IRSA service account annotations require Kubernetes API access; when that access
+is missing, collectors must emit degraded AWS-side evidence such as
+`irsa_annotation_collection_unconfigured` instead of claiming complete IRSA
+coverage.
 
 ## Validation
 
