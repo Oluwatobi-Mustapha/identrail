@@ -126,6 +126,9 @@ func AWSServiceCollectorContract() ServiceCollectorContract {
 			"lambda:ListTags",
 			"codebuild:ListProjects",
 			"codebuild:BatchGetProjects",
+			"codepipeline:ListPipelines",
+			"codepipeline:GetPipeline",
+			"codepipeline:GetPipelineState",
 			"eks:ListClusters",
 			"eks:DescribeCluster",
 			"eks:ListPodIdentityAssociations",
@@ -349,7 +352,7 @@ func ValidateServiceCollectorRecord(record ServiceCollectorRecord) error {
 	if !ok {
 		return fmt.Errorf("role_arn must be an AWS IAM role ARN")
 	}
-	if roleAccountID != record.AccountID {
+	if roleAccountID != record.AccountID && !allowsCrossAccountServiceRole(record) {
 		return fmt.Errorf("role_arn account id must match account_id")
 	}
 	if record.Confidence <= 0 || record.Confidence > 1 {
@@ -359,6 +362,11 @@ func ValidateServiceCollectorRecord(record ServiceCollectorRecord) error {
 		return fmt.Errorf("collected_at is required")
 	}
 	return nil
+}
+
+func allowsCrossAccountServiceRole(record ServiceCollectorRecord) bool {
+	return strings.EqualFold(strings.TrimSpace(record.Service), "codepipeline") &&
+		strings.EqualFold(strings.TrimSpace(record.WorkloadType), "codepipeline_action")
 }
 
 // ValidateAWSServiceCollectorContract enforces the whole reusable contract.
