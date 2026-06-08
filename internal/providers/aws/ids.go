@@ -152,6 +152,71 @@ func managedComputeResourceID(record ManagedComputeRole) string {
 	}
 }
 
+func sageMakerWorkloadID(accountID, region, workloadType, workloadRef, roleKind string) string {
+	normalizedType := normalizeName(workloadType)
+	if normalizedType == "" {
+		normalizedType = "sagemaker"
+	}
+	normalizedRoleKind := normalizeName(roleKind)
+	if normalizedRoleKind == "" {
+		normalizedRoleKind = "role"
+	}
+	return fmt.Sprintf("aws:workload:sagemaker:%s:%s:%s/%s/%s", normalizeName(accountID), normalizeName(region), normalizedType, normalizeName(workloadRef), normalizedRoleKind)
+}
+
+func sageMakerResourceID(record SageMakerWorkloadRole) string {
+	ref := firstNonEmptyAWSValue(record.ResourceARN, record.WorkloadARN, record.WorkloadID)
+	switch sageMakerResourceType(record) {
+	case domain.ResourceTypeSageMakerNotebook:
+		return "aws:resource:sagemaker-notebook:" + strings.TrimSpace(ref)
+	case domain.ResourceTypeSageMakerTraining:
+		return "aws:resource:sagemaker-training-job:" + strings.TrimSpace(ref)
+	case domain.ResourceTypeSageMakerProcessing:
+		return "aws:resource:sagemaker-processing-job:" + strings.TrimSpace(ref)
+	case domain.ResourceTypeSageMakerTransform:
+		return "aws:resource:sagemaker-transform-job:" + strings.TrimSpace(ref)
+	case domain.ResourceTypeSageMakerModel:
+		return "aws:resource:sagemaker-model:" + strings.TrimSpace(ref)
+	case domain.ResourceTypeSageMakerEndpoint:
+		return "aws:resource:sagemaker-endpoint:" + strings.TrimSpace(ref)
+	case domain.ResourceTypeSageMakerPipeline:
+		return "aws:resource:sagemaker-pipeline:" + strings.TrimSpace(ref)
+	case domain.ResourceTypeSageMakerDomain:
+		return "aws:resource:sagemaker-domain:" + strings.TrimSpace(ref)
+	default:
+		return "aws:resource:sagemaker-workload:" + strings.TrimSpace(ref)
+	}
+}
+
+func sageMakerResourceType(record SageMakerWorkloadRole) domain.ResourceType {
+	// Fall back to WorkloadType so collectors that only set the workload
+	// shape still classify into the matching domain.ResourceType instead of
+	// the generic sagemaker_workload bucket. Normalize to lower-case so
+	// records that carry mixed-case workload types (e.g. SageMaker_Endpoint)
+	// still classify into the right resource type.
+	resourceType := firstNonEmptyAWSValue(record.ResourceType, record.WorkloadType)
+	switch strings.ToLower(strings.TrimSpace(resourceType)) {
+	case "sagemaker_notebook_instance":
+		return domain.ResourceTypeSageMakerNotebook
+	case "sagemaker_training_job":
+		return domain.ResourceTypeSageMakerTraining
+	case "sagemaker_processing_job":
+		return domain.ResourceTypeSageMakerProcessing
+	case "sagemaker_transform_job":
+		return domain.ResourceTypeSageMakerTransform
+	case "sagemaker_model":
+		return domain.ResourceTypeSageMakerModel
+	case "sagemaker_endpoint":
+		return domain.ResourceTypeSageMakerEndpoint
+	case "sagemaker_pipeline":
+		return domain.ResourceTypeSageMakerPipeline
+	case "sagemaker_domain":
+		return domain.ResourceTypeSageMakerDomain
+	default:
+		return domain.ResourceTypeSageMakerWorkload
+	}
+}
+
 func eksWorkloadIdentityWorkloadID(accountID, region, workloadType, workloadID, roleKind string) string {
 	normalizedType := normalizeName(workloadType)
 	if normalizedType == "" {

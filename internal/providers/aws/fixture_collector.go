@@ -109,6 +109,23 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	// SageMaker must be checked before ManagedComputeRole. The latter returns
+	// true on any record with a non-empty ResourceARN (because every managed-
+	// compute service synthesizes one), so a SageMaker fixture whose
+	// ResourceARN is set would otherwise unmarshal into ManagedComputeRole
+	// successfully and short-circuit before reaching the SageMaker matcher.
+	// The SageMaker matcher itself is strict (sagemaker_* service/collector,
+	// sagemaker_* workload type, sagemaker_* role kind, or an ARN whose
+	// service segment is literally "sagemaker") so it only claims real
+	// SageMaker fixtures.
+	var sageMakerRole SageMakerWorkloadRole
+	if err := json.Unmarshal(payload, &sageMakerRole); err == nil {
+		sourceID := sageMakerWorkloadRoleSourceID(sageMakerRole)
+		if isSageMakerWorkloadRoleFixture(sageMakerRole) {
+			return rawKindSageMakerWorkloadRole, sourceID
+		}
+	}
+
 	var managedComputeRole ManagedComputeRole
 	if err := json.Unmarshal(payload, &managedComputeRole); err == nil {
 		sourceID := managedComputeRoleSourceID(managedComputeRole)
@@ -308,6 +325,51 @@ func isManagedComputeRoleFixture(record ManagedComputeRole) bool {
 		strings.TrimSpace(record.JobDefinitionARN) != "" ||
 		strings.TrimSpace(record.UnsupportedService) != "" ||
 		strings.TrimSpace(record.CoverageStatus) != ""
+}
+
+func isSageMakerWorkloadRoleFixture(record SageMakerWorkloadRole) bool {
+	if strings.EqualFold(strings.TrimSpace(record.Service), sageMakerServiceName) || strings.EqualFold(strings.TrimSpace(record.CollectorName), sageMakerWorkloadRoleCollectorName) {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(record.WorkloadType)) {
+	case "sagemaker_notebook_instance", "sagemaker_training_job", "sagemaker_processing_job",
+		"sagemaker_transform_job", "sagemaker_model", "sagemaker_endpoint",
+		"sagemaker_pipeline", "sagemaker_domain", "sagemaker_workload":
+		return true
+	}
+	// Discriminators below are SageMaker-specific only when the field value is
+	// itself a SageMaker ARN. ARN-shaped fields like PipelineARN/ModelARN/
+	// DomainARN are reused by other AWS services (CodePipeline pipeline ARNs,
+	// Bedrock model ARNs) so classifying SageMaker on the field being non-empty
+	// alone would misroute those fixtures.
+	if isSageMakerARN(record.DomainARN) ||
+		isSageMakerARN(record.PipelineARN) ||
+		isSageMakerARN(record.ModelARN) ||
+		isSageMakerARN(record.WorkloadARN) ||
+		isSageMakerARN(record.ResourceARN) {
+		return true
+	}
+	roleKind := strings.TrimSpace(record.RoleKind)
+	if strings.HasPrefix(roleKind, "sagemaker_") {
+		return true
+	}
+	// DomainID and EndpointConfig are SageMaker-only operator-facing fields.
+	return strings.TrimSpace(record.DomainID) != "" || strings.TrimSpace(record.EndpointConfig) != ""
+}
+
+func isSageMakerARN(arn string) bool {
+	trimmed := strings.TrimSpace(arn)
+	if trimmed == "" {
+		return false
+	}
+	// Parse the ARN service segment instead of substring matching so a
+	// resource ARN containing ":sagemaker:" as part of an unrelated component
+	// can't false-positive (e.g. tag values, resource paths). Require the
+	// full ARN shape (arn:partition:service:region:account:resource) so
+	// malformed strings like ":a:sagemaker:..." or "foo:bar:sagemaker:..."
+	// also reject.
+	parts := strings.SplitN(trimmed, ":", 6)
+	return len(parts) == 6 && strings.EqualFold(parts[0], "arn") && strings.EqualFold(parts[2], "sagemaker")
 }
 
 func isEKSWorkloadIdentityFixture(record EKSWorkloadIdentity) bool {

@@ -163,6 +163,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		}
 	}
 
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != rawKindSageMakerWorkloadRole {
+			continue
+		}
+		if err := normalizeSageMakerWorkloadRoleAsset(asset, i, &bundle, identitySeen, workloadSeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
 	return bundle, nil
 }
 
@@ -1505,4 +1517,236 @@ func copyTags(tags map[string]string) map[string]string {
 		copied[key] = value
 	}
 	return copied
+}
+
+func normalizeSageMakerWorkloadRoleAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}, workloadSeen map[string]struct{}, resourceSeen map[string]struct{}) error {
+	var record SageMakerWorkloadRole
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode sagemaker workload role asset[%d]: %w", index, err)
+	}
+
+	roleARN := strings.TrimSpace(record.RoleARN)
+	roleIdentityID := ""
+	if roleARN != "" {
+		roleIdentityID = identityIDFromARN(roleARN)
+		roleName := strings.TrimSpace(record.RoleName)
+		if roleName == "" {
+			roleName = roleNameFromARN(roleARN)
+		}
+		if _, exists := identitySeen[roleIdentityID]; !exists {
+			identitySeen[roleIdentityID] = struct{}{}
+			bundle.Identities = append(bundle.Identities, domain.Identity{
+				ID:        roleIdentityID,
+				Provider:  domain.ProviderAWS,
+				Type:      domain.IdentityTypeRole,
+				Name:      roleName,
+				ARN:       roleARN,
+				OwnerHint: ownerHintFromTags(record.Tags),
+				Tags:      copyTags(record.Tags),
+				RawRef:    asset.SourceID,
+			})
+		}
+	}
+
+	workloadID := sageMakerRecordWorkloadID(record)
+	if workloadID != "" {
+		if _, exists := workloadSeen[workloadID]; !exists {
+			workloadSeen[workloadID] = struct{}{}
+			bundle.Workloads = append(bundle.Workloads, domain.Workload{
+				ID:        workloadID,
+				Provider:  domain.ProviderAWS,
+				Type:      sageMakerWorkloadType(record),
+				Name:      sageMakerWorkloadName(record),
+				AccountID: strings.TrimSpace(record.AccountID),
+				Region:    strings.TrimSpace(record.Region),
+				RawRef:    roleIdentityID,
+			})
+		}
+	}
+
+	if strings.TrimSpace(record.WorkloadARN) != "" || strings.TrimSpace(record.ResourceARN) != "" {
+		resourceID := sageMakerResourceID(record)
+		if _, exists := resourceSeen[resourceID]; !exists {
+			resourceSeen[resourceID] = struct{}{}
+			bundle.Resources = append(bundle.Resources, sageMakerResourceFromRecord(record, asset.SourceID, workloadID, roleARN))
+		} else {
+			mergeSageMakerResourceRoleMetadata(bundle, resourceID, record, roleARN)
+		}
+	}
+
+	return nil
+}
+
+func sageMakerResourceFromRecord(record SageMakerWorkloadRole, rawRef string, workloadID string, roleARN string) domain.Resource {
+	// model_arns is a slice so endpoints with multiple backing models keep
+	// every model's evidence even when several variants share the same
+	// execution role (the collector emits one record per backing model and
+	// merge unions the remaining records' evidence into this resource).
+	modelARNs := sageMakerInitialModelARNs(record.ModelARN)
+	return domain.Resource{
+		ID:        sageMakerResourceID(record),
+		Provider:  domain.ProviderAWS,
+		Type:      sageMakerResourceType(record),
+		Name:      sageMakerWorkloadName(record),
+		ARN:       firstNonEmptyAWSValue(record.ResourceARN, record.WorkloadARN),
+		Region:    strings.TrimSpace(record.Region),
+		AccountID: strings.TrimSpace(record.AccountID),
+		Labels:    copyTags(record.Tags),
+		Metadata: map[string]any{
+			"service":         strings.TrimSpace(record.Service),
+			"role_arn":        roleARN,
+			"role_kind":       strings.TrimSpace(record.RoleKind),
+			"role_account_id": strings.TrimSpace(record.RoleAccountID),
+			"resource_status": strings.TrimSpace(record.ResourceStatus),
+			"domain_id":       strings.TrimSpace(record.DomainID),
+			"domain_arn":      strings.TrimSpace(record.DomainARN),
+			"pipeline_arn":    strings.TrimSpace(record.PipelineARN),
+			"model_arns":      modelARNs,
+			"endpoint_config": strings.TrimSpace(record.EndpointConfig),
+			"network_mode":    strings.TrimSpace(record.NetworkMode),
+			"image_uris":      append([]string(nil), record.ImageURIs...),
+			"s3_references":   append([]string(nil), record.S3References...),
+			"kms_key_arns":    append([]string(nil), record.KMSKeyARNs...),
+			"coverage_status": strings.TrimSpace(record.CoverageStatus),
+			"coverage_reason": strings.TrimSpace(record.CoverageReason),
+			"active":          record.Active,
+			"disabled":        record.Disabled,
+			"roles":           []map[string]any{sageMakerResourceRoleMetadata(record, roleARN)},
+		},
+		RawRef:         rawRef,
+		SourceEntityID: workloadID,
+	}
+}
+
+func sageMakerInitialModelARNs(modelARN string) []string {
+	trimmed := strings.TrimSpace(modelARN)
+	if trimmed == "" {
+		return []string{}
+	}
+	return []string{trimmed}
+}
+
+// mergeSageMakerResourceRoleMetadata folds a follow-up record into an
+// already-emitted resource. It always unions the per-record model ARN, image
+// URI, S3 reference, and KMS key evidence onto the resource, so additional
+// records for the same endpoint surface every backing model's evidence even
+// when several variants share the same execution role. Roles are appended if
+// the role ARN is not already present on the resource.
+func mergeSageMakerResourceRoleMetadata(bundle *providers.NormalizedBundle, resourceID string, record SageMakerWorkloadRole, roleARN string) {
+	for idx := range bundle.Resources {
+		if bundle.Resources[idx].ID != resourceID {
+			continue
+		}
+		if bundle.Resources[idx].Metadata == nil {
+			bundle.Resources[idx].Metadata = map[string]any{}
+		}
+		meta := bundle.Resources[idx].Metadata
+		meta["model_arns"] = sageMakerUnionStringEvidence(meta["model_arns"], []string{strings.TrimSpace(record.ModelARN)})
+		meta["image_uris"] = sageMakerUnionStringEvidence(meta["image_uris"], record.ImageURIs)
+		meta["s3_references"] = sageMakerUnionStringEvidence(meta["s3_references"], record.S3References)
+		meta["kms_key_arns"] = sageMakerUnionStringEvidence(meta["kms_key_arns"], record.KMSKeyARNs)
+		if trimmedRole := strings.TrimSpace(roleARN); trimmedRole != "" {
+			roles, _ := meta["roles"].([]map[string]any)
+			alreadyPresent := false
+			for _, existing := range roles {
+				if existingARN, _ := existing["role_arn"].(string); strings.TrimSpace(existingARN) == trimmedRole {
+					alreadyPresent = true
+					break
+				}
+			}
+			if !alreadyPresent {
+				meta["roles"] = append(roles, sageMakerResourceRoleMetadata(record, trimmedRole))
+			}
+		}
+		return
+	}
+}
+
+// sageMakerUnionStringEvidence appends trimmed, deduplicated values to an
+// existing metadata slice, preserving insertion order so the first record's
+// evidence stays at the front of the slice.
+func sageMakerUnionStringEvidence(existing any, additions []string) []string {
+	out := []string{}
+	seen := map[string]struct{}{}
+	if cur, ok := existing.([]string); ok {
+		for _, value := range cur {
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				continue
+			}
+			if _, exists := seen[trimmed]; exists {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			out = append(out, trimmed)
+		}
+	}
+	for _, value := range additions {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func sageMakerResourceRoleMetadata(record SageMakerWorkloadRole, roleARN string) map[string]any {
+	return map[string]any{
+		"role_arn":        strings.TrimSpace(roleARN),
+		"role_name":       strings.TrimSpace(firstNonEmptyAWSValue(record.RoleName, roleNameFromARN(roleARN))),
+		"role_kind":       strings.TrimSpace(record.RoleKind),
+		"role_account_id": strings.TrimSpace(record.RoleAccountID),
+		"confidence":      record.Confidence,
+	}
+}
+
+func sageMakerRecordWorkloadID(record SageMakerWorkloadRole) string {
+	workloadRef := firstNonEmptyAWSValue(record.WorkloadID, record.WorkloadARN, record.ResourceARN, record.WorkloadName)
+	// Endpoints inherit one execution role per backing model, so the role
+	// kind alone cannot discriminate variants whose models use different
+	// roles. Without a model discriminator on the workload key, the second
+	// record's workload entry is dropped by workloadSeen and the
+	// relationship builder skips its workload→role edge. Embed the model
+	// identity in the workload ref so each backing model produces its own
+	// workload entry and downstream graph edge.
+	if strings.EqualFold(strings.TrimSpace(record.WorkloadType), "sagemaker_endpoint") || strings.EqualFold(strings.TrimSpace(record.ResourceType), "sagemaker_endpoint") {
+		if modelARN := strings.TrimSpace(record.ModelARN); modelARN != "" {
+			workloadRef = workloadRef + "::" + modelARN
+		}
+	}
+	return sageMakerWorkloadID(
+		record.AccountID,
+		record.Region,
+		sageMakerBaseWorkloadType(record),
+		workloadRef,
+		record.RoleKind,
+	)
+}
+
+func sageMakerBaseWorkloadType(record SageMakerWorkloadRole) string {
+	if workloadType := strings.TrimSpace(record.WorkloadType); workloadType != "" {
+		return workloadType
+	}
+	if resourceType := strings.TrimSpace(record.ResourceType); resourceType != "" {
+		return resourceType
+	}
+	return sageMakerDefaultWorkloadType(record)
+}
+
+func sageMakerWorkloadType(record SageMakerWorkloadRole) string {
+	baseType := sageMakerBaseWorkloadType(record)
+	roleKind := strings.ToLower(strings.TrimSpace(record.RoleKind))
+	if strings.Contains(roleKind, "execution_role") {
+		return baseType + "_execution_role"
+	}
+	return baseType
+}
+
+func sageMakerWorkloadName(record SageMakerWorkloadRole) string {
+	return firstNonEmptyAWSValue(record.WorkloadName, managedComputeNameFromARN(firstNonEmptyAWSValue(record.WorkloadARN, record.ResourceARN)), "sagemaker workload")
 }
