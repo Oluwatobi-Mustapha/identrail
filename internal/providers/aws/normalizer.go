@@ -175,6 +175,18 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		}
 	}
 
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != rawKindIAMPassRoleRelationship {
+			continue
+		}
+		if err := normalizeIAMPassRoleRelationshipAsset(asset, i, &bundle, identitySeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
 	return bundle, nil
 }
 
@@ -1749,4 +1761,112 @@ func sageMakerWorkloadType(record SageMakerWorkloadRole) string {
 
 func sageMakerWorkloadName(record SageMakerWorkloadRole) string {
 	return firstNonEmptyAWSValue(record.WorkloadName, managedComputeNameFromARN(firstNonEmptyAWSValue(record.WorkloadARN, record.ResourceARN)), "sagemaker workload")
+}
+
+func normalizeIAMPassRoleRelationshipAsset(asset providers.RawAsset, index int, bundle *providers.NormalizedBundle, identitySeen map[string]struct{}) error {
+	var record IAMPassRoleRelationship
+	if err := json.Unmarshal(asset.Payload, &record); err != nil {
+		return fmt.Errorf("decode iam passrole relationship asset[%d]: %w", index, err)
+	}
+
+	// Register the source identity (the role whose policy contains the
+	// PassRole grant) so the graph has a well-formed "from" endpoint. The
+	// dedupe map short-circuits if the IAM collector has already emitted it.
+	sourceRoleARN := strings.TrimSpace(record.SourceRoleARN)
+	if sourceRoleARN == "" {
+		return nil
+	}
+	sourceID := identityIDFromARN(sourceRoleARN)
+	if _, exists := identitySeen[sourceID]; !exists {
+		identitySeen[sourceID] = struct{}{}
+		bundle.Identities = append(bundle.Identities, domain.Identity{
+			ID:        sourceID,
+			Provider:  domain.ProviderAWS,
+			Type:      domain.IdentityTypeRole,
+			Name:      firstNonEmptyAWSValue(record.SourceRoleName, roleNameFromARN(sourceRoleARN)),
+			ARN:       sourceRoleARN,
+			OwnerHint: ownerHintFromTags(record.Tags),
+			Tags:      copyTags(record.Tags),
+			RawRef:    asset.SourceID,
+		})
+	}
+
+	// Target identities are only projected for concrete role ARNs. Wildcard
+	// targets stay as raw-asset/API metadata — synthesizing an "arn:aws:iam::
+	// *:role/*" identity would pollute every downstream traversal and create
+	// fake nodes the graph cannot reason about.
+	if record.UnresolvedTarget {
+		return nil
+	}
+	targetARN := strings.TrimSpace(record.TargetResource)
+	if !isIAMRoleARN(targetARN) {
+		// PassRole targets must be IAM role ARNs (arn:PARTITION:iam::ACCOUNT:
+		// role/...). Any other shape — an S3 bucket ARN, a Lambda function
+		// ARN, a malformed string — would synthesize a bogus role identity in
+		// the graph, so we drop those edges silently. The raw asset still
+		// carries the original target string for audit; the API exposes it
+		// even when no identity is created.
+		return nil
+	}
+	targetID := identityIDFromARN(targetARN)
+	if _, exists := identitySeen[targetID]; !exists {
+		identitySeen[targetID] = struct{}{}
+		bundle.Identities = append(bundle.Identities, domain.Identity{
+			ID:       targetID,
+			Provider: domain.ProviderAWS,
+			Type:     domain.IdentityTypeRole,
+			Name:     roleNameFromARN(targetARN),
+			ARN:      targetARN,
+			RawRef:   asset.SourceID,
+		})
+	}
+	return nil
+}
+
+// isIAMRoleARN reports whether the supplied string is a fully-qualified IAM
+// role ARN of the form arn:PARTITION:iam::ACCOUNT:role/NAME. It guards the
+// PassRole normalizer from synthesizing identity nodes from non-IAM-role ARNs
+// that happen to share the arn: prefix.
+//
+// Every segment is validated: the literal "arn" prefix, an aws-family
+// partition, the service "iam", an empty region (IAM is global), a 12-digit
+// numeric account ID, and a resource of the form "role/NAME" where NAME is
+// non-empty. Anything else — wrong service, missing account, region present,
+// dangling "role/" with no name — rejects.
+func isIAMRoleARN(arn string) bool {
+	trimmed := strings.TrimSpace(arn)
+	if trimmed == "" {
+		return false
+	}
+	parts := strings.SplitN(trimmed, ":", 6)
+	if len(parts) != 6 {
+		return false
+	}
+	if !strings.EqualFold(parts[0], "arn") {
+		return false
+	}
+	if !strings.HasPrefix(strings.ToLower(parts[1]), "aws") {
+		return false
+	}
+	if !strings.EqualFold(parts[2], "iam") {
+		return false
+	}
+	// IAM is a global service; the region segment must be empty.
+	if parts[3] != "" {
+		return false
+	}
+	account := strings.TrimSpace(parts[4])
+	if len(account) != 12 {
+		return false
+	}
+	for _, ch := range account {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	resource := strings.TrimSpace(parts[5])
+	if !strings.HasPrefix(resource, "role/") {
+		return false
+	}
+	return len(strings.TrimPrefix(resource, "role/")) > 0
 }
