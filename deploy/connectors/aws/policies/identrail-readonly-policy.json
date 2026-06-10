@@ -33,8 +33,13 @@
       "Effect": "Allow",
       "Action": [
         "s3:GetBucketAcl",
+        "s3:GetBucketLocation",
+        "s3:GetBucketOwnershipControls",
         "s3:GetBucketPolicy",
         "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketTagging",
+        "s3:GetEncryptionConfiguration",
+        "s3:ListAccessPoints",
         "s3:ListAllMyBuckets"
       ],
       "Resource": "*"
