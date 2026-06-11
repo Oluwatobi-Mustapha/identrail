@@ -152,6 +152,15 @@ func fixtureAssetKindAndSourceID(payload []byte) (string, string) {
 		}
 	}
 
+	// SQS/SNS reachability records carry sqs/sns service markers and queue or
+	// topic resource types.
+	var sqsSNSReach SQSSNSReachability
+	if err := json.Unmarshal(payload, &sqsSNSReach); err == nil {
+		if isSQSSNSReachabilityFixture(sqsSNSReach) {
+			return rawKindSQSSNSReachability, sqsSNSReachabilitySourceID(sqsSNSReach)
+		}
+	}
+
 	// SSM parameter metadata must be checked before Secrets Manager metadata.
 	// Both record shapes share the kms_key_id and referenced_by JSON keys, and
 	// the Secrets Manager matcher treats either as a secret signal, so an SSM
@@ -565,6 +574,55 @@ func isKMSDecryptReachabilityFixture(record KMSDecryptReachability) bool {
 	}
 	if strings.EqualFold(strings.TrimSpace(record.WorkloadType), "kms_key") {
 		return true
+	}
+	return false
+}
+
+// isSQSSNSReachabilityFixture identifies queue/topic reachability records
+// without claiming unrelated AWS service collector payloads.
+func isSQSSNSReachabilityFixture(record SQSSNSReachability) bool {
+	if strings.EqualFold(strings.TrimSpace(record.CollectorName), sqsSNSReachabilityCollectorName) {
+		return true
+	}
+	service := strings.ToLower(strings.TrimSpace(record.Service))
+	sqssnsResourceHint := firstNonEmptyAWSValue(
+		record.ResourceARN,
+		record.ResourceName,
+		record.ResourceURL,
+		record.QueueURL,
+		record.TopicARN,
+	)
+	if sqssnsResourceHint != "" {
+		if service == sqsServiceName || service == snsServiceName || service == sqsSNSServiceName {
+			return true
+		}
+		if isSQSSNSReachabilityResourceHint(sqssnsResourceHint, record.TopicARN, record.QueueURL, record.ResourceURL) {
+			return true
+		}
+	}
+	switch strings.ToLower(strings.TrimSpace(record.ResourceType)) {
+	case "sqs_queue", "sns_topic":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSQSSNSReachabilityResourceHint(resourceArn string, topicARN string, queueURL string, resourceURL string) bool {
+	arn := strings.TrimSpace(resourceArn)
+	if arn == "" {
+		return false
+	}
+	normalizedArn := strings.ToLower(arn)
+	if strings.Contains(normalizedArn, ":sqs:") || strings.Contains(normalizedArn, ":sns:") {
+		return true
+	}
+	if arn == "" && strings.TrimSpace(topicARN) == "" && strings.TrimSpace(queueURL) == "" && strings.TrimSpace(resourceURL) == "" {
+		return false
+	}
+	if candidate := strings.TrimSpace(firstNonEmptyAWSValue(queueURL, resourceURL, topicARN)); candidate != "" {
+		lower := strings.ToLower(candidate)
+		return strings.Contains(lower, ":sqs:") || strings.Contains(lower, ":sns:") || strings.Contains(lower, "sqs.amazonaws")
 	}
 	return false
 }
