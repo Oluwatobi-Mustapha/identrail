@@ -290,36 +290,7 @@ func normalizeSecretsManagerMetadataScope(scope AWSCollectorScope, record Secret
 // ARN. The field can carry a full ARN, an alias (`alias/...`), or a bare key
 // id; only the bare id needs a synthesized key ARN.
 func secretsManagerKMSKeyARN(keyID, accountID, region string) string {
-	trimmed := strings.TrimSpace(keyID)
-	switch {
-	case trimmed == "":
-		return ""
-	case strings.HasPrefix(trimmed, "arn:"):
-		return trimmed
-	case strings.HasPrefix(trimmed, "alias/"):
-		if strings.TrimSpace(accountID) == "" || strings.TrimSpace(region) == "" {
-			return ""
-		}
-		return fmt.Sprintf("arn:%s:kms:%s:%s:%s", awsPartitionForRegion(region), region, accountID, trimmed)
-	default:
-		return kmsKeyARNFromID(trimmed, accountID, region)
-	}
-}
-
-// secretsManagerPrincipalAccountID extracts the owning account from a policy
-// principal. Bare 12-digit account ids are valid AWS principals alongside
-// full ARNs.
-func secretsManagerPrincipalAccountID(principal string) string {
-	trimmed := strings.TrimSpace(principal)
-	if len(trimmed) == 12 {
-		for _, r := range trimmed {
-			if r < '0' || r > '9' {
-				return accountIDFromARN(trimmed)
-			}
-		}
-		return trimmed
-	}
-	return accountIDFromARN(trimmed)
+	return resolveKMSKeyARN(keyID, accountID, region)
 }
 
 func annotateSecretsManagerGrants(grants []SecretsManagerIdentityGrant, accountID string) []SecretsManagerIdentityGrant {
@@ -336,7 +307,7 @@ func annotateSecretsManagerGrants(grants []SecretsManagerIdentityGrant, accountI
 		grant.WildcardPrincipal = grant.WildcardPrincipal || grant.PrincipalARN == "*"
 		grant.IsPublic = grant.IsPublic || grant.WildcardPrincipal
 		if !grant.IsCrossAccount && accountID != "" && grant.PrincipalARN != "" && grant.PrincipalARN != "*" {
-			grantAccount := secretsManagerPrincipalAccountID(grant.PrincipalARN)
+			grantAccount := accountIDFromPrincipal(grant.PrincipalARN)
 			if grantAccount != "" && grantAccount != accountID {
 				grant.IsCrossAccount = true
 			}
@@ -675,7 +646,7 @@ func parseSecretsManagerResourcePolicyGrants(raw string, ownerAccountID string) 
 				grant.IsPublic = true
 			}
 			if ownerAccountID != "" && grant.PrincipalARN != "" && grant.PrincipalARN != "*" {
-				grantAccount := secretsManagerPrincipalAccountID(grant.PrincipalARN)
+				grantAccount := accountIDFromPrincipal(grant.PrincipalARN)
 				grant.IsCrossAccount = grantAccount != "" && grantAccount != ownerAccountID
 			}
 			grants = append(grants, grant)

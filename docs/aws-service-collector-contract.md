@@ -94,7 +94,9 @@ The response envelope is:
       "secretsmanager:ListSecrets",
       "secretsmanager:DescribeSecret",
       "secretsmanager:GetResourcePolicy",
-      "secretsmanager:ListSecretVersionIds"
+      "secretsmanager:ListSecretVersionIds",
+      "ssm:DescribeParameters",
+      "ssm:ListTagsForResource"
     ],
     "read_only_boundaries": [
       "collect metadata and policy documents only; never collect secret values, customer payloads, prompts, completions, object contents, or database rows"
@@ -185,6 +187,11 @@ The Secrets Manager metadata collector adds metadata-only reads:
 `secretsmanager:ListSecretVersionIds`. It must not add
 `secretsmanager:GetSecretValue`.
 
+The SSM Parameter Store metadata collector adds metadata-only reads:
+`ssm:DescribeParameters` and `ssm:ListTagsForResource`. It must not add
+`ssm:GetParameter`, `ssm:GetParameters`, `ssm:GetParametersByPath`, or
+`ssm:GetParameterHistory`.
+
 Future service collectors may add service-specific read-only metadata
 permissions, but must not add actions that read secret values, object contents,
 prompts, completions, browser pages, code-interpreter output, database rows, or
@@ -204,6 +211,13 @@ KMS references, tags, version stages, replica status, and resolved workload
 reference edges only. `SecretString`, `SecretBinary`, secret descriptions as
 operator evidence, and `GetSecretValue` outputs are intentionally outside the
 collector contract.
+
+For SSM Parameter Store, records contain parameter metadata, type and tier,
+path context, KMS references, parameter-policy summaries, tags, last-modified
+identity context, and resolved workload reference edges only. Parameter
+values, parameter history, description and allowed-pattern text as operator
+evidence, and every `ssm:GetParameter*` output are intentionally outside the
+collector contract. SecureString parameters are sensitive metadata only.
 
 For CodePipeline, `configuration_keys` are action configuration key names only.
 Configuration values, source contents, action outputs, artifact contents,
