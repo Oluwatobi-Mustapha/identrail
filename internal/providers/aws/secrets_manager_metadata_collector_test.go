@@ -71,6 +71,15 @@ func TestSecretsManagerMetadataCollectorCollectsMetadataOnly(t *testing.T) {
 	if strings.Contains(payload, "secretstring") || strings.Contains(payload, "secretbinary") || strings.Contains(payload, "getsecretvalue") {
 		t.Fatalf("secret value material leaked into collector payload: %s", payload)
 	}
+	if !record.Sensitive {
+		t.Fatalf("expected normalized secret metadata to be marked sensitive: %+v", record)
+	}
+	if record.SensitivityClassification != "customer_kms_secret" {
+		t.Fatalf("expected customer-kms secret classification, got %q", record.SensitivityClassification)
+	}
+	if record.SensitivityClassificationSource != sensitivityClassificationSourceAuto {
+		t.Fatalf("expected auto sensitivity source, got %q", record.SensitivityClassificationSource)
+	}
 }
 
 func TestSecretsManagerMetadataCollectorPartialFailureReturnsDiagnostics(t *testing.T) {
@@ -188,6 +197,16 @@ func TestSecretsManagerMetadataNormalizeAndGraphUsesSecret(t *testing.T) {
 	if len(bundle.Resources) == 0 {
 		t.Fatalf("expected normalized resources")
 	}
+	resource := bundle.Resources[0]
+	if resource.Metadata["sensitive"] != true {
+		t.Fatalf("expected legacy secrets manager asset to default sensitive=true, got %v", resource.Metadata["sensitive"])
+	}
+	if resource.Metadata["sensitivity_classification"] != "runtime_secret_reference" {
+		t.Fatalf("expected runtime-reference classification from workload refs, got %v", resource.Metadata["sensitivity_classification"])
+	}
+	if resource.Metadata["sensitivity_classification_source"] != sensitivityClassificationSourceAuto {
+		t.Fatalf("expected auto classification source, got %v", resource.Metadata["sensitivity_classification_source"])
+	}
 	relationships, err := NewRelationshipBuilder().ResolveRelationships(context.Background(), bundle, nil)
 	if err != nil {
 		t.Fatalf("relationships: %v", err)
@@ -201,6 +220,42 @@ func TestSecretsManagerMetadataNormalizeAndGraphUsesSecret(t *testing.T) {
 		}
 	}
 	t.Fatalf("expected uses_secret relationship, got %+v", relationships)
+}
+
+func TestSecretsManagerMetadataNormalizeDefaultsLegacySecretSensitivity(t *testing.T) {
+	secret := SecretsManagerSecretMetadata{
+		SecretARN:              "arn:aws:secretsmanager:us-east-1:123456789012:secret:payments/api-AbCdEf",
+		SecretName:             "payments/api",
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{},
+	}
+	secret.AccountID = "123456789012"
+	secret.Region = "us-east-1"
+	secret.Service = secretsManagerServiceName
+	payload, err := json.Marshal(secret)
+	if err != nil {
+		t.Fatalf("marshal secret: %v", err)
+	}
+	bundle, err := NewRoleNormalizer().Normalize(context.Background(), []providers.RawAsset{{
+		Kind:     rawKindSecretsManagerMetadata,
+		SourceID: secretsManagerMetadataSourceID(secret),
+		Payload:  payload,
+	}})
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if len(bundle.Resources) != 1 {
+		t.Fatalf("expected 1 normalized resource, got %d", len(bundle.Resources))
+	}
+	resource := bundle.Resources[0]
+	if resource.Metadata["sensitive"] != true {
+		t.Fatalf("expected legacy secrets manager asset to default sensitive=true, got %v", resource.Metadata["sensitive"])
+	}
+	if resource.Metadata["sensitivity_classification"] != "secret_bearing" {
+		t.Fatalf("expected default secret-bearing classification, got %v", resource.Metadata["sensitivity_classification"])
+	}
+	if resource.Metadata["sensitivity_classification_source"] != sensitivityClassificationSourceAuto {
+		t.Fatalf("expected auto classification source, got %v", resource.Metadata["sensitivity_classification_source"])
+	}
 }
 
 func TestSecretsManagerReferenceKeysFromRefStripsValueSuffixes(t *testing.T) {
@@ -262,6 +317,65 @@ func TestSecretsManagerReferenceKeysFromRefStripsValueSuffixes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClassifySecretsManagerSensitivity(t *testing.T) {
+	t.Run("operator_override_tag_precedence", func(t *testing.T) {
+		secret := SecretsManagerSecretMetadata{
+			ReferencedBy: []SecretWorkloadReference{{
+				Reference: "DATABASE_PASSWORD=arn:aws:secretsmanager:us-east-1:123456789012:secret:payments/db",
+			}},
+			KMSKeyID: "alias/aws/secretsmanager",
+			Tags: map[string]string{
+				"IDENTRAIL:sensitivity_classification": "customer_kms_secret",
+			},
+		}
+		classification, source, override := classifySecretsManagerSensitivity(secret)
+		if classification != "customer_kms_secret" || source != sensitivityClassificationSourceOverride || override != "customer_kms_secret" {
+			t.Fatalf("expected operator override classification from tag, got %q %q %q", classification, source, override)
+		}
+	})
+
+	t.Run("operator_override_skips_invalid_duplicate_tags", func(t *testing.T) {
+		secret := SecretsManagerSecretMetadata{
+			Tags: map[string]string{
+				"IDENTRAIL:sensitivity_classification":   "customer-kms-secret",
+				" identrail:sensitivity_classification ": "not-a-valid-classification",
+			},
+		}
+		classification, source, override := classifySecretsManagerSensitivity(secret)
+		if classification != "customer_kms_secret" || source != sensitivityClassificationSourceOverride || override != "customer_kms_secret" {
+			t.Fatalf("expected valid duplicate override tag to win, got %q %q %q", classification, source, override)
+		}
+	})
+
+	t.Run("customer_kms_classification", func(t *testing.T) {
+		classification, source, _ := classifySecretsManagerSensitivity(SecretsManagerSecretMetadata{
+			ReferencedBy: []SecretWorkloadReference{},
+			KMSKeyID:     "alias/payments",
+		})
+		if classification != "customer_kms_secret" || source != sensitivityClassificationSourceAuto {
+			t.Fatalf("expected auto customer-kms classification, got %q %q", classification, source)
+		}
+	})
+
+	t.Run("default_bearing_classification", func(t *testing.T) {
+		classification, source, _ := classifySecretsManagerSensitivity(SecretsManagerSecretMetadata{
+			Tags: map[string]string{"environment": "prod"},
+		})
+		if classification != "secret_bearing" || source != sensitivityClassificationSourceAuto {
+			t.Fatalf("expected auto default bearing classification, got %q %q", classification, source)
+		}
+	})
+
+	t.Run("runtime_reference_classification", func(t *testing.T) {
+		classification, source, _ := classifySecretsManagerSensitivity(SecretsManagerSecretMetadata{
+			ReferencedBy: []SecretWorkloadReference{{Reference: "PAYMENT_PASSWORD=foo"}},
+		})
+		if classification != "runtime_secret_reference" || source != sensitivityClassificationSourceAuto {
+			t.Fatalf("expected auto runtime-reference classification, got %q %q", classification, source)
+		}
+	})
 }
 
 func containsString(values []string, want string) bool {

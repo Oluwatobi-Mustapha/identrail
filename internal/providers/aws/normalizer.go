@@ -271,6 +271,7 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		}
 	}
 
+	applyRuntimeSecretReferenceSensitivity(&bundle)
 	return bundle, nil
 }
 
@@ -388,6 +389,17 @@ func normalizeSecretsManagerMetadataAsset(asset providers.RawAsset, index int, b
 	if secretARN == "" {
 		return nil
 	}
+	record.Sensitive = true
+	classification, source, override := classifySecretsManagerSensitivity(record)
+	if strings.TrimSpace(record.SensitivityClassification) == "" {
+		record.SensitivityClassification = classification
+	}
+	if strings.TrimSpace(record.SensitivityClassificationSource) == "" {
+		record.SensitivityClassificationSource = source
+	}
+	if strings.TrimSpace(record.SensitivityClassificationOverride) == "" {
+		record.SensitivityClassificationOverride = override
+	}
 	resourceID := secretsManagerSecretResourceID(secretARN)
 	if _, exists := resourceSeen[resourceID]; exists {
 		return nil
@@ -403,36 +415,76 @@ func normalizeSecretsManagerMetadataAsset(asset providers.RawAsset, index int, b
 		AccountID: strings.TrimSpace(record.AccountID),
 		Labels:    copyTags(record.Tags),
 		Metadata: map[string]any{
-			"description_present":             record.DescriptionPresent,
-			"kms_key_id":                      strings.TrimSpace(record.KMSKeyID),
-			"kms_key_arn":                     strings.TrimSpace(record.KMSKeyARN),
-			"owning_service":                  strings.TrimSpace(record.OwningService),
-			"primary_region":                  strings.TrimSpace(record.PrimaryRegion),
-			"secret_status":                   strings.TrimSpace(record.SecretStatus),
-			"rotation_enabled":                record.RotationEnabled,
-			"rotation_lambda_arn":             strings.TrimSpace(record.RotationLambdaARN),
-			"rotation_interval_days":          record.RotationInterval,
-			"created_at":                      strings.TrimSpace(record.CreatedAt),
-			"last_changed_at":                 strings.TrimSpace(record.LastChangedAt),
-			"last_accessed_at":                strings.TrimSpace(record.LastAccessedAt),
-			"last_rotated_at":                 strings.TrimSpace(record.LastRotatedAt),
-			"deleted_at":                      strings.TrimSpace(record.DeletedAt),
-			"has_resource_policy":             record.HasResourcePolicy,
-			"resource_policy_statement_count": record.ResourcePolicyStatementCount,
-			"version_stage_count":             len(record.VersionStages),
-			"replica_region_count":            len(record.ReplicaRegions),
-			"exposure_classification":         record.ExposureClassification,
-			"exposure_reasons":                append([]string(nil), record.ExposureReasons...),
-			"identity_grant_count":            len(record.IdentityGrants),
-			"public_grant_count":              secretsManagerPublicGrantCount(record.IdentityGrants),
-			"cross_account_grant_count":       secretsManagerCrossAccountGrantCount(record.IdentityGrants),
-			"reference_count":                 len(record.ReferencedBy),
-			"referenced_by":                   secretReferenceMetadata(record.ReferencedBy),
-			"unresolved_references":           secretReferenceMetadata(record.UnresolvedReferences),
+			"description_present":                 record.DescriptionPresent,
+			"kms_key_id":                          strings.TrimSpace(record.KMSKeyID),
+			"kms_key_arn":                         strings.TrimSpace(record.KMSKeyARN),
+			"owning_service":                      strings.TrimSpace(record.OwningService),
+			"primary_region":                      strings.TrimSpace(record.PrimaryRegion),
+			"secret_status":                       strings.TrimSpace(record.SecretStatus),
+			"rotation_enabled":                    record.RotationEnabled,
+			"rotation_lambda_arn":                 strings.TrimSpace(record.RotationLambdaARN),
+			"rotation_interval_days":              record.RotationInterval,
+			"created_at":                          strings.TrimSpace(record.CreatedAt),
+			"last_changed_at":                     strings.TrimSpace(record.LastChangedAt),
+			"last_accessed_at":                    strings.TrimSpace(record.LastAccessedAt),
+			"last_rotated_at":                     strings.TrimSpace(record.LastRotatedAt),
+			"deleted_at":                          strings.TrimSpace(record.DeletedAt),
+			"has_resource_policy":                 record.HasResourcePolicy,
+			"resource_policy_statement_count":     record.ResourcePolicyStatementCount,
+			"sensitive":                           record.Sensitive,
+			"sensitivity_classification":          record.SensitivityClassification,
+			"sensitivity_classification_source":   record.SensitivityClassificationSource,
+			"sensitivity_classification_override": record.SensitivityClassificationOverride,
+			"version_stage_count":                 len(record.VersionStages),
+			"replica_region_count":                len(record.ReplicaRegions),
+			"exposure_classification":             record.ExposureClassification,
+			"exposure_reasons":                    append([]string(nil), record.ExposureReasons...),
+			"identity_grant_count":                len(record.IdentityGrants),
+			"public_grant_count":                  secretsManagerPublicGrantCount(record.IdentityGrants),
+			"cross_account_grant_count":           secretsManagerCrossAccountGrantCount(record.IdentityGrants),
+			"reference_count":                     len(record.ReferencedBy),
+			"referenced_by":                       secretReferenceMetadata(record.ReferencedBy),
+			"unresolved_references":               secretReferenceMetadata(record.UnresolvedReferences),
 		},
 		RawRef: asset.SourceID,
 	})
 	return nil
+}
+
+func applyRuntimeSecretReferenceSensitivity(bundle *providers.NormalizedBundle) {
+	if bundle == nil || len(bundle.Resources) == 0 {
+		return
+	}
+	secretIndex := secretsManagerResourceIndex(bundle.Resources)
+	secretResourceIndexes := map[string]int{}
+	for i, resource := range bundle.Resources {
+		if resource.Type == domain.ResourceTypeSecretsManager {
+			secretResourceIndexes[resource.ID] = i
+		}
+	}
+	for _, resource := range bundle.Resources {
+		for _, ref := range parseStringList(resource.Metadata["secret_refs"]) {
+			secretID := matchSecretsManagerReference(ref, secretIndex)
+			if secretID == "" {
+				continue
+			}
+			resourceIndex, ok := secretResourceIndexes[secretID]
+			if !ok {
+				continue
+			}
+			metadata := bundle.Resources[resourceIndex].Metadata
+			if metadata == nil {
+				metadata = map[string]any{}
+				bundle.Resources[resourceIndex].Metadata = metadata
+			}
+			if metadata["sensitivity_classification_source"] == sensitivityClassificationSourceOverride {
+				continue
+			}
+			metadata["sensitive"] = true
+			metadata["sensitivity_classification"] = "runtime_secret_reference"
+			metadata["sensitivity_classification_source"] = sensitivityClassificationSourceAuto
+		}
+	}
 }
 
 func imageReferenceMetadata(refs []ImageWorkloadReference) []map[string]any {
