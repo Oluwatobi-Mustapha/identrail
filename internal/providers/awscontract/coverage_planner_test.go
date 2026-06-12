@@ -2,6 +2,7 @@ package awscontract
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -155,6 +156,225 @@ func TestPlanCoveragePrerequisitesBlockTarget(t *testing.T) {
 	}
 }
 
+func TestPlanCoverageRegionAndServiceAvailabilityIsPerAccountAware(t *testing.T) {
+	now := time.Now().UTC()
+	config := CoveragePlanConfig{
+		Accounts: []CoverageAccount{
+			{AccountID: "111111111111", Enabled: true},
+			{AccountID: "222222222222", Enabled: true},
+		},
+		Regions: []CoverageRegion{
+			{Region: "us-east-1", Enabled: true},
+			{Region: "eu-west-1", Enabled: true},
+		},
+		Services: []CoverageService{
+			{Service: "iam", Enabled: true, Global: true},
+			{Service: "ec2", Enabled: true},
+			{Service: "lambda", Enabled: true},
+		},
+		RegionAvailability: []CoverageAccountRegionAvailability{
+			{
+				AccountID: "222222222222",
+				Region:    "eu-west-1",
+				State:     CoverageStateBlocked,
+				Reason:    "member account has not enabled region opt-in",
+			},
+		},
+		ServiceAvailability: []CoverageAccountServiceAvailability{
+			{
+				AccountID: "111111111111",
+				Region:    "eu-west-1",
+				Service:   "lambda",
+				State:     CoverageStateUnsupported,
+				Reason:    "lambda service not available in account-specific region",
+			},
+			{
+				AccountID: "111111111111",
+				Region:    "us-east-1",
+				Service:   "lambda",
+				State:     CoverageStatePermissionDenied,
+				Reason:    "required read action on this account is denied",
+			},
+			{
+				AccountID: "222222222222",
+				Region:    "us-east-1",
+				Service:   "ec2",
+				State:     CoverageStateDisabled,
+				Reason:    "ec2 collection explicitly disabled for this service scope",
+			},
+		},
+	}
+	plan, err := PlanCoverage(config, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	targetByKey := map[string]CoverageTarget{}
+	for _, target := range plan.Targets {
+		targetByKey[target.Key] = target
+	}
+	if targetByKey["111111111111|us-east-1|lambda"].State != CoverageStatePermissionDenied {
+		t.Fatalf("expected region service to remain permission denied: %#v", targetByKey["111111111111|us-east-1|lambda"])
+	}
+	if targetByKey["111111111111|eu-west-1|lambda"].State != CoverageStateUnsupported {
+		t.Fatalf("expected region service to be unsupported: %#v", targetByKey["111111111111|eu-west-1|lambda"])
+	}
+	if targetByKey["222222222222|eu-west-1|ec2"].State != CoverageStateBlocked {
+		t.Fatalf("expected blocked target from region availability: %#v", targetByKey["222222222222|eu-west-1|ec2"])
+	}
+	if targetByKey["222222222222|eu-west-1|lambda"].State != CoverageStateBlocked {
+		t.Fatalf("expected blocked target from region availability: %#v", targetByKey["222222222222|eu-west-1|lambda"])
+	}
+	if targetByKey["222222222222|us-east-1|ec2"].State != CoverageStateDisabled {
+		t.Fatalf("expected disabled target from service availability: %#v", targetByKey["222222222222|us-east-1|ec2"])
+	}
+	if !strings.Contains(targetByKey["222222222222|us-east-1|ec2"].Reason, "availability:") {
+		t.Fatalf("expected availability reason on service-disabled target, got: %s", targetByKey["222222222222|us-east-1|ec2"].Reason)
+	}
+	if plan.Summary.StateCounts[CoverageStateUnsupported] != 1 ||
+		plan.Summary.StateCounts[CoverageStatePermissionDenied] != 1 ||
+		plan.Summary.StateCounts[CoverageStateBlocked] != 2 {
+		t.Fatalf("unexpected summary state counts: %#v", plan.Summary.StateCounts)
+	}
+	if plan.Summary.StateCounts[CoverageStateDisabled] != 1 {
+		t.Fatalf("expected one disabled target summary: %#v", plan.Summary.StateCounts)
+	}
+	if targetByKey["222222222222|us-east-1|ec2"].Enabled {
+		t.Fatalf("expected availability-disabled target to be disabled")
+	}
+	if !targetByKey["111111111111|us-east-1|lambda"].Enabled {
+		t.Fatalf("expected permission-denied target to remain enabled and outstanding")
+	}
+	if !targetByKey["222222222222|eu-west-1|ec2"].Enabled {
+		t.Fatalf("expected blocked target to remain enabled and outstanding")
+	}
+	if targetByKey["111111111111|eu-west-1|lambda"].Enabled {
+		t.Fatalf("expected unsupported target to be removed from enabled coverage")
+	}
+	if plan.Summary.EnabledTargets != 8 || plan.Summary.DisabledTargets != 2 {
+		t.Fatalf("unexpected enabled/disabled summary counts: %+v", plan.Summary)
+	}
+}
+
+func TestPlanCoverageAvailabilityDoesNotReplayCheckpointForBlockedTarget(t *testing.T) {
+	now := time.Now().UTC()
+	observed := now.Add(-time.Minute)
+	plan, err := PlanCoverage(CoveragePlanConfig{
+		Accounts: []CoverageAccount{{AccountID: "111111111111", Enabled: true}},
+		Regions:  []CoverageRegion{{Region: "us-east-1", Enabled: true}},
+		Services: []CoverageService{{Service: "lambda", Enabled: true}},
+		RegionAvailability: []CoverageAccountRegionAvailability{{
+			AccountID:  "111111111111",
+			Region:     "us-east-1",
+			State:      CoverageStateBlocked,
+			Reason:     "region is not enabled in this account",
+			ObservedAt: observed,
+		}},
+		Checkpoints: []CoverageCheckpoint{{
+			AccountID: "111111111111",
+			Region:    "us-east-1",
+			Service:   "lambda",
+			State:     CoverageStateInProgress,
+			Cursor:    "cursor-1",
+			Attempts:  2,
+		}},
+	}, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	target := plan.Targets[0]
+	if target.State != CoverageStateBlocked {
+		t.Fatalf("checkpoint replay should be blocked by region availability, got %q", target.State)
+	}
+	if target.Cursor != "" || target.Attempts != 0 {
+		t.Fatalf("blocked availability target should not replay cursor/attempts: %#v", target)
+	}
+	if target.ObservedAt.IsZero() || !target.ObservedAt.Equal(observed) {
+		t.Fatalf("expected observed_at from availability, got %v", target.ObservedAt)
+	}
+}
+
+func TestPlanCoverageAvailabilityClearsStaleCheckpointObservedAt(t *testing.T) {
+	now := time.Now().UTC()
+	checkpointObservedAt := now.Add(-time.Hour)
+	plan, err := PlanCoverage(CoveragePlanConfig{
+		Accounts: []CoverageAccount{{AccountID: "111111111111", Enabled: true}},
+		Regions:  []CoverageRegion{{Region: "us-east-1", Enabled: true}},
+		Services: []CoverageService{{Service: "lambda", Enabled: true}},
+		RegionAvailability: []CoverageAccountRegionAvailability{{
+			AccountID: "111111111111",
+			Region:    "us-east-1",
+			State:     CoverageStateBlocked,
+			Reason:    "region is not enabled in this account",
+		}},
+		Checkpoints: []CoverageCheckpoint{{
+			AccountID:  "111111111111",
+			Region:     "us-east-1",
+			Service:    "lambda",
+			State:      CoverageStateCovered,
+			ObservedAt: checkpointObservedAt,
+		}},
+	}, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	target := plan.Targets[0]
+	if target.State != CoverageStateBlocked {
+		t.Fatalf("expected availability to override checkpoint state, got %q", target.State)
+	}
+	if !target.ObservedAt.IsZero() {
+		t.Fatalf("expected stale checkpoint observed_at to be cleared, got %v", target.ObservedAt)
+	}
+}
+
+func TestPlanCoverageServiceAvailabilityRestoresFixableTargetAfterRegionDisable(t *testing.T) {
+	now := time.Now().UTC()
+	plan, err := PlanCoverage(CoveragePlanConfig{
+		Accounts: []CoverageAccount{{AccountID: "111111111111", Enabled: true}},
+		Regions:  []CoverageRegion{{Region: "us-east-1", Enabled: true}},
+		Services: []CoverageService{
+			{Service: "ec2", Enabled: true},
+			{Service: "lambda", Enabled: true},
+		},
+		RegionAvailability: []CoverageAccountRegionAvailability{{
+			AccountID: "111111111111",
+			Region:    "us-east-1",
+			State:     CoverageStateDisabled,
+			Reason:    "region disabled for this account",
+		}},
+		ServiceAvailability: []CoverageAccountServiceAvailability{{
+			AccountID:     "111111111111",
+			Region:        "us-east-1",
+			Service:       "lambda",
+			State:         CoverageStatePermissionDenied,
+			Reason:        "lambda read action denied",
+			FailureReason: "AccessDenied: lambda:ListFunctions",
+		}},
+	}, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	targetByKey := map[string]CoverageTarget{}
+	for _, target := range plan.Targets {
+		targetByKey[target.Key] = target
+	}
+
+	ec2 := targetByKey["111111111111|us-east-1|ec2"]
+	if ec2.State != CoverageStateDisabled || ec2.Enabled {
+		t.Fatalf("expected region-disabled service to stay disabled: %#v", ec2)
+	}
+	lambda := targetByKey["111111111111|us-east-1|lambda"]
+	if lambda.State != CoverageStatePermissionDenied || !lambda.Enabled {
+		t.Fatalf("expected service permission denial to restore enabled target: %#v", lambda)
+	}
+	if lambda.FailureReason == "" {
+		t.Fatalf("expected service permission denial failure reason")
+	}
+	if plan.Summary.EnabledTargets != 1 || plan.Summary.DisabledTargets != 1 || plan.Summary.OutstandingTargets != 1 {
+		t.Fatalf("unexpected summary counts after service availability override: %+v", plan.Summary)
+	}
+}
+
 func TestPlanCoverageCheckpointResumes(t *testing.T) {
 	now := time.Now().UTC()
 	observed := time.Date(2026, 6, 11, 9, 0, 0, 0, time.UTC)
@@ -262,6 +482,29 @@ func TestPlanCoverageRejectsInvalidCheckpointState(t *testing.T) {
 	config.Checkpoints = []CoverageCheckpoint{{AccountID: "111111111111", Region: "us-east-1", Service: "iam", State: "bogus"}}
 	if _, err := PlanCoverage(config, time.Now()); err == nil {
 		t.Fatalf("expected error for invalid checkpoint state")
+	}
+}
+
+func TestPlanCoverageRejectsInvalidAvailabilityState(t *testing.T) {
+	config := sampleCoverageConfig()
+	config.RegionAvailability = []CoverageAccountRegionAvailability{{
+		AccountID: "111111111111",
+		Region:    "us-east-1",
+		State:     CoverageState("bogus"),
+	}}
+	if _, err := PlanCoverage(config, time.Now()); err == nil {
+		t.Fatalf("expected error for invalid region availability state")
+	}
+
+	config = sampleCoverageConfig()
+	config.ServiceAvailability = []CoverageAccountServiceAvailability{{
+		AccountID: "111111111111",
+		Region:    "us-east-1",
+		Service:   "lambda",
+		State:     CoverageState("bogus"),
+	}}
+	if _, err := PlanCoverage(config, time.Now()); err == nil {
+		t.Fatalf("expected error for invalid service availability state")
 	}
 }
 
