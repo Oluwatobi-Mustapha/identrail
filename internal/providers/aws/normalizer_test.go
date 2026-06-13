@@ -209,6 +209,89 @@ func TestRoleNormalizerKeepsDistinctGatewayOnlyAIAgents(t *testing.T) {
 	}
 }
 
+func TestRoleNormalizerEmitsGatewayToolResourcesAndRelationships(t *testing.T) {
+	normalizer := NewRoleNormalizer()
+	credentialRef := "arn:aws:bedrock-agentcore:us-east-1:123456789012:oauth/payments"
+	record := AIAgentIdentity{
+		ServiceCollectorRecord: awscontract.ServiceCollectorRecord{
+			AccountID: "123456789012",
+			Region:    "us-east-1",
+			Service:   "agentcore",
+		},
+		AgentType:      "agent_gateway",
+		AgentID:        "gw-payments",
+		AgentName:      "payments-gateway",
+		GatewayID:      "gw-payments",
+		GatewayARN:     "arn:aws:bedrock-agentcore:us-east-1:123456789012:gateway/gw-payments",
+		RuntimeRoleARN: "arn:aws:iam::123456789012:role/agentcore-gateway-payments",
+		ToolNames:      []string{"payments-case-search"},
+		AuthMode:       "custom_jwt",
+		CredentialReferenceRefs: []string{
+			credentialRef,
+		},
+	}
+	payload, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal ai agent: %v", err)
+	}
+
+	bundle, err := normalizer.Normalize(context.Background(), []providers.RawAsset{{
+		Kind:     rawKindAIAgentIdentity,
+		SourceID: "gateway/gw-payments",
+		Payload:  payload,
+	}})
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	var toolResourceID string
+	var toolSourceEntityID string
+	for _, resource := range bundle.Resources {
+		if resource.Type == domain.ResourceTypeTool {
+			toolResourceID = resource.ID
+			toolSourceEntityID = resource.SourceEntityID
+			if resource.SourceEntityID == "" {
+				t.Fatalf("expected tool source entity id, got %+v", resource)
+			}
+			if !containsString(parseStringList(resource.Metadata["secret_refs"]), credentialRef) {
+				t.Fatalf("expected gateway tool secret_refs to include %q, got %+v", credentialRef, resource.Metadata)
+			}
+		}
+	}
+	if toolResourceID == "" {
+		t.Fatalf("expected gateway tool resource, got %+v", bundle.Resources)
+	}
+
+	refs, _ := MapBundleCredentialReferences(bundle)
+	credential, ok := findCredentialReference(refs, credentialRef)
+	if !ok {
+		t.Fatalf("expected gateway tool credential reference %q, got %+v", credentialRef, refs)
+	}
+	if credential.WorkloadID != toolSourceEntityID {
+		t.Fatalf("expected credential reference workload %q, got %q", toolSourceEntityID, credential.WorkloadID)
+	}
+
+	relationships, err := NewRelationshipBuilder().ResolveRelationships(context.Background(), bundle, nil)
+	if err != nil {
+		t.Fatalf("resolve relationships: %v", err)
+	}
+	foundCallsTool := false
+	foundUsesSecret := false
+	for _, relationship := range relationships {
+		if relationship.Type == domain.RelationshipCallsTool && relationship.ToNodeID == toolResourceID {
+			foundCallsTool = true
+		}
+		if relationship.Type == domain.RelationshipUsesSecret && relationship.FromNodeID == toolSourceEntityID && relationship.ToNodeID == credential.TargetNodeID {
+			foundUsesSecret = true
+		}
+	}
+	if !foundCallsTool {
+		t.Fatalf("expected calls_tool relationship to %q, got %+v", toolResourceID, relationships)
+	}
+	if !foundUsesSecret {
+		t.Fatalf("expected uses_secret relationship from %q to %q, got %+v", toolSourceEntityID, credential.TargetNodeID, relationships)
+	}
+}
+
 func TestAIAgentExecutionEndpointNodeIDPreservesAgentNodeCase(t *testing.T) {
 	agentNodeID := "aws:agent:123456789012:us-east-1:custom_agent/CaseSensitiveGateway"
 	endpointARN := "arn:aws:bedrock-agentcore:us-east-1:123456789012:agent-runtime-endpoint/runtime/Blue"
@@ -216,6 +299,18 @@ func TestAIAgentExecutionEndpointNodeIDPreservesAgentNodeCase(t *testing.T) {
 	nodeID := awsAIAgentExecutionEndpointNodeID(agentNodeID, endpointARN)
 	if !strings.Contains(nodeID, agentNodeID) {
 		t.Fatalf("expected endpoint node id to preserve agent node case, got %q", nodeID)
+	}
+}
+
+func TestAIAgentToolNodeIDGatewayFallbackBehavior(t *testing.T) {
+	nodeID := awsAIAgentToolNodeID("Aws:Agent:123456789012:Us-East-1:AgentCore/GatewayA", "Payments Search")
+	if nodeID != "tool:agent:aws:agent:123456789012:us-east-1:agentcore/gatewaya|payments search" {
+		t.Fatalf("expected lowercase provider tool node id, got %q", nodeID)
+	}
+
+	fallbackNodeID := awsAIAgentToolNodeID("", "")
+	if fallbackNodeID != "tool:agent:gateway|tool" {
+		t.Fatalf("expected gateway/tool fallback node id, got %q", fallbackNodeID)
 	}
 }
 
