@@ -3820,6 +3820,7 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'All surfaces', value: 'all' },
         { label: 'Bedrock agents', value: 'bedrock-agents' },
         { label: 'AgentCore runtime', value: 'agentcore-runtime' },
+        { label: 'AgentCore capabilities', value: 'agentcore-capabilities' },
         { label: 'MCP gateway', value: 'mcp-gateway' },
         { label: 'External provider keys', value: 'external-provider-keys' }
       ]
@@ -3831,7 +3832,8 @@ const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
         { label: 'All relationships', value: 'all' },
         { label: 'Agent to role', value: 'agent-to-role' },
         { label: 'Agent to tool', value: 'agent-to-tool' },
-        { label: 'Agent to secret', value: 'agent-to-secret' }
+        { label: 'Agent to secret', value: 'agent-to-secret' },
+        { label: 'Agent to storage', value: 'agent-to-storage' }
       ]
     },
     {
@@ -6703,6 +6705,12 @@ function AWSAgentIdentitiesContent({
               detail={`${inventory.capability_count} capabilities`}
             />
             <DomainCoverageCard
+              label="AgentCore capabilities"
+              scanned={inventory.capability_agent_count}
+              total={Math.max(inventory.record_count, 1)}
+              detail={`${inventory.memory_store_count} memory · ${inventory.browser_count} browser · ${inventory.code_interpreter_count} code`}
+            />
+            <DomainCoverageCard
               label="Credential refs"
               scanned={inventory.credential_reference_count}
               total={Math.max(inventory.credential_reference_count, 1)}
@@ -7116,14 +7124,31 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
   if (record.execution_endpoint_arns?.length) {
     relationships.add('agent-to-endpoint');
   }
+  if (record.storage_reference_refs?.length || record.memory_store_refs?.length || record.encryption_key_arn) {
+    relationships.add('agent-to-storage');
+  }
+  // AgentCore Memory / Browser / Code Interpreter capability surface detail.
+  const capabilityDetail =
+    record.capability_kind === 'memory'
+      ? `memory store; ${record.encryption_key_arn ? 'customer-encrypted; ' : ''}${(record.storage_reference_refs?.length || record.memory_store_refs?.length || 0)} storage refs`
+      : record.capability_kind === 'browser'
+        ? `browser tool; ${record.network_mode || 'network mode not reported'}; ${(record.storage_reference_refs?.length || 0)} recording refs`
+        : record.capability_kind === 'code_interpreter'
+          ? `code interpreter; ${record.network_mode || 'network mode not reported'}`
+          : '';
+  const category = record.capability_kind
+    ? `AgentCore ${formatTokenLabel(record.capability_kind)}`
+    : formatTokenLabel(record.agent_type);
   return {
     id: `ai-agent-identity-${record.agent_node_id || record.agent_id}`,
     name: record.agent_name || record.agent_id,
-    category: formatTokenLabel(record.agent_type),
+    category,
     scope: awsAccountRegionInventoryLabel(record.account_id, record.region),
     status,
     stage,
-    detail: `${record.provider || 'provider not reported'} ${record.model_id || 'model not reported'}; runs as ${roleLabel}; ${runtimeLabel}; ${toolLabel}; ${authLabel}; ${actionLabel}; ${endpointLabel}; ${networkLabel}; ${protocolLabel}; ${capabilityLabel}; ${credentialLabel}.`,
+    detail: record.capability_kind
+      ? `${capabilityDetail}; runs as ${roleLabel}; ${capabilityLabel}. Contents never collected.`
+      : `${record.provider || 'provider not reported'} ${record.model_id || 'model not reported'}; runs as ${roleLabel}; ${runtimeLabel}; ${toolLabel}; ${authLabel}; ${actionLabel}; ${endpointLabel}; ${networkLabel}; ${protocolLabel}; ${capabilityLabel}; ${credentialLabel}.`,
     filters: {
       surface,
       relationship: Array.from(relationships).join(','),
@@ -7152,6 +7177,10 @@ function awsAIAgentIdentityRow(record: AWSAIAgentIdentityRecord): AWSInventoryTa
       ...(record.observability_links ?? []),
       ...(record.capability_names ?? []),
       ...(record.credential_reference_refs ?? []),
+      ...(record.storage_reference_refs ?? []),
+      ...(record.memory_store_refs ?? []),
+      record.capability_kind,
+      record.encryption_key_arn,
       record.network_mode,
       record.server_protocol,
       record.account_id,
@@ -7169,6 +7198,8 @@ function awsAIAgentSurfaceFilter(record: AWSAIAgentIdentityRecord): string {
       return 'agentcore-runtime';
     case 'agent_gateway':
       return 'mcp-gateway';
+    case 'agentcore_capability':
+      return 'agentcore-capabilities';
     case 'external_provider_agent':
     case 'custom_agent':
       return record.credential_reference_refs?.length ? 'external-provider-keys' : 'bedrock-agents';
