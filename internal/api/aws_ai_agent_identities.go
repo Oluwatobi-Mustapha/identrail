@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,8 +14,8 @@ import (
 )
 
 const (
-	awsAIAgentIdentityCurrentIssue        = 1511
-	awsAIAgentIdentityVersion             = "aws-ai-agent-custom-agent-detector-v1"
+	awsAIAgentIdentityCurrentIssue        = 1512
+	awsAIAgentIdentityVersion             = "aws-ai-agent-api-explorer-v1"
 	awsAIAgentCredentialRefPrefix         = "aws:resource:credential-reference:"
 	awsAIAgentToolNodePrefix              = "tool:agent:"
 	agentCoreCapabilityAgentTypeAPI       = "agentcore_capability"
@@ -23,8 +25,17 @@ const (
 )
 
 type AWSAIAgentIdentityInventoryRequest struct {
-	ConnectorID  string `json:"connector_id,omitempty"`
-	FixtureState string `json:"fixture_state,omitempty"`
+	ConnectorID   string `json:"connector_id,omitempty"`
+	FixtureState  string `json:"fixture_state,omitempty"`
+	AccountID     string `json:"account_id,omitempty"`
+	Region        string `json:"region,omitempty"`
+	AgentID       string `json:"agent_id,omitempty"`
+	Provider      string `json:"provider,omitempty"`
+	Runtime       string `json:"runtime,omitempty"`
+	Tool          string `json:"tool,omitempty"`
+	Status        string `json:"status,omitempty"`
+	Risk          string `json:"risk,omitempty"`
+	MinConfidence string `json:"min_confidence,omitempty"`
 }
 
 type AWSAIAgentCoverageGap struct {
@@ -49,7 +60,10 @@ type AWSAIAgentIdentityInventoryResult struct {
 	Status                   string                         `json:"status"`
 	FixtureState             string                         `json:"fixture_state"`
 	Confidence               float64                        `json:"confidence"`
+	AppliedFilters           map[string]string              `json:"applied_filters"`
 	RecordCount              int                            `json:"record_count"`
+	TotalRecordCount         int                            `json:"total_record_count"`
+	FilteredRecordCount      int                            `json:"filtered_record_count"`
 	BedrockAgentCount        int                            `json:"bedrock_agent_count"`
 	AgentCoreRuntimeCount    int                            `json:"agentcore_runtime_count"`
 	CustomAgentCount         int                            `json:"custom_agent_count"`
@@ -78,6 +92,14 @@ type AWSAIAgentIdentityInventoryResult struct {
 	Diagnostics              []AWSAIAgentIdentityDiagnostic `json:"diagnostics"`
 	GeneratedAt              time.Time                      `json:"generated_at"`
 	UpdatedAt                time.Time                      `json:"updated_at"`
+}
+
+type AWSAIAgentIdentityDetailResult struct {
+	Inventory     AWSAIAgentIdentityInventoryResult `json:"inventory"`
+	Record        AWSAIAgentIdentityRecord          `json:"record"`
+	Relationships []AWSAIAgentIdentityRelation      `json:"relationships"`
+	EvidenceLinks []string                          `json:"evidence_links"`
+	GeneratedAt   time.Time                         `json:"generated_at"`
 }
 
 type AWSAIAgentIdentityRecord struct {
@@ -182,6 +204,28 @@ func (s *Service) GetAWSAIAgentIdentityInventory(ctx context.Context, workspaceI
 	return buildAWSAIAgentIdentityInventory(scope, project, connection, hasConnection, request, s.Now().UTC())
 }
 
+func (s *Service) GetAWSAIAgentIdentityDetail(ctx context.Context, workspaceID string, projectID string, agentID string, request AWSAIAgentIdentityInventoryRequest) (AWSAIAgentIdentityDetailResult, error) {
+	detailAgentID := firstNonEmptyAWSValue(strings.TrimSpace(agentID), strings.TrimSpace(request.AgentID))
+	request.AgentID = ""
+	inventory, err := s.GetAWSAIAgentIdentityInventory(ctx, workspaceID, projectID, request)
+	if err != nil {
+		return AWSAIAgentIdentityDetailResult{}, err
+	}
+	record, ok := awsAIAgentIdentityExactDetailRecord(inventory.Records, detailAgentID)
+	if !ok {
+		return AWSAIAgentIdentityDetailResult{}, db.ErrNotFound
+	}
+	relationships := awsAIAgentIdentityRelationshipsForRecord(record, inventory.Relationships)
+	awsAIAgentIdentityApplyRecordSummary(&inventory, []AWSAIAgentIdentityRecord{record}, relationships)
+	return AWSAIAgentIdentityDetailResult{
+		Inventory:     inventory,
+		Record:        record,
+		Relationships: relationships,
+		EvidenceLinks: dedupeStrings(append(append([]string{}, inventory.EvidenceLinks...), record.EvidenceRef, record.AgentARN, record.RuntimeRoleARN)),
+		GeneratedAt:   inventory.GeneratedAt,
+	}, nil
+}
+
 func buildAWSAIAgentIdentityInventory(scope db.Scope, project db.TenancyProject, connection AWSConnectionStatus, hasConnection bool, request AWSAIAgentIdentityInventoryRequest, checkedAt time.Time) (AWSAIAgentIdentityInventoryResult, error) {
 	fixtureState := normalizeAWSAIAgentIdentityFixtureState(request.FixtureState, connection, hasConnection)
 	if fixtureState == "" {
@@ -193,6 +237,12 @@ func buildAWSAIAgentIdentityInventory(scope db.Scope, project db.TenancyProject,
 	records, diagnostics, coverageGaps := awsAIAgentIdentityFixtureRecords(accountID, region, fixtureState, checkedAt)
 	records = emptyAWSAIAgentIdentityRecords(records)
 	coverageGaps = emptyAWSAIAgentCoverageGaps(coverageGaps)
+	totalRecordCount := len(records)
+	filteredRecords, appliedFilters, err := filterAWSAIAgentIdentityRecords(records, request)
+	if err != nil {
+		return AWSAIAgentIdentityInventoryResult{}, err
+	}
+	records = filteredRecords
 	for _, record := range records {
 		if _, err := awscontract.NormalizeServiceCollectorRecord(awscontract.ServiceCollectorRecord{
 			TenantID:      scope.TenantID,
@@ -235,7 +285,10 @@ func buildAWSAIAgentIdentityInventory(scope db.Scope, project db.TenancyProject,
 		Status:                status,
 		FixtureState:          fixtureState,
 		Confidence:            confidence,
+		AppliedFilters:        appliedFilters,
 		RecordCount:           len(records),
+		TotalRecordCount:      totalRecordCount,
+		FilteredRecordCount:   len(records),
 		BedrockAgentCount:     awsAIAgentIdentityTypeCount(records, "bedrock_agent"),
 		AgentCoreRuntimeCount: awsAIAgentIdentityTypeCount(records, "agentcore_runtime"),
 		CustomAgentCount:      awsAIAgentIdentityTypeCount(records, "custom_agent"),
@@ -325,6 +378,277 @@ func normalizeAWSAIAgentIdentityFixtureState(requested string, connection AWSCon
 	default:
 		return ""
 	}
+}
+
+func filterAWSAIAgentIdentityRecords(records []AWSAIAgentIdentityRecord, request AWSAIAgentIdentityInventoryRequest) ([]AWSAIAgentIdentityRecord, map[string]string, error) {
+	applied := map[string]string{}
+	accountID := strings.TrimSpace(request.AccountID)
+	region := strings.TrimSpace(request.Region)
+	agentID := strings.TrimSpace(request.AgentID)
+	provider := strings.TrimSpace(request.Provider)
+	runtime := strings.TrimSpace(request.Runtime)
+	tool := strings.TrimSpace(request.Tool)
+	status := normalizeAWSAIAgentExplorerStatus(request.Status)
+	risk := normalizeAWSAIAgentExplorerRisk(request.Risk)
+	minConfidence, minConfidenceSet, err := parseAWSAIAgentMinConfidence(request.MinConfidence)
+	if err != nil {
+		return nil, nil, ErrInvalidAWSConnectionRequest
+	}
+	if accountID != "" {
+		applied["account_id"] = accountID
+	}
+	if region != "" {
+		applied["region"] = region
+	}
+	if agentID != "" {
+		applied["agent_id"] = agentID
+	}
+	if provider != "" {
+		applied["provider"] = provider
+	}
+	if runtime != "" {
+		applied["runtime"] = runtime
+	}
+	if tool != "" {
+		applied["tool"] = tool
+	}
+	if status != "" {
+		applied["status"] = status
+	}
+	if risk != "" {
+		applied["risk"] = risk
+	}
+	if minConfidenceSet {
+		applied["min_confidence"] = strconv.FormatFloat(minConfidence, 'f', -1, 64)
+	}
+	filtered := make([]AWSAIAgentIdentityRecord, 0, len(records))
+	for _, record := range records {
+		if accountID != "" && !strings.EqualFold(record.AccountID, accountID) {
+			continue
+		}
+		if region != "" && !strings.EqualFold(record.Region, region) {
+			continue
+		}
+		if agentID != "" && !awsAIAgentRecordMatchesIdentity(record, agentID) {
+			continue
+		}
+		if provider != "" && !awsAIAgentRecordMatchesProvider(record, provider) {
+			continue
+		}
+		if runtime != "" && !awsAIAgentRecordMatchesAny(record, runtime, record.Service, record.AgentType, record.RuntimeVersion, record.RuntimeRoleARN, record.RuntimeRoleName, record.NetworkMode, record.ServerProtocol) {
+			continue
+		}
+		if tool != "" && !awsAIAgentRecordMatchesAny(record, tool, append(append([]string{}, record.ToolNames...), record.ToolTargetRefs...)...) {
+			continue
+		}
+		if status != "" && !awsAIAgentRecordMatchesStatus(record, status) {
+			continue
+		}
+		if risk != "" && awsAIAgentRecordRisk(record) != risk {
+			continue
+		}
+		if minConfidenceSet && record.Confidence < minConfidence {
+			continue
+		}
+		filtered = append(filtered, record)
+	}
+	return filtered, applied, nil
+}
+
+func parseAWSAIAgentMinConfidence(raw string) (float64, bool, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, false, nil
+	}
+	value, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil || math.IsNaN(value) || value < 0 || value > 1 {
+		return 0, false, fmt.Errorf("invalid min confidence")
+	}
+	return value, true, nil
+}
+
+func normalizeAWSAIAgentExplorerStatus(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "all":
+		return ""
+	case "ready", "role-anchor", "role_anchor", "covered":
+		return "ready"
+	case "candidate":
+		return "candidate"
+	case "degraded":
+		return "degraded"
+	case "blocked", "not-yet-available", "not_yet_available":
+		return "blocked"
+	default:
+		return strings.ToLower(strings.TrimSpace(raw))
+	}
+}
+
+func normalizeAWSAIAgentExplorerRisk(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "all":
+		return ""
+	case "high", "medium", "low", "unscored":
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return strings.ToLower(strings.TrimSpace(raw))
+	}
+}
+
+func awsAIAgentRecordMatchesIdentity(record AWSAIAgentIdentityRecord, query string) bool {
+	return awsAIAgentRecordMatchesAny(record, query, record.AgentID, record.AgentName, record.AgentARN, record.AgentNodeID, record.GatewayID, record.GatewayARN)
+}
+
+func awsAIAgentIdentityExactDetailRecord(records []AWSAIAgentIdentityRecord, agentID string) (AWSAIAgentIdentityRecord, bool) {
+	normalizedAgentID := strings.TrimSpace(agentID)
+	if normalizedAgentID == "" {
+		return AWSAIAgentIdentityRecord{}, false
+	}
+	for _, record := range records {
+		if record.AgentID == normalizedAgentID || record.AgentNodeID == normalizedAgentID {
+			return record, true
+		}
+	}
+	return AWSAIAgentIdentityRecord{}, false
+}
+
+func awsAIAgentRecordProviderFilterValues(record AWSAIAgentIdentityRecord) []string {
+	values := []string{record.Provider, record.ExternalProvider}
+	for _, ref := range record.ProviderKeyReferences {
+		values = append(values, ref.Provider)
+	}
+	return values
+}
+
+func awsAIAgentRecordMatchesProvider(record AWSAIAgentIdentityRecord, query string) bool {
+	normalizedQuery := normalizeAWSAIAgentProviderToken(query)
+	if normalizedQuery == "" {
+		return true
+	}
+	for _, value := range awsAIAgentRecordProviderFilterValues(record) {
+		if normalizeAWSAIAgentProviderToken(value) == normalizedQuery {
+			return true
+		}
+	}
+	if _, known := awsAIAgentKnownProviderFilterTokens()[normalizedQuery]; known {
+		return false
+	}
+	return awsAIAgentRecordMatchesAny(record, query, record.ModelID)
+}
+
+func normalizeAWSAIAgentProviderToken(value string) string {
+	token := strings.ToLower(strings.TrimSpace(value))
+	token = strings.NewReplacer(" ", "_", "-", "_").Replace(token)
+	switch token {
+	case "amazon_bedrock":
+		return "amazon_bedrock"
+	case "bedrock_agentcore", "amazon_bedrock_agentcore":
+		return "amazon_bedrock_agentcore"
+	case "external_ai_provider":
+		return "external_provider"
+	default:
+		return token
+	}
+}
+
+func awsAIAgentKnownProviderFilterTokens() map[string]struct{} {
+	return map[string]struct{}{
+		"amazon_bedrock":           {},
+		"amazon_bedrock_agentcore": {},
+		"external_provider":        {},
+		"openai":                   {},
+		"anthropic":                {},
+		"bedrock":                  {},
+		"custom":                   {},
+	}
+}
+
+func awsAIAgentRecordMatchesAny(record AWSAIAgentIdentityRecord, query string, values ...string) bool {
+	normalizedQuery := strings.ToLower(strings.TrimSpace(query))
+	if normalizedQuery == "" {
+		return true
+	}
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(strings.TrimSpace(value)), normalizedQuery) {
+			return true
+		}
+	}
+	return false
+}
+
+func awsAIAgentRecordMatchesStatus(record AWSAIAgentIdentityRecord, status string) bool {
+	switch status {
+	case "ready":
+		return strings.EqualFold(record.Status, "ready") && strings.EqualFold(record.CoverageStatus, "covered")
+	case "candidate":
+		return strings.EqualFold(record.Status, "candidate") || strings.EqualFold(record.CoverageStatus, "candidate")
+	case "degraded":
+		return strings.EqualFold(record.Status, "degraded") || strings.EqualFold(record.CoverageStatus, "degraded") || strings.TrimSpace(record.CoverageReason) != ""
+	case "blocked":
+		return strings.EqualFold(record.Status, "blocked")
+	default:
+		return strings.EqualFold(record.Status, status) || strings.EqualFold(record.CoverageStatus, status)
+	}
+}
+
+func awsAIAgentRecordRisk(record AWSAIAgentIdentityRecord) string {
+	switch {
+	case strings.EqualFold(record.Status, "degraded") || strings.EqualFold(record.CoverageStatus, "degraded") || strings.TrimSpace(record.CoverageReason) != "":
+		return "high"
+	case record.Confidence == 0:
+		return "unscored"
+	case strings.EqualFold(record.Status, "candidate") || strings.EqualFold(record.CoverageStatus, "candidate") || record.Confidence < 0.75:
+		return "medium"
+	default:
+		return "low"
+	}
+}
+
+func awsAIAgentIdentityRelationshipsForRecord(record AWSAIAgentIdentityRecord, relationships []AWSAIAgentIdentityRelation) []AWSAIAgentIdentityRelation {
+	result := []AWSAIAgentIdentityRelation{}
+	sourceNodeIDs := map[string]struct{}{}
+	for _, nodeID := range []string{record.AgentNodeID, record.GatewayNodeID, awsAIAgentWorkloadNodeID(record)} {
+		if strings.TrimSpace(nodeID) != "" {
+			sourceNodeIDs[nodeID] = struct{}{}
+		}
+	}
+	for _, relationship := range relationships {
+		if _, ok := sourceNodeIDs[relationship.FromNodeID]; ok {
+			result = append(result, relationship)
+		}
+	}
+	return result
+}
+
+func awsAIAgentIdentityApplyRecordSummary(inventory *AWSAIAgentIdentityInventoryResult, records []AWSAIAgentIdentityRecord, relationships []AWSAIAgentIdentityRelation) {
+	inventory.RecordCount = len(records)
+	inventory.TotalRecordCount = len(records)
+	inventory.FilteredRecordCount = len(records)
+	inventory.BedrockAgentCount = awsAIAgentIdentityTypeCount(records, "bedrock_agent")
+	inventory.AgentCoreRuntimeCount = awsAIAgentIdentityTypeCount(records, "agentcore_runtime")
+	inventory.CustomAgentCount = awsAIAgentIdentityTypeCount(records, "custom_agent")
+	inventory.ExternalAgentCount = awsAIAgentIdentityTypeCount(records, "external_provider_agent")
+	inventory.GatewayCount = awsAIAgentIdentityTypeCount(records, "agent_gateway")
+	inventory.CapabilityAgentCount = awsAIAgentIdentityTypeCount(records, agentCoreCapabilityAgentTypeAPI)
+	inventory.MemoryStoreCount = awsAIAgentIdentityCapabilityKindCount(records, "memory")
+	inventory.BrowserCount = awsAIAgentIdentityCapabilityKindCount(records, "browser")
+	inventory.CodeInterpreterCount = awsAIAgentIdentityCapabilityKindCount(records, "code_interpreter")
+	inventory.RuntimeRoleCount = awsAIAgentIdentityUniqueCount(records, func(r AWSAIAgentIdentityRecord) string { return r.RuntimeRoleNodeID })
+	inventory.ProviderCount = awsAIAgentIdentityUniqueCount(records, func(r AWSAIAgentIdentityRecord) string { return r.Provider })
+	inventory.ModelCount = awsAIAgentIdentityUniqueCount(records, func(r AWSAIAgentIdentityRecord) string { return r.ModelID })
+	inventory.ToolCount = awsAIAgentIdentityListCount(records, func(r AWSAIAgentIdentityRecord) []string { return r.ToolNames })
+	inventory.CapabilityCount = awsAIAgentIdentityListCount(records, func(r AWSAIAgentIdentityRecord) []string { return r.CapabilityNames })
+	inventory.CredentialRefCount = awsAIAgentIdentityListCount(records, func(r AWSAIAgentIdentityRecord) []string { return r.CredentialReferenceRefs })
+	inventory.ExternalProviderKeyCount = awsAIAgentProviderKeyCount(records, func(ref AWSAIAgentProviderKeyReference) bool {
+		return awsAIAgentProviderIsExternalAI(ref.Provider)
+	})
+	inventory.AIProviderKeyCount = awsAIAgentProviderKeyCount(records, func(ref AWSAIAgentProviderKeyReference) bool {
+		return ref.Sensitivity == awsAIAgentProviderSensitivityAIKey
+	})
+	inventory.ProviderKeyBreakdown = awsAIAgentProviderKeyBreakdown(records)
+	inventory.RelationshipCount = len(relationships)
+	inventory.Records = records
+	inventory.Relationships = relationships
 }
 
 func awsAIAgentIdentityFixtureRecords(accountID string, region string, fixtureState string, checkedAt time.Time) ([]AWSAIAgentIdentityRecord, []providers.SourceError, []AWSAIAgentCoverageGap) {
