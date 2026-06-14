@@ -89,7 +89,7 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 	if result.Status != awsPlatformDependencyStatusReady || result.Confidence < 0.9 {
 		t.Fatalf("expected ready inventory, got %+v", result)
 	}
-	if result.ParentIssueRef != "#1472" || result.CurrentIssueRef != "#1509" || result.Version != awsAIAgentIdentityVersion {
+	if result.ParentIssueRef != "#1472" || result.CurrentIssueRef != "#1510" || result.Version != awsAIAgentIdentityVersion {
 		t.Fatalf("unexpected parent/current/version metadata: %+v", result)
 	}
 	if result.BedrockAgentCount != 1 || result.AgentCoreRuntimeCount != 1 || result.CustomAgentCount != 1 || result.ExternalAgentCount != 1 || result.GatewayCount != 1 {
@@ -123,10 +123,11 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 		t.Fatalf("expected credential records to advertise uses_secret relationship type, got %+v", result.Records)
 	}
 	expectedCustomCredentialRefTarget := awsCredentialReferenceNodeID(customAgentNodeID, "secretsmanager:prod/ai/openai-key")
-	expectedExternalCredentialRefTarget := awsCredentialReferenceNodeID(externalAgentNodeID, "ssm:/prod/support/ai-provider-key")
+	expectedExternalCredentialRefTarget := awsCredentialReferenceNodeID(externalAgentNodeID, "ANTHROPIC_API_KEY=ssm:/prod/support/anthropic-key")
 	matchedCustomCredentialRef := false
 	matchedExternalCredentialRef := false
 	foundCredentialEdge := false
+	providerCounts := map[string]int{}
 	for _, relationship := range result.Relationships {
 		if relationship.Type == "uses_credential" {
 			t.Fatalf("expected supported graph relationship type uses_secret, got unsupported uses_credential in %+v", relationship)
@@ -156,6 +157,26 @@ func TestGetAWSAIAgentIdentityInventoryBuildsScopedRecords(t *testing.T) {
 	}
 	if !matchedExternalCredentialRef {
 		t.Fatalf("expected external-provider-agent unresolved credential reference to emit uses_secret edge to %q, got %+v", expectedExternalCredentialRefTarget, result.Relationships)
+	}
+	for _, record := range result.Records {
+		for _, ref := range record.ProviderKeyReferences {
+			providerCounts[ref.Provider]++
+			if ref.Sensitivity == "ai_provider_api_key" && ref.ReferenceKind == "" {
+				t.Fatalf("expected provider key reference kind for %+v", ref)
+			}
+			if strings.Contains(strings.ToLower(ref.Reference+" "+ref.EvidenceRef), "secret_value") {
+				t.Fatalf("provider key reference leaked forbidden value marker: %+v", ref)
+			}
+		}
+	}
+	if result.ExternalProviderKeyCount != 2 || result.AIProviderKeyCount != 2 {
+		t.Fatalf("expected two external AI provider key references, got external=%d ai=%d", result.ExternalProviderKeyCount, result.AIProviderKeyCount)
+	}
+	if providerCounts["openai"] != 1 || providerCounts["anthropic"] != 1 {
+		t.Fatalf("expected openai and anthropic provider-key records, got %+v", providerCounts)
+	}
+	if result.ProviderKeyBreakdown["openai"] != 1 || result.ProviderKeyBreakdown["anthropic"] != 1 {
+		t.Fatalf("expected provider key breakdown for openai/anthropic, got %+v", result.ProviderKeyBreakdown)
 	}
 	if len(result.CoverageGaps) == 0 {
 		t.Fatalf("expected sensitive-boundary coverage gaps, got %+v", result.CoverageGaps)
@@ -345,6 +366,67 @@ func TestAIAgentRelationshipsEmitRunsAsFromWorkloadNode(t *testing.T) {
 	}
 	if runsAs.ToNodeID != record.RuntimeRoleNodeID {
 		t.Fatalf("expected runs_as target %q, got %q", record.RuntimeRoleNodeID, runsAs.ToNodeID)
+	}
+}
+
+func TestAIAgentProviderKeyReferencesClassifyStoreOnlySources(t *testing.T) {
+	record := awsAIAgentFixtureRecord("111111111111", "us-east-1", "external_provider_agent", "store-backed-agent", "agent-1", "arn:aws:ecs:us-east-1:111111111111:service/prod/agent-1", "arn:aws:iam::111111111111:role/agent-1", time.Now(), func(r *AWSAIAgentIdentityRecord) {
+		r.CredentialReferenceRefs = []string{
+			"ssm:/prod/support/ai-provider-key",
+			"secretsmanager:prod/provider-key",
+			"OPENAI_API_KEY=SECRETS_MANAGER:arn:aws:secretsmanager:us-east-1:111111111111:secret:openai/key-AbCdEf",
+			"arn:aws:secretsmanager:us-east-1:111111111111:secret:provider/key-AbCdEf",
+			"arn:aws:ssm:us-east-1:111111111111:parameter/provider/key",
+			"PARAMETER_STORE:/prod/provider-key",
+			"BEDROCK_API_KEY=secretsmanager:prod/bedrock/api-key",
+			"arn:aws:bedrock-agentcore:us-east-1:111111111111:oauth/payments",
+		}
+	})
+
+	providersByRef := map[string]string{}
+	kindsByRef := map[string]string{}
+	sensitivityByRef := map[string]string{}
+	for _, ref := range record.ProviderKeyReferences {
+		providersByRef[ref.Reference] = ref.Provider
+		kindsByRef[ref.Reference] = ref.ReferenceKind
+		sensitivityByRef[ref.Reference] = ref.Sensitivity
+	}
+	if providersByRef["ssm:/prod/support/ai-provider-key"] != "ssm" {
+		t.Fatalf("expected SSM store-only reference to classify as ssm, got %+v", record.ProviderKeyReferences)
+	}
+	if providersByRef["secretsmanager:prod/provider-key"] != "secretsmanager" {
+		t.Fatalf("expected Secrets Manager store-only reference to classify as secretsmanager, got %+v", record.ProviderKeyReferences)
+	}
+	if providersByRef["arn:aws:secretsmanager:us-east-1:111111111111:secret:provider/key-AbCdEf"] != "secretsmanager" {
+		t.Fatalf("expected full Secrets Manager ARN to classify as secretsmanager, got %+v", record.ProviderKeyReferences)
+	}
+	if providersByRef["arn:aws:ssm:us-east-1:111111111111:parameter/provider/key"] != "ssm" {
+		t.Fatalf("expected full SSM ARN to classify as ssm, got %+v", record.ProviderKeyReferences)
+	}
+	if providersByRef["PARAMETER_STORE:/prod/provider-key"] != "ssm" {
+		t.Fatalf("expected PARAMETER_STORE marker to classify as ssm, got %+v", record.ProviderKeyReferences)
+	}
+	if providersByRef["BEDROCK_API_KEY=secretsmanager:prod/bedrock/api-key"] != "bedrock" {
+		t.Fatalf("expected Bedrock API key marker to classify as bedrock, got %+v", record.ProviderKeyReferences)
+	}
+	if providersByRef["arn:aws:bedrock-agentcore:us-east-1:111111111111:oauth/payments"] != "generic" {
+		t.Fatalf("expected AgentCore OAuth ARN to classify as generic, got %+v", record.ProviderKeyReferences)
+	}
+	if sensitivityByRef["ssm:/prod/support/ai-provider-key"] != "aws_managed_secret" ||
+		sensitivityByRef["secretsmanager:prod/provider-key"] != "aws_managed_secret" {
+		t.Fatalf("expected AWS store-backed references to use aws_managed_secret sensitivity, got %+v", record.ProviderKeyReferences)
+	}
+	if sensitivityByRef["BEDROCK_API_KEY=secretsmanager:prod/bedrock/api-key"] != "ai_provider_api_key" {
+		t.Fatalf("expected Bedrock API key marker to use ai_provider_api_key sensitivity, got %+v", record.ProviderKeyReferences)
+	}
+	if sensitivityByRef["arn:aws:bedrock-agentcore:us-east-1:111111111111:oauth/payments"] != "generic_secret" {
+		t.Fatalf("expected AgentCore OAuth ARN to use generic_secret sensitivity, got %+v", record.ProviderKeyReferences)
+	}
+	if kindsByRef["OPENAI_API_KEY=SECRETS_MANAGER:arn:aws:secretsmanager:us-east-1:111111111111:secret:openai/key-AbCdEf"] != "secrets_manager" {
+		t.Fatalf("expected SECRETS_MANAGER marker to classify as secrets_manager kind, got %+v", record.ProviderKeyReferences)
+	}
+	if kindsByRef["PARAMETER_STORE:/prod/provider-key"] != "ssm_parameter" {
+		t.Fatalf("expected PARAMETER_STORE marker to classify as ssm_parameter kind, got %+v", record.ProviderKeyReferences)
 	}
 }
 
