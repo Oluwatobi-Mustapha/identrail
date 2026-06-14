@@ -31,6 +31,9 @@ func NewRoleNormalizer() *RoleNormalizer {
 
 // Normalize converts AWS role and workload assets to normalized entities.
 func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset) (providers.NormalizedBundle, error) {
+	if derived := deriveCustomAIAgentIdentityAssets(raw); len(derived) > 0 {
+		raw = append(append([]providers.RawAsset{}, raw...), derived...)
+	}
 	bundle := providers.NormalizedBundle{
 		Identities: make([]domain.Identity, 0, len(raw)),
 		Policies:   make([]domain.Policy, 0, len(raw)*2),
@@ -88,18 +91,6 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 			continue
 		}
 		if err := normalizeIAMRoleAsset(asset, i, &bundle, identitySeen, policySeen); err != nil {
-			return providers.NormalizedBundle{}, err
-		}
-	}
-
-	for i, asset := range raw {
-		if err := ctx.Err(); err != nil {
-			return providers.NormalizedBundle{}, err
-		}
-		if asset.Kind != rawKindAIAgentIdentity {
-			continue
-		}
-		if err := normalizeAIAgentIdentityAsset(asset, i, &bundle, identitySeen, agentSeen, resourceSeen); err != nil {
 			return providers.NormalizedBundle{}, err
 		}
 	}
@@ -284,6 +275,23 @@ func (n *RoleNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset
 		}
 	}
 
+	// AI agent identities (including custom-agent detections derived from the
+	// workload assets above) are normalized last so the richer workload-role
+	// identities (with tags/owner) win in identitySeen. Running this earlier would
+	// let the agent's minimal runtime-role identity shadow a workload role that is
+	// only present as an ECS/Lambda/etc. asset and never as an iam_role asset.
+	for i, asset := range raw {
+		if err := ctx.Err(); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+		if asset.Kind != rawKindAIAgentIdentity {
+			continue
+		}
+		if err := normalizeAIAgentIdentityAsset(asset, i, &bundle, identitySeen, agentSeen, resourceSeen); err != nil {
+			return providers.NormalizedBundle{}, err
+		}
+	}
+
 	applyRuntimeSecretReferenceSensitivity(&bundle)
 	appendCredentialReferenceNodes(&bundle, resourceSeen)
 	return bundle, nil
@@ -364,6 +372,8 @@ func normalizeAIAgentIdentityAsset(asset providers.RawAsset, index int, bundle *
 			RawRef:   asset.SourceID,
 			Metadata: map[string]any{
 				"agent_arn":                   strings.TrimSpace(record.AgentARN),
+				"account_id":                  strings.TrimSpace(record.AccountID),
+				"region":                      strings.TrimSpace(record.Region),
 				"agent_type":                  strings.TrimSpace(record.AgentType),
 				"provider":                    strings.TrimSpace(record.Provider),
 				"runtime_version":             strings.TrimSpace(record.RuntimeVersion),

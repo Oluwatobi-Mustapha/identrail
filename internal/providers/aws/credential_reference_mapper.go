@@ -104,6 +104,9 @@ func MapBundleCredentialReferences(bundle providers.NormalizedBundle) ([]Credent
 		fromNodeID := credentialWorkloadNodeID(resource)
 		workloadName := strings.TrimSpace(resource.Name)
 		for _, raw := range candidates {
+			if isAgentCoreCredentialProviderReference(raw) {
+				continue
+			}
 			ref := classifyCredentialReference(raw, resource, sourceService, secretIndex, parameterIndex)
 			if ref.Reference == "" {
 				continue
@@ -114,6 +117,68 @@ func MapBundleCredentialReferences(bundle providers.NormalizedBundle) ([]Credent
 			ref.Region = strings.TrimSpace(resource.Region)
 			ref.ResourceID = resource.ID
 			ref.ResourceType = string(resource.Type)
+
+			refKey := strings.Join([]string{fromNodeID, ref.Reference}, "|")
+			if _, exists := seenRef[refKey]; !exists {
+				seenRef[refKey] = struct{}{}
+				references = append(references, ref)
+			}
+
+			targetNode := ref.TargetNodeID
+			if targetNode == "" {
+				continue
+			}
+			edgeKey := strings.Join([]string{fromNodeID, targetNode}, "|")
+			if _, exists := seenEdge[edgeKey]; exists {
+				continue
+			}
+			seenEdge[edgeKey] = struct{}{}
+			relationships = append(relationships, domain.Relationship{
+				ID:          relationshipID(domain.RelationshipUsesSecret, fromNodeID, targetNode),
+				Type:        domain.RelationshipUsesSecret,
+				FromNodeID:  fromNodeID,
+				ToNodeID:    targetNode,
+				EvidenceRef: ref.Reference,
+			})
+		}
+	}
+	for _, agent := range bundle.Agents {
+		candidates := parseStringList(agent.Metadata["credential_reference_refs"])
+		if len(candidates) == 0 {
+			continue
+		}
+		resource := domain.Resource{
+			ID:        agent.ID,
+			Provider:  domain.ProviderAWS,
+			Type:      domain.ResourceTypeCredentialReference,
+			Name:      agent.Name,
+			AccountID: stringMetadata(agent.Metadata, "account_id"),
+			Region:    stringMetadata(agent.Metadata, "region"),
+			Metadata: map[string]any{
+				"secret_refs": candidates,
+			},
+		}
+		sourceService := firstNonEmptyAWSValue(stringMetadata(agent.Metadata, "source"), "ai_agent")
+		fromNodeID := credentialWorkloadNodeID(resource)
+		workloadName := strings.TrimSpace(resource.Name)
+		for _, raw := range credentialCandidateRefs(resource) {
+			if isAgentCoreCredentialProviderReference(raw) {
+				continue
+			}
+			ref := classifyCredentialReference(raw, resource, sourceService, secretIndex, parameterIndex)
+			if ref.Reference == "" {
+				continue
+			}
+			ref.WorkloadID = fromNodeID
+			ref.WorkloadName = workloadName
+			ref.AccountID = strings.TrimSpace(resource.AccountID)
+			ref.Region = strings.TrimSpace(resource.Region)
+			ref.ResourceID = agent.ID
+			ref.ResourceType = string(agent.Type)
+			// classifyCredentialReference defaults WorkloadType to the synthesized
+			// credential-reference resource type; override it with the agent's own
+			// type so custom-agent attribution and workload_type filters are correct.
+			ref.WorkloadType = string(agent.Type)
 
 			refKey := strings.Join([]string{fromNodeID, ref.Reference}, "|")
 			if _, exists := seenRef[refKey]; !exists {
@@ -263,6 +328,16 @@ func credentialCandidateRefs(resource domain.Resource) []string {
 	return out
 }
 
+func stringMetadata(metadata map[string]any, key string) string {
+	if metadata == nil {
+		return ""
+	}
+	if value, ok := metadata[key].(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return ""
+}
+
 // classifyCredentialReference parses one raw reference into a classified
 // CredentialReference, resolving it against the collected secret/parameter
 // indexes. The raw form may be `NAME=SOURCE` (ECS/CodeBuild), a bare ARN, a
@@ -321,6 +396,25 @@ func classifyCredentialReference(raw string, resource domain.Resource, sourceSer
 		}
 	}
 	return ref
+}
+
+func isAgentCoreCredentialProviderReference(raw string) bool {
+	name, source := splitCredentialReference(strings.TrimSpace(raw))
+	if strings.TrimSpace(name) != "" {
+		return false
+	}
+	probe := strings.ToLower(strings.TrimSpace(source))
+	if !strings.Contains(probe, "bedrock-agentcore") {
+		return false
+	}
+	return strings.Contains(probe, ":oauth/") ||
+		strings.Contains(probe, "/oauth/") ||
+		strings.Contains(probe, ":api-key/") ||
+		strings.Contains(probe, "/api-key/") ||
+		strings.Contains(probe, ":apikey/") ||
+		strings.Contains(probe, "/apikey/") ||
+		strings.Contains(probe, ":api_key/") ||
+		strings.Contains(probe, "/api_key/")
 }
 
 // splitCredentialReference separates a `NAME=SOURCE` reference into its env-var
