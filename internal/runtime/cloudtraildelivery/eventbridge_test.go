@@ -5,9 +5,59 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/identrail/identrail/internal/runtime/cloudtrail"
 )
+
+func TestDeliveryFilterMatchesSessionDerivedIdentityCandidates(t *testing.T) {
+	event := cloudtrail.NormalizedEvent{
+		EventID:            "evt-identity",
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		EventSource:        "sts.amazonaws.com",
+		EventName:          "AssumeRole",
+		ActorPrincipalARN:  "arn:aws:sts::123456789012:assumed-role/payments/payments-job-42",
+		ActorPrincipalType: "assumed_role",
+		SessionID:          "sess-123",
+		AssumedRoleARN:     "arn:aws:iam::123456789012:role/payments",
+		SessionIssuerARN:   "arn:aws:iam::123456789012:role/payments",
+		SourceIdentity:     "alice@example.com",
+		RoleSessionName:    "payments-job-42",
+		OriginalActorARN:   "arn:aws:iam::123456789012:role/original",
+		ChainedFromARN:     "arn:aws:iam::123456789012:role/chained",
+		LineageStatus:      "resolved",
+	}
+	for _, identity := range []string{
+		"aws:identity:arn:aws:iam::123456789012:role/payments",
+		"alice@example.com",
+		"payments-job-42",
+		"arn:aws:iam::123456789012:role/original",
+		"arn:aws:iam::123456789012:role/chained",
+		deliveryRuntimeSessionNodeID(event),
+	} {
+		if got := filterRuntimeEventRecordsForDelivery([]cloudtrail.NormalizedEvent{event}, map[string]string{"identity": identity}, DeliverySourceEventBridge); len(got) != 1 {
+			t.Fatalf("expected identity filter %q to match delivery event, got %+v", identity, got)
+		}
+	}
+}
+
+func TestDeliveryFilterMatchesAgentNodeID(t *testing.T) {
+	event := cloudtrail.NormalizedEvent{
+		EventID:             "evt-agent",
+		AccountID:           "123456789012",
+		Region:              "us-east-1",
+		AgentID:             "runtime-case-triage",
+		AgentType:           "agentcore_runtime",
+		AgentRuntimeVersion: "blue",
+	}
+	agentNodeID := deliveryAgentNodeID(event)
+	if got := filterRuntimeEventRecordsForDelivery([]cloudtrail.NormalizedEvent{event}, map[string]string{"agent_id": agentNodeID}, DeliverySourceEventBridge); len(got) != 1 {
+		t.Fatalf("expected agent node filter %q to match delivery event, got %+v", agentNodeID, got)
+	}
+}
 
 type fakeSQS struct {
 	receiveOut    ReceiveMessageOutput
@@ -287,5 +337,187 @@ func TestEventBridgeIngesterDoesNotDeleteMessageTruncatedMidFanout(t *testing.T)
 	}
 	if len(fake.deletedIDs) != 0 {
 		t.Fatalf("truncated message must remain for redelivery, deleted=%+v", fake.deletedIDs)
+	}
+}
+
+func TestEventBridgeIngesterDoesNotDeleteFilteredOutMessages(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+		{MessageID: "msg-1", ReceiptHandle: "rh-1", Body: eventBridgeMessageBody(t, "evt-secret", "GetSecretValue", "secretsmanager.amazonaws.com", now.Add(-2*time.Minute))},
+		{MessageID: "msg-2", ReceiptHandle: "rh-2", Body: eventBridgeMessageBody(t, "evt-kms", "Decrypt", "kms.amazonaws.com", now.Add(-1*time.Minute))},
+	}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+	result, err := ing.Ingest(context.Background(), IngestRequest{AccountID: "123456789012", Region: "us-east-1", AppliedFilters: map[string]string{"event_type": "secret-read"}})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 1 || result.Events[0].EventID != "evt-secret" {
+		t.Fatalf("expected only filtered event to be returned, got %+v", result.Events)
+	}
+	if len(fake.deletedIDs) != 1 {
+		t.Fatalf("expected only matching message to delete, got %+v", fake.deletedIDs)
+	}
+	if fake.deletedIDs[0] != "msg-1" {
+		t.Fatalf("expected secret message deleted, got %+v", fake.deletedIDs)
+	}
+}
+
+func TestEventBridgeIngesterDoesNotDeletePartiallyFilteredFanoutMessage(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	body := eventBridgeMessageBodyWithResources(t, "evt-many", "BatchGetSecretValue", "secretsmanager.amazonaws.com", now, []map[string]any{
+		{"type": "AWS::SecretsManager::Secret", "ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/one"},
+		{"type": "AWS::SecretsManager::Secret", "ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/two"},
+	})
+	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+		{MessageID: "msg-many", ReceiptHandle: "rh-many", Body: body},
+	}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"resource": "prod/one"},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 1 || !strings.Contains(result.Events[0].TargetResourceARN, "prod/one") {
+		t.Fatalf("expected only matching fan-out record, got %+v", result.Events)
+	}
+	if len(fake.deletedIDs) != 0 {
+		t.Fatalf("partially filtered fan-out message must remain for broader queries, deleted=%+v", fake.deletedIDs)
+	}
+}
+
+func TestEventBridgeIngesterMatchesResourceNodeFilter(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	resourceARN := "arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/one"
+	body := eventBridgeMessageBodyWithResources(t, "evt-node", "GetSecretValue", "secretsmanager.amazonaws.com", now, []map[string]any{
+		{"type": "AWS::SecretsManager::Secret", "ARN": resourceARN},
+	})
+	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+		{MessageID: "msg-node", ReceiptHandle: "rh-node", Body: body},
+	}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+	resourceNodeID := deliveryRuntimeResourceNodeID(resourceARN, "AWS::SecretsManager::Secret")
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"resource": resourceNodeID},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 1 || result.Events[0].EventID != "evt-node" {
+		t.Fatalf("expected resource-node filtered event, got %+v", result.Events)
+	}
+	if len(fake.deletedIDs) != 1 || fake.deletedIDs[0] != "msg-node" {
+		t.Fatalf("expected fully retained resource-node match to delete, got %+v", fake.deletedIDs)
+	}
+}
+
+func TestEventBridgeIngesterIgnoresDeliveryEvidenceFilterBeforeAdapterStamping(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+		{MessageID: "msg-1", ReceiptHandle: "rh-1", Body: eventBridgeMessageBody(t, "evt-secret", "GetSecretValue", "secretsmanager.amazonaws.com", now.Add(-time.Minute))},
+	}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"evidence": "eventbridge-delivery"},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 1 || result.Events[0].EventID != "evt-secret" {
+		t.Fatalf("expected delivery evidence filter to be left for API stamping, got %+v", result.Events)
+	}
+	if len(fake.deletedIDs) != 1 || fake.deletedIDs[0] != "msg-1" {
+		t.Fatalf("expected fully retained message to delete, got %+v", fake.deletedIDs)
+	}
+}
+
+func TestEventBridgeIngesterDoesNotDeleteMessagesExcludedByAccountRegionFilters(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+		{MessageID: "msg-1", ReceiptHandle: "rh-1", Body: eventBridgeMessageBody(t, "evt-secret", "GetSecretValue", "secretsmanager.amazonaws.com", now.Add(-time.Minute))},
+	}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"region": "us-west-2"},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 0 {
+		t.Fatalf("expected region-filtered message to return no events, got %+v", result.Events)
+	}
+	if len(fake.deletedIDs) != 0 {
+		t.Fatalf("region-filtered message must remain for broader queries, deleted=%+v", fake.deletedIDs)
+	}
+}
+
+func TestEventBridgeIngesterKeepsMessagesForOtherDeliveryEvidenceFilter(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+		{MessageID: "msg-1", ReceiptHandle: "rh-1", Body: eventBridgeMessageBody(t, "evt-secret", "GetSecretValue", "secretsmanager.amazonaws.com", now.Add(-time.Minute))},
+	}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"evidence": "s3-delivery"},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 0 {
+		t.Fatalf("expected nonmatching delivery evidence filter to return no events, got %+v", result.Events)
+	}
+	if result.Status != "ready" || len(result.CoverageGaps) != 0 {
+		t.Fatalf("expected nonmatching delivery source to be neutral, got %+v", result)
+	}
+	if len(fake.receiveInputs) != 0 {
+		t.Fatalf("nonmatching delivery evidence filter must not receive SQS messages, inputs=%+v", fake.receiveInputs)
+	}
+	if len(fake.deletedIDs) != 0 {
+		t.Fatalf("nonmatching delivery evidence filter must not delete message, deleted=%+v", fake.deletedIDs)
+	}
+}
+
+func TestEventBridgeIngesterKeepsMessagesForRawEvidenceFilter(t *testing.T) {
+	now := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	fake := &fakeSQS{receiveOut: ReceiveMessageOutput{Messages: []SQSMessage{
+		{MessageID: "msg-1", ReceiptHandle: "rh-1", Body: eventBridgeMessageBody(t, "evt-secret", "GetSecretValue", "secretsmanager.amazonaws.com", now.Add(-time.Minute))},
+	}}}
+	ing := NewEventBridgeIngester(fake, "https://sqs/queue")
+	ing.Now = func() time.Time { return now }
+
+	result, err := ing.Ingest(context.Background(), IngestRequest{
+		AccountID:      "123456789012",
+		Region:         "us-east-1",
+		AppliedFilters: map[string]string{"evidence": "cloudtrail"},
+	})
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(result.Events) != 0 {
+		t.Fatalf("expected raw evidence filter to exclude delivery event before stamping, got %+v", result.Events)
+	}
+	if len(fake.deletedIDs) != 0 {
+		t.Fatalf("raw evidence filter must not delete delivery message, deleted=%+v", fake.deletedIDs)
 	}
 }

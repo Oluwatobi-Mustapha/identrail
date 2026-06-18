@@ -120,6 +120,9 @@ func (i *EventBridgeIngester) Ingest(ctx context.Context, request IngestRequest)
 	now := i.callerNow()
 	request = request.withDefaults()
 	result := IngestResult{Source: DeliverySourceEventBridge, Status: "ready"}
+	if skipsDeliverySourceForEvidenceFilter(request.AppliedFilters, DeliverySourceEventBridge) {
+		return result, nil
+	}
 
 	receiveOut, moreAvailable, recvErr := i.receiveWithRetry(ctx, request)
 	if recvErr != nil {
@@ -200,21 +203,28 @@ func (i *EventBridgeIngester) Ingest(ctx context.Context, request IngestRequest)
 		if !isWithinScope(request.AccountID, request.Region, record.RecipientAccount, record.AWSRegion) {
 			continue
 		}
+		filtered := filterRuntimeEventRecordsForDelivery(normalized, request.AppliedFilters, DeliverySourceEventBridge)
+		if len(filtered) == 0 {
+			continue
+		}
+		keptWholeMessage := len(filtered) == len(normalized)
 		remaining := request.MaxEvents - len(result.Events)
 		if remaining <= 0 {
 			result.HistoryTruncated = true
 			break
 		}
-		if len(normalized) > remaining {
-			normalized = normalized[:remaining]
+		if len(filtered) > remaining {
+			filtered = filtered[:remaining]
 			result.HistoryTruncated = true
-			result.Events = append(result.Events, normalized...)
-			result.EventsConsidered++
+			result.Events = append(result.Events, filtered...)
+			result.EventsConsidered += len(filtered)
 			break
 		}
-		result.Events = append(result.Events, normalized...)
-		toDelete = append(toDelete, DeleteMessageBatchEntry{ID: msg.MessageID, ReceiptHandle: msg.ReceiptHandle})
-		result.EventsConsidered++
+		result.Events = append(result.Events, filtered...)
+		result.EventsConsidered += len(filtered)
+		if keptWholeMessage {
+			toDelete = append(toDelete, DeleteMessageBatchEntry{ID: msg.MessageID, ReceiptHandle: msg.ReceiptHandle})
+		}
 	}
 
 	if len(toDelete) > 0 {
@@ -237,6 +247,209 @@ func isWithinScope(requestedAccount string, requestedRegion string, recordAccoun
 		return false
 	}
 	return true
+}
+
+func skipsDeliverySourceForEvidenceFilter(filters map[string]string, source DeliverySource) bool {
+	query := strings.ToLower(strings.TrimSpace(filters["evidence"]))
+	if query == "" || query == "all" || !strings.HasSuffix(query, "-delivery") {
+		return false
+	}
+	return query != string(source)+"-delivery"
+}
+
+func matchesRuntimeEventFilter(event cloudtrail.NormalizedEvent, filters map[string]string, source DeliverySource) bool {
+	if len(filters) == 0 {
+		return true
+	}
+	for key, value := range filters {
+		query := strings.ToLower(strings.TrimSpace(value))
+		if query == "" || query == "all" {
+			continue
+		}
+		switch key {
+		case "account_id":
+			if event.AccountID != query {
+				return false
+			}
+		case "region":
+			if strings.ToLower(event.Region) != query {
+				return false
+			}
+		case "event_type":
+			if strings.ToLower(strings.ReplaceAll(event.EventType, " ", "-")) != query && strings.ToLower(strings.ReplaceAll(event.EventType, "_", "-")) != query {
+				return false
+			}
+		case "identity":
+			if !deliveryRuntimeEventMatchesAny(query, deliveryIdentityFilterCandidates(event)...) {
+				return false
+			}
+		case "agent_id":
+			if !deliveryRuntimeEventMatchesAny(query, event.AgentID, deliveryAgentNodeID(event)) {
+				return false
+			}
+		case "resource":
+			if !deliveryRuntimeEventMatchesAny(query, event.TargetResourceARN, event.TargetResourceType, event.TargetResourceName, deliveryRuntimeResourceNodeID(event.TargetResourceARN, event.TargetResourceType)) {
+				return false
+			}
+		case "evidence":
+			if query != string(source)+"-delivery" {
+				return false
+			}
+			continue
+		case "owner":
+			if strings.ToLower(strings.ReplaceAll(event.Owner, " ", "-")) != query && strings.ToLower(strings.ReplaceAll(event.Owner, "_", "-")) != query {
+				return false
+			}
+		case "status":
+			if strings.ToLower(event.Status) != query && strings.ToLower(strings.ReplaceAll(event.Status, "_", "-")) != query {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func deliveryRuntimeEventMatchesAny(query string, values ...string) bool {
+	probe := strings.ToLower(strings.TrimSpace(query))
+	if probe == "" {
+		return true
+	}
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), probe) {
+			return true
+		}
+	}
+	return false
+}
+
+func deliveryIdentityFilterCandidates(event cloudtrail.NormalizedEvent) []string {
+	identityARN := strings.TrimSpace(event.SessionIssuerARN)
+	if identityARN == "" {
+		identityARN = event.ActorPrincipalARN
+	}
+	originalActorARN := ""
+	if strings.TrimSpace(event.LineageStatus) != "" {
+		originalActorARN = firstNonEmptyDeliveryValue(event.OriginalActorARN, event.ActorPrincipalARN)
+	}
+	return []string{
+		event.ActorPrincipalARN,
+		deliveryIdentityNodeID(identityARN),
+		event.ActorPrincipalARN,
+		event.AssumedRoleARN,
+		event.SessionIssuerARN,
+		event.SourceIdentity,
+		event.RoleSessionName,
+		originalActorARN,
+		event.ChainedFromARN,
+		event.SessionID,
+		deliveryRuntimeSessionNodeID(event),
+	}
+}
+
+func deliveryIdentityNodeID(roleARN string) string {
+	if strings.TrimSpace(roleARN) == "" {
+		return ""
+	}
+	return "aws:identity:" + strings.TrimSpace(roleARN)
+}
+
+func deliveryRuntimeSessionNodeID(event cloudtrail.NormalizedEvent) string {
+	if strings.TrimSpace(event.SessionID) == "" && strings.TrimSpace(event.LineageStatus) == "" {
+		return ""
+	}
+	token := deliveryRuntimeSessionToken(event)
+	if strings.TrimSpace(token) == "" {
+		return ""
+	}
+	return "aws:runtime-session:" + sanitizeDeliveryRuntimeToken(firstNonEmptyDeliveryValue(event.AccountID, "unknown-account")) + ":" + sanitizeDeliveryRuntimeToken(firstNonEmptyDeliveryValue(event.Region, "unknown-region")) + ":" + sanitizeDeliveryRuntimeToken(token)
+}
+
+func deliveryRuntimeSessionToken(event cloudtrail.NormalizedEvent) string {
+	if isDeliverySTSAssumeRoleRuntimeEvent(event) {
+		if token := deliveryAssumedRoleSessionToken(event.AssumedRoleARN, event.RoleSessionName); token != "" {
+			return token
+		}
+	}
+	if isDeliveryAssumedRoleRuntimeEvent(event) {
+		if token := deliveryAssumedRoleSessionToken(firstNonEmptyDeliveryValue(event.AssumedRoleARN, event.SessionIssuerARN), event.RoleSessionName); token != "" {
+			return token
+		}
+	}
+	return firstNonEmptyDeliveryValue(event.ActorPrincipalARN, event.SessionID, event.RoleSessionName)
+}
+
+func deliveryAssumedRoleSessionToken(roleARN string, roleSessionName string) string {
+	roleARN = strings.TrimSpace(roleARN)
+	roleSessionName = strings.TrimSpace(roleSessionName)
+	if roleARN == "" || roleSessionName == "" {
+		return ""
+	}
+	return roleARN + "/" + roleSessionName
+}
+
+func isDeliverySTSAssumeRoleRuntimeEvent(event cloudtrail.NormalizedEvent) bool {
+	return strings.EqualFold(strings.TrimSpace(event.EventSource), "sts.amazonaws.com") && strings.HasPrefix(strings.TrimSpace(event.EventName), "AssumeRole")
+}
+
+func isDeliveryAssumedRoleRuntimeEvent(event cloudtrail.NormalizedEvent) bool {
+	return strings.EqualFold(strings.TrimSpace(event.ActorPrincipalType), "assumed_role") || strings.TrimSpace(event.SessionIssuerARN) != "" || strings.TrimSpace(event.AssumedRoleARN) != ""
+}
+
+func deliveryAgentNodeID(event cloudtrail.NormalizedEvent) string {
+	if strings.TrimSpace(event.AgentID) == "" {
+		return ""
+	}
+	version := strings.TrimSpace(event.AgentRuntimeVersion)
+	if version != "" {
+		version = normalizeDeliveryRuntimeName(version)
+	}
+	suffix := firstNonEmptyDeliveryValue(event.AgentID, "unknown")
+	if version != "" {
+		suffix = suffix + "/" + version
+	}
+	return "aws:agent:" + firstNonEmptyDeliveryValue(event.AccountID, "account") + ":" + firstNonEmptyDeliveryValue(event.Region, "region") + ":" + firstNonEmptyDeliveryValue(event.AgentType, "agent") + "/" + suffix
+}
+
+func deliveryRuntimeResourceNodeID(resourceARN string, resourceType string) string {
+	if strings.TrimSpace(resourceARN) == "" {
+		return ""
+	}
+	return "aws:runtime-resource:" + normalizeDeliveryRuntimeName(firstNonEmptyDeliveryValue(resourceType, "resource")) + ":" + sanitizeDeliveryRuntimeToken(resourceARN)
+}
+
+func normalizeDeliveryRuntimeName(input string) string {
+	trimmed := strings.TrimSpace(strings.ToLower(input))
+	if trimmed == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(" ", "-", "_", "-", "/", "-", ":", "-", "#", "-", ",", "-", ".", "-")
+	return strings.Trim(replacer.Replace(trimmed), "-")
+}
+
+func sanitizeDeliveryRuntimeToken(value string) string {
+	return strings.ToLower(strings.NewReplacer(" ", "-", "/", "-", ":", "-", "#", "-").Replace(strings.TrimSpace(value)))
+}
+
+func firstNonEmptyDeliveryValue(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func filterRuntimeEventRecordsForDelivery(records []cloudtrail.NormalizedEvent, filters map[string]string, source DeliverySource) []cloudtrail.NormalizedEvent {
+	if len(filters) == 0 {
+		return records
+	}
+	filtered := make([]cloudtrail.NormalizedEvent, 0, len(records))
+	for _, record := range records {
+		if matchesRuntimeEventFilter(record, filters, source) {
+			filtered = append(filtered, record)
+		}
+	}
+	return filtered
 }
 
 func (i *EventBridgeIngester) receiveWithRetry(ctx context.Context, request IngestRequest) (ReceiveMessageOutput, bool, error) {

@@ -525,20 +525,12 @@ func normalizeAWSRuntimeEventFixtureState(requested string, connection AWSConnec
 }
 
 func filterAWSRuntimeEventRecords(records []AWSRuntimeEventRecord, request AWSRuntimeEventRequest) ([]AWSRuntimeEventRecord, map[string]string) {
+	filters := runtimeEventFiltersFromRequest(request)
+	filters = stripEmptyRuntimeFilters(filters)
+
 	applied := map[string]string{}
-	filters := map[string]string{
-		"account_id": strings.TrimSpace(request.AccountID),
-		"region":     strings.TrimSpace(request.Region),
-		"event_type": normalizeAWSRuntimeEventFilterToken(request.EventType),
-		"identity":   strings.TrimSpace(request.Identity),
-		"agent_id":   strings.TrimSpace(request.AgentID),
-		"resource":   strings.TrimSpace(request.Resource),
-		"evidence":   normalizeAWSRuntimeEventFilterToken(request.Evidence),
-		"owner":      normalizeAWSRuntimeEventFilterToken(request.Owner),
-		"status":     normalizeAWSRuntimeEventFilterToken(request.Status),
-	}
 	for key, value := range filters {
-		if value != "" && value != "all" {
+		if value != "" {
 			applied[key] = value
 		}
 	}
@@ -547,7 +539,7 @@ func filterAWSRuntimeEventRecords(records []AWSRuntimeEventRecord, request AWSRu
 		if filters["account_id"] != "" && filters["account_id"] != record.AccountID {
 			continue
 		}
-		if filters["region"] != "" && filters["region"] != record.Region {
+		if filters["region"] != "" && !strings.EqualFold(filters["region"], record.Region) {
 			continue
 		}
 		if filters["event_type"] != "" && filters["event_type"] != "all" && filters["event_type"] != normalizeAWSRuntimeEventFilterToken(record.EventType) {
@@ -574,6 +566,33 @@ func filterAWSRuntimeEventRecords(records []AWSRuntimeEventRecord, request AWSRu
 		filtered = append(filtered, record)
 	}
 	return filtered, applied
+}
+
+func runtimeEventFiltersFromRequest(request AWSRuntimeEventRequest) map[string]string {
+	return map[string]string{
+		"account_id": strings.TrimSpace(request.AccountID),
+		"region":     strings.TrimSpace(request.Region),
+		"event_type": normalizeAWSRuntimeEventFilterToken(request.EventType),
+		"identity":   strings.TrimSpace(request.Identity),
+		"agent_id":   strings.TrimSpace(request.AgentID),
+		"resource":   strings.TrimSpace(request.Resource),
+		"evidence":   normalizeAWSRuntimeEventFilterToken(request.Evidence),
+		"owner":      normalizeAWSRuntimeEventFilterToken(request.Owner),
+		"status":     normalizeAWSRuntimeEventFilterToken(request.Status),
+	}
+}
+
+func stripEmptyRuntimeFilters(filters map[string]string) map[string]string {
+	if len(filters) == 0 {
+		return filters
+	}
+	for key, value := range filters {
+		trimmed := strings.ToLower(strings.TrimSpace(value))
+		if trimmed == "" || trimmed == "all" {
+			delete(filters, key)
+		}
+	}
+	return filters
 }
 
 func normalizeAWSRuntimeEventFilterToken(value string) string {
@@ -1006,6 +1025,7 @@ func (s *Service) getAWSRuntimeEventsFromDelivery(ctx context.Context, scope db.
 		ingestResult, err := ingester.Ingest(ctx, AWSCloudTrailIngestRequest{
 			AccountID: accountID,
 			Region:    region,
+			Filters:   runtimeEventFiltersFromRequest(request),
 		})
 		if err != nil {
 			return AWSRuntimeEventResult{}, fmt.Errorf("ingest cloudtrail %s delivery: %w", source, err)

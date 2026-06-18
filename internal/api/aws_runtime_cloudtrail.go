@@ -20,6 +20,11 @@ type AWSCloudTrailIngestRequest struct {
 	LookbackWindow    time.Duration
 	EventSourceFilter string
 	MutationOnly      bool
+	// Filters are API-layer runtime filters that delivery ingesters can
+	// apply before returning events. Keys mirror AWSRuntimeEventRequest
+	// tokens and prevent filtered reads from consuming evidence that the
+	// caller excluded.
+	Filters map[string]string
 }
 
 // AWSCloudTrailIngestResult is the API-layer projection of one
