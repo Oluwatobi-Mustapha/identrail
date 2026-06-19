@@ -5035,12 +5035,35 @@ html[data-theme='light'] .idt-intake-grid select:focus-visible {
   margin: 0.6rem 0 0;
 }
 
-.idt-settings-security-card .idt-settings-facts {
+.idt-settings-access-card {
+  align-content: start;
+}
+
+.idt-settings-access-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.idt-settings-access-section {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.idt-settings-access-section h4 {
+  margin: 0;
+  color: var(--app-text);
+  font-size: 0.96rem;
+}
+
+.idt-settings-security-facts {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.idt-settings-workspace-card .idt-settings-facts {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.idt-settings-workspace-facts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .idt-executive-report-shell {
@@ -7884,6 +7907,10 @@ html[data-theme='light'] .idt-auth-mfa-form input {
   .idt-executive-report-metrics,
   .idt-settings-counts,
   .idt-settings-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-settings-access-grid {
     grid-template-columns: 1fr;
   }
 
@@ -15276,19 +15303,33 @@ html[data-theme='light'] .idt-problem-map-core div span {
 }
 
 @media (max-width: 720px) {
+  html[data-theme='light'] .idt-hero,
+  .idt-hero {
+    min-height: auto;
+    padding-top: clamp(2rem, 8vw, 3rem);
+    padding-bottom: clamp(2.5rem, 9vw, 3.5rem);
+  }
+
   .idt-hero-grid {
     width: min(100% - 1.25rem, var(--idt-shell));
-    gap: 1.9rem;
+    gap: 1.35rem;
+    min-height: auto;
   }
 
   .idt-hero-copy h1 {
-    max-width: 9ch;
-    font-size: clamp(2.58rem, 11.1vw, 3.2rem);
+    max-width: 8.7ch;
+    font-size: clamp(3.05rem, 15.1vw, 4.35rem);
   }
 
   .idt-lead-emphasis,
   .idt-lead-body {
-    max-width: 31ch;
+    max-width: 34ch;
+  }
+
+  .idt-lead-body {
+    color: #4c566a;
+    font-size: clamp(1rem, 4.8vw, 1.16rem);
+    line-height: 1.58;
   }
 
   .idt-hero .idt-inline-actions {
@@ -15328,8 +15369,7 @@ html[data-theme='light'] .idt-problem-map-core div span {
   }
 
   .idt-hero-product-stage {
-    --idt-preview-phone-width: min(318px, calc(100% - 2rem));
-    min-height: 930px;
+    display: none;
   }
 
   .idt-hero-backdrop-panel {
@@ -15428,11 +15468,7 @@ html[data-theme='light'] .idt-problem-map-core div span {
 
 @media (max-width: 520px) {
   .idt-hero-copy h1 {
-    max-width: 8.7ch;
-  }
-
-  .idt-hero-product-stage {
-    min-height: 920px;
+    max-width: 8.45ch;
   }
 
   .idt-hero-admin-window {
@@ -18964,7 +19000,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta .idt-final-ct
 /* Homepage and product contrast polish follow-up. */
 .idt-hero-copy h1 {
   max-width: 9.4ch;
-  color: var(--idt-premium-text);
+  color: #0f1f19;
   font-family: 'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif;
   font-size: clamp(3.1rem, 5.1vw, 5.7rem);
   font-weight: 800;
@@ -18974,7 +19010,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta .idt-final-ct
 }
 
 .idt-hero-copy h1 span {
-  color: var(--idt-premium-mint);
+  color: #3ecf8e;
   font-family: inherit;
 }
 
@@ -21554,7 +21590,7 @@ html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-metri
 .idt-app-console-layout .idt-settings-counts strong,
 .idt-app-console-layout .idt-repo-finding-stat strong,
 .idt-executive-report-shell .idt-executive-report-metrics strong {
-  color: #ffffff;
+  color: var(--app-text);
 }
 
 .idt-app-console-layout .idt-overview-grid,
@@ -22510,7 +22546,7 @@ html[data-theme='light'] .idt-executive-report-shell .idt-executive-type-list ar
 html[data-theme='light'] .idt-executive-report-shell .idt-executive-narrative article {
   border-color: var(--app-border);
   background: var(--app-panel);
-  color: #f5f5f5;
+  color: var(--app-text);
 }
 
 html[data-theme='light'] .idt-app-console-layout .idt-overview-header,
@@ -22520,7 +22556,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-source-onboarding-header,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-findings-header,
 html[data-theme='light'] .idt-app-console-layout .idt-settings-header {
   border-color: var(--app-border);
-  background: #080809;
+  background: var(--app-panel);
 }
 
 html[data-theme='light'] .idt-app-console-layout .idt-overview-metrics span,
@@ -22533,7 +22569,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-stat span,
 html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-metrics span,
 html[data-theme='light'] .idt-executive-report-shell .idt-executive-severity-list span,
 html[data-theme='light'] .idt-executive-report-shell .idt-executive-type-list span {
-  color: #737373;
+  color: var(--app-dim);
 }
 
 html[data-theme='light'] .idt-app-console-layout .idt-overview-metrics strong,
@@ -22545,14 +22581,14 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-row-top stron
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-facts dd,
 html[data-theme='light'] .idt-app-console-layout .idt-settings-facts dd,
 html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-metrics strong {
-  color: #ffffff;
+  color: var(--app-text);
 }
 
 html[data-theme='light'] .idt-app-console-layout .idt-overview-card-header a,
 html[data-theme='light'] .idt-app-console-layout .idt-settings-card-header a,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-link,
 html[data-theme='light'] .idt-executive-report-shell .idt-executive-report-section-header a {
-  color: #ffffff;
+  color: var(--app-text);
 }
 
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-filters select,
@@ -22569,8 +22605,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-form input,
 html[data-theme='light'] .idt-app-console-layout .idt-app-form select,
 html[data-theme='light'] .idt-app-console-layout .idt-app-form textarea {
   border-color: var(--app-border);
-  background: #050505;
-  color: #ffffff;
+  background: var(--idt-console-surface-deep);
+  color: var(--app-text);
 }
 
 .idt-app-console-layout input:not([type='checkbox']):not([type='radio']):not([type='range']),
@@ -22593,8 +22629,8 @@ html[data-theme='light'] .idt-app-shell-screen textarea {
   padding: 0.78rem 0.9rem;
   border-color: var(--app-border);
   border-radius: 8px;
-  background: #050505;
-  color: #ffffff;
+  background: var(--idt-console-surface-deep);
+  color: var(--app-text);
   font: inherit;
   font-size: 0.95rem;
   font-weight: 700;
@@ -22614,12 +22650,12 @@ html[data-theme='light'] .idt-app-shell-screen select {
   padding: 0.78rem 2.85rem 0.78rem 0.9rem;
   border-color: var(--app-border);
   border-radius: 8px;
-  background-color: #050505;
+  background-color: var(--idt-console-surface-deep);
   background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5.5 7.5L10 12L14.5 7.5' stroke='%23ffffff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.86rem center;
   background-size: 1.05rem 1.05rem;
-  color: #ffffff;
+  color: var(--app-text);
   font: inherit;
   font-size: 0.95rem;
   font-weight: 800;
@@ -22633,6 +22669,13 @@ html[data-theme='light'] .idt-app-shell-screen select {
 .idt-app-shell-screen textarea {
   min-height: 7rem;
   resize: vertical;
+}
+
+html[data-theme='light'] .idt-app-console-layout select,
+html[data-theme='light'] .idt-account-security-page select,
+html[data-theme='light'] .idt-executive-report-shell select,
+html[data-theme='light'] .idt-app-shell-screen select {
+  background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5.5 7.5L10 12L14.5 7.5' stroke='%230a2540' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 
@@ -27103,11 +27146,15 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 }
 
 .idt-app-console-layout.is-sidebar-collapsed .idt-app-quick-find {
-  justify-content: center;
+  display: grid;
+  place-items: center;
   padding: 0.55rem 0;
 }
 
-.idt-app-console-layout.is-sidebar-collapsed .idt-app-shell-nav a {
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-shell-nav a,
+html[data-theme='light'] .idt-app-console-layout.is-sidebar-collapsed .idt-app-shell-nav a {
+  grid-template-columns: 1fr;
+  justify-items: center;
   justify-content: center;
   padding: 0.55rem 0;
 }
@@ -27160,10 +27207,15 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   gap: 0.1rem;
 }
 
-.idt-app-console-layout .idt-app-shell-nav a {
-  display: flex;
+.idt-app-console-layout .idt-app-shell-nav a,
+html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 1.35rem minmax(0, 1fr);
   align-items: center;
   gap: 0.65rem;
+  width: 100%;
+  min-width: 0;
   min-height: 2.15rem;
   padding: 0.45rem 0.6rem;
   border-radius: 7px;
@@ -27174,6 +27226,13 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
   font-weight: 500;
   letter-spacing: 0;
   transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+@media (min-width: 641px) and (max-width: 960px) {
+  .idt-app-console-layout .idt-app-shell-nav a,
+  html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
+    width: auto;
+  }
 }
 
 .idt-app-console-layout .idt-app-shell-nav a:hover,
@@ -27222,7 +27281,12 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 }
 
 .idt-app-console-layout .idt-app-nav-label {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 1.1rem;
   overflow: hidden;
+  line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -27236,10 +27300,13 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 .idt-app-console-layout .idt-app-nav-domain-trigger {
   appearance: none;
   position: relative;
-  display: flex;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 1.35rem minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.65rem;
   width: 100%;
+  min-width: 0;
   min-height: 2.15rem;
   padding: 0.45rem 0.6rem;
   border: 1px solid transparent;
@@ -27553,6 +27620,8 @@ html[data-theme='light'] .idt-book-demo-modal-body .idt-lead-form p {
 }
 
 .idt-app-console-layout.is-sidebar-collapsed .idt-app-nav-domain-trigger {
+  grid-template-columns: 1fr;
+  justify-items: center;
   justify-content: center;
   padding: 0.55rem 0;
 }
@@ -28367,11 +28436,19 @@ html[data-theme='light'] .idt-app-console-layout .idt-overview-header {
 
 /* Collapsed quick-find: visually match nav icons */
 .idt-app-console-layout.is-sidebar-collapsed .idt-app-quick-find {
+  box-sizing: border-box;
   width: 2.15rem;
   height: 2.15rem;
   margin: 0 auto;
   border-radius: 7px;
   padding: 0;
+}
+
+.idt-app-console-layout.is-sidebar-collapsed .idt-app-quick-find-icon {
+  display: grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
 }
 
 /* === Workspace switcher, nav, a11y label rescue === */
@@ -28911,15 +28988,15 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-sidebar-workspace-trig
 html[data-theme='light'] .idt-app-console-layout .idt-app-sidebar-account-trigger {
   background: transparent;
   border-color: transparent;
-  color: #d8dde4;
+  color: var(--app-text);
 }
 
 .idt-app-console-layout .idt-app-quick-find,
 html[data-theme='light'] .idt-app-console-layout .idt-app-quick-find {
-  background: rgba(255, 255, 255, 0.035);
+  background: color-mix(in srgb, var(--idt-console-rail-hover) 70%, transparent);
   border-color: var(--app-border-soft);
-  color: #aeb7c2;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.018);
+  color: var(--app-muted);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-border-soft) 28%, transparent);
 }
 
 .idt-app-console-layout .idt-app-quick-find:hover,
@@ -28936,7 +29013,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-quick-find {
 
 .idt-app-console-layout .idt-app-shell-nav a,
 html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
-  color: #aab2bd;
+  color: var(--app-muted);
 }
 
 .idt-app-console-layout .idt-app-shell-nav a:hover:not(.active),
@@ -28944,13 +29021,13 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a {
 html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a:hover:not(.active),
 html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a:focus-visible:not(.active) {
   background: var(--idt-console-rail-hover);
-  color: #ffffff;
+  color: var(--app-text);
 }
 
 .idt-app-console-layout .idt-app-shell-nav a.active,
 html[data-theme='light'] .idt-app-console-layout .idt-app-shell-nav a.active {
-  background: #171b22;
-  color: #ffffff;
+  background: var(--idt-console-rail-hover);
+  color: var(--app-text);
 }
 
 .idt-app-console-layout .idt-app-shell-nav a.active::before {
@@ -28974,7 +29051,8 @@ html[data-theme='light'] .idt-app-console-layout .idt-app-sidebar-account-menu {
 .idt-app-sidebar-account-menu a:focus-visible,
 .idt-app-sidebar-account-menu button:hover,
 .idt-app-sidebar-account-menu button:focus-visible {
-  background: #171b22;
+  background: var(--idt-console-rail-hover);
+  color: var(--app-text);
 }
 
 .idt-app-console-layout .idt-overview-header,
@@ -29185,7 +29263,7 @@ html[data-theme='light'] .idt-executive-report-shell .idt-btn-ghost,
 html[data-theme='light'] .idt-executive-report-shell .idt-btn-dark {
   border-color: var(--app-border);
   background: var(--idt-console-surface-quiet);
-  color: #f4f7fa;
+  color: var(--app-text);
 }
 
 .idt-app-console-layout input,
@@ -29214,7 +29292,7 @@ html[data-theme='light'] .idt-app-shell-screen select,
 html[data-theme='light'] .idt-app-shell-screen textarea {
   border-color: var(--app-border);
   background-color: var(--idt-console-surface-deep);
-  color: #ffffff;
+  color: var(--app-text);
 }
 
 .idt-app-console-layout input:focus-visible,
@@ -29708,6 +29786,82 @@ html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-procure
   .idt-pricing-decision-console .idt-pricing-hero-matrix,
   html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-matrix {
     overflow-x: auto;
+  }
+
+  .idt-pricing-page .idt-table-wrap,
+  html[data-theme='light'] .idt-pricing-page .idt-table-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .idt-pricing-page .idt-compare-table,
+  html[data-theme='light'] .idt-pricing-page .idt-compare-table {
+    min-width: 0;
+    display: block;
+  }
+
+  .idt-pricing-page .idt-compare-table thead,
+  html[data-theme='light'] .idt-pricing-page .idt-compare-table thead {
+    display: none;
+  }
+
+  .idt-pricing-page .idt-compare-table tbody,
+  .idt-pricing-page .idt-compare-table tr,
+  .idt-pricing-page .idt-compare-table th,
+  .idt-pricing-page .idt-compare-table td,
+  html[data-theme='light'] .idt-pricing-page .idt-compare-table tbody,
+  html[data-theme='light'] .idt-pricing-page .idt-compare-table tr,
+  html[data-theme='light'] .idt-pricing-page .idt-compare-table th,
+  html[data-theme='light'] .idt-pricing-page .idt-compare-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .idt-pricing-page .idt-compare-table tr,
+  html[data-theme='light'] .idt-pricing-page .idt-compare-table tr {
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+    border: 1px solid #242424;
+    border-radius: 8px;
+    background: #080808;
+  }
+
+  .idt-pricing-page .idt-compare-table th,
+  .idt-pricing-page .idt-compare-table td,
+  html[data-theme='light'] .idt-pricing-page .idt-compare-table th,
+  html[data-theme='light'] .idt-pricing-page .idt-compare-table td {
+    border: 0;
+    border-bottom: 1px solid #242424;
+    padding: 0.82rem;
+  }
+
+  .idt-pricing-page .idt-compare-table tr > :last-child,
+  html[data-theme='light'] .idt-pricing-page .idt-compare-table tr > :last-child {
+    border-bottom: 0;
+  }
+
+  .idt-pricing-page .idt-compare-table td:nth-of-type(1)::before {
+    content: 'Open Source';
+  }
+
+  .idt-pricing-page .idt-compare-table td:nth-of-type(2)::before {
+    content: 'Pro';
+  }
+
+  .idt-pricing-page .idt-compare-table td:nth-of-type(3)::before {
+    content: 'Enterprise';
+  }
+
+  .idt-pricing-page .idt-compare-table td::before,
+  html[data-theme='light'] .idt-pricing-page .idt-compare-table td::before {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: #a1a1aa;
+    font-size: 0.68rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 }
 
@@ -30933,7 +31087,11 @@ html[data-appearance-ready='true'] .idt-app-console-layout :is(
   .idt-app-sidebar-workspace-copy strong,
   .idt-app-sidebar-workspace-meta strong,
   .idt-app-sidebar-account-name strong,
-  .idt-app-sidebar-account-meta strong
+  .idt-app-sidebar-account-meta strong,
+  .idt-app-sidebar-workspace-menu a,
+  .idt-app-sidebar-workspace-menu button,
+  .idt-app-sidebar-account-menu a,
+  .idt-app-sidebar-account-menu button
 ) {
   color: var(--app-text);
 }
@@ -30949,6 +31107,10 @@ html[data-appearance-ready='true'] .idt-app-console-layout :is(
   .idt-app-sidebar-account-name span,
   .idt-app-sidebar-account-caret,
   .idt-app-sidebar-account-meta span,
+  .idt-app-sidebar-workspace-menu a > svg,
+  .idt-app-sidebar-workspace-menu button > svg,
+  .idt-app-sidebar-account-menu a > svg,
+  .idt-app-sidebar-account-menu button > svg,
   .idt-app-quick-find-icon,
   .idt-app-quick-find-label,
   .idt-app-quick-find-key,
@@ -31030,22 +31192,14 @@ html[data-appearance-translucent-sidebar='true'] .idt-app-sidebar {
   max-width: 64rem;
   margin-right: auto;
   margin-left: auto;
-}
-
-.idt-appearance-header {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-}
-
-.idt-appearance-header h2 {
-  margin: 0;
+  padding-top: 0;
 }
 
 .idt-appearance-back {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   width: 2.25rem;
   height: 2.25rem;
   border: 1px solid var(--app-border-soft);
@@ -31066,12 +31220,16 @@ html[data-appearance-translucent-sidebar='true'] .idt-app-sidebar {
 }
 
 .idt-appearance-card-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1.2rem;
+  gap: 0.9rem;
+  padding: 1rem 1.2rem;
   border-bottom: 1px solid var(--app-border-soft);
+}
+
+.idt-appearance-card-title {
+  min-width: 0;
 }
 
 .idt-appearance-card-header h3,
@@ -31083,6 +31241,11 @@ html[data-appearance-translucent-sidebar='true'] .idt-app-sidebar {
 .idt-appearance-behavior-row p,
 .idt-appearance-control-row small {
   color: var(--app-muted);
+}
+
+.idt-appearance-control-row > span:first-child,
+.idt-appearance-behavior-row > span:first-child {
+  color: var(--app-text);
 }
 
 .idt-appearance-control-row small {
@@ -31198,6 +31361,7 @@ html[data-diff-markers='symbols'] .idt-appearance-preview-pane[data-side='after'
   min-height: 3.4rem;
   padding: 0.75rem 1.2rem;
   border-bottom: 1px solid var(--app-border-soft);
+  color: var(--app-text);
 }
 
 .idt-appearance-control-row:last-child,
@@ -31251,6 +31415,7 @@ html[data-appearance-ready='true'] .idt-app-console-layout .idt-appearance-contr
   align-items: center;
   justify-content: flex-end;
   gap: 0.65rem;
+  color: var(--app-muted);
 }
 
 .idt-appearance-color-input input {
@@ -31270,6 +31435,10 @@ html[data-appearance-ready='true'] .idt-app-console-layout .idt-appearance-contr
 .idt-appearance-slider input {
   width: min(13rem, 34vw);
   accent-color: var(--appearance-accent, #7c6dff);
+}
+
+.idt-appearance-slider strong {
+  color: var(--app-text);
 }
 
 .idt-appearance-switch {
@@ -31330,6 +31499,10 @@ html[data-appearance-ready='true'] .idt-app-console-layout .idt-appearance-contr
 .idt-appearance-number input {
   width: 5.3rem;
   text-align: center;
+}
+
+.idt-appearance-number > span {
+  color: var(--app-muted);
 }
 
 @media (max-width: 760px) {
