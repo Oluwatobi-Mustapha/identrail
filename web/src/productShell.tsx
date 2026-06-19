@@ -15437,8 +15437,8 @@ const SIDEBAR_MIN_EXPANDED_WIDTH = 196;
 const SIDEBAR_MAX_WIDTH = 360;
 const SIDEBAR_COLLAPSE_THRESHOLD = 140; // dragging below this snaps to collapsed
 const SIDEBAR_COLLAPSED_WIDTH = 60;
-const SCROLL_NAVIGATOR_MIN_THUMB_HEIGHT = 88;
-const SCROLL_NAVIGATOR_MAX_THUMB_HEIGHT = 168;
+const SCROLL_NAVIGATOR_MIN_THUMB_HEIGHT = 68;
+const SCROLL_NAVIGATOR_MAX_THUMB_HEIGHT = 132;
 
 type ScrollNavigatorMetrics = {
   visible: boolean;
@@ -15481,6 +15481,11 @@ function isMacPlatform(): boolean {
     return false;
   }
   return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || '');
+}
+
+function formatPlatformShortcut(key: string): string {
+  const normalizedKey = key.trim().toUpperCase();
+  return isMacPlatform() ? `⌘${normalizedKey}` : `Ctrl+${normalizedKey}`;
 }
 
 export function ProductShellLayout() {
@@ -15925,13 +15930,13 @@ export function ProductShellLayout() {
         return;
       }
 
-      const trackTop = Math.min(112, Math.max(80, viewportHeight * 0.13));
-      const trackBottom = Math.min(56, Math.max(36, viewportHeight * 0.05));
+      const trackTop = Math.min(72, Math.max(28, viewportHeight * 0.055));
+      const trackBottom = Math.min(64, Math.max(28, viewportHeight * 0.045));
       const trackHeight = Math.max(120, viewportHeight - trackTop - trackBottom);
       const thumbHeight = Math.round(
         Math.min(
           SCROLL_NAVIGATOR_MAX_THUMB_HEIGHT,
-          Math.max(SCROLL_NAVIGATOR_MIN_THUMB_HEIGHT, trackHeight * 0.22)
+          Math.max(SCROLL_NAVIGATOR_MIN_THUMB_HEIGHT, trackHeight * 0.16)
         )
       );
       const scrollProgress = Math.min(1, Math.max(0, scrollingElement.scrollTop / scrollRange));
@@ -16052,7 +16057,8 @@ export function ProductShellLayout() {
   const userDisplayName = 'Account';
   const userEmail = '';
   const userInitial = (workspaceDisplayName.charAt(0) || 'A').toUpperCase();
-  const collapseShortcut = isMacPlatform() ? '⌘B' : 'Ctrl+B';
+  const collapseShortcut = formatPlatformShortcut('B');
+  const finderShortcut = formatPlatformShortcut('K');
   const runCommand = (item: CommandPaletteItem) => {
     setCommandOpen(false);
     setOpenDomainFlyout(null);
@@ -16103,13 +16109,19 @@ export function ProductShellLayout() {
             tabIndex={openDomainFlyout ? -1 : 0}
             aria-orientation="vertical"
             aria-label={`${sidebarCollapsed ? 'Expand' : 'Collapse'} sidebar. Drag to resize.`}
-            data-sidebar-action={sidebarCollapsed ? 'Click to expand' : 'Click to collapse'}
-            data-sidebar-shortcut={collapseShortcut}
             onPointerDown={handleSidebarResizeStart}
             onKeyDown={handleSidebarResizeKeyDown}
             onFocus={() => setIsSidebarEdgeFocused(true)}
             onBlur={() => setIsSidebarEdgeFocused(false)}
-          />
+          >
+            <span className="idt-app-sidebar-resize-tooltip" aria-hidden="true">
+              <span className="idt-app-sidebar-resize-tooltip-row">
+                <span>{sidebarCollapsed ? 'Click to expand' : 'Click to collapse'}</span>
+                <kbd>{collapseShortcut}</kbd>
+              </span>
+              <span>Drag to resize</span>
+            </span>
+          </div>
           <div className="idt-app-sidebar-workspace" ref={workspaceMenuRef}>
             <button
               type="button"
@@ -16178,13 +16190,13 @@ export function ProductShellLayout() {
             className="idt-app-quick-find"
             onClick={() => setCommandOpen(true)}
             aria-label="Open workspace finder"
-            title={sidebarCollapsed ? 'Find (⌘K)' : undefined}
+            title={sidebarCollapsed ? `Find (${finderShortcut})` : undefined}
           >
             <span className="idt-app-quick-find-icon" aria-hidden="true">
               <Search size={14} strokeWidth={2} />
             </span>
             <span className="idt-app-quick-find-label">Find</span>
-            <kbd className="idt-app-quick-find-key">⌘K</kbd>
+            <kbd className="idt-app-quick-find-key">{finderShortcut}</kbd>
           </button>
 
           {openDomainFlyout ? (
@@ -23034,6 +23046,37 @@ export function ProductAppearanceSettingsPage() {
           </div>
         </div>
 
+        <div className="idt-appearance-app-preview" aria-label="App preview">
+          <div className="idt-appearance-app-preview-rail" aria-hidden="true">
+            <span className="is-active">
+              <span />
+              GitHub
+            </span>
+            <span>
+              <span />
+              Settings
+            </span>
+          </div>
+          <div className="idt-appearance-app-preview-surface">
+            <div className="idt-appearance-app-preview-head">
+              <span>
+                <strong>Repository findings</strong>
+                <small>GitHub control center</small>
+              </span>
+              <em>Needs review</em>
+            </div>
+            <div className="idt-appearance-app-preview-card">
+              <span className="idt-appearance-app-preview-dot" aria-hidden="true" />
+              <span>
+                <strong>OIDC trust path exposed</strong>
+                <small>8 findings · 1 file</small>
+              </span>
+              <span className="idt-appearance-app-preview-button">Review</span>
+            </div>
+            <div className="idt-appearance-app-preview-input">Search repositories</div>
+          </div>
+        </div>
+
         <div className="idt-appearance-control-list">
           <label className="idt-appearance-control-row">
             <span>
@@ -23127,18 +23170,6 @@ export function ProductAppearanceSettingsPage() {
               ))}
             </select>
           </label>
-
-          <div className="idt-appearance-control-row">
-            <span>
-              <strong>Translucent sidebar</strong>
-              <small>{preferences.translucentSidebar ? 'Sidebar blur is on' : 'Sidebar stays solid'}</small>
-            </span>
-            <AppearanceSwitch
-              checked={preferences.translucentSidebar}
-              label="Translucent sidebar"
-              onChange={(translucentSidebar) => commitPreferences({ translucentSidebar })}
-            />
-          </div>
 
           <label className="idt-appearance-control-row idt-appearance-slider-row">
             <span>
