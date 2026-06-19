@@ -8,6 +8,7 @@ import type {
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   BarChart3,
+  Check,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -16,9 +17,13 @@ import {
   HelpCircle,
   LayoutDashboard,
   LogOut,
+  Monitor,
+  Moon,
+  Palette,
   Pencil,
   Search,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Sun
 } from 'lucide-react';
 import {
   ApiError,
@@ -137,6 +142,22 @@ import {
 import { getDomainAsset, type DomainAssetKey } from './design/domainAssets';
 import { clearMeCache, primeMeCache, useMe } from './hooks/useMe';
 import { isFeatureAvailable, type BackendFeatures, useBackendFeatures } from './hooks/useBackendFeatures';
+import {
+  APPEARANCE_FONT_LABELS,
+  APPEARANCE_PRESETS,
+  applyAppearancePreferences,
+  findAppearancePreset,
+  normalizeAppearancePreferences,
+  readAppearancePreferences,
+  resolveAppearanceThemeMode,
+  saveAppearancePreferences,
+  type AppearanceDiffMarkers,
+  type AppearanceFontID,
+  type AppearancePreferences,
+  type AppearancePresetID,
+  type AppearanceReduceMotion,
+  type AppearanceThemeMode
+} from './appearance';
 import {
   FEATURE_ONBOARDING_CONNECTOR_AWS as FEATURE_CONNECTOR_AWS,
   FEATURE_ONBOARDING_CONNECTOR_GITHUB as FEATURE_CONNECTOR_GITHUB_V2,
@@ -20161,6 +20182,81 @@ function repoFindingSearchText(finding: ApiFinding): string {
     .join(' ');
 }
 
+function repoFindingSnippetLooksLikeDiff(lines: string[]): boolean {
+  const meaningfulLines = lines.filter((line) => line.trim().length > 0);
+  const isDiffMetadataLine = (line: string) =>
+    line.startsWith('@@') ||
+    line.startsWith('diff --git') ||
+    line.startsWith('index ') ||
+    line.startsWith('old mode ') ||
+    line.startsWith('new mode ') ||
+    line.startsWith('deleted file mode ') ||
+    line.startsWith('new file mode ') ||
+    line.startsWith('similarity index ') ||
+    line.startsWith('dissimilarity index ') ||
+    line.startsWith('rename from ') ||
+    line.startsWith('rename to ') ||
+    line.startsWith('copy from ') ||
+    line.startsWith('copy to ') ||
+    line.startsWith('--- ') ||
+    line.startsWith('+++ ') ||
+    line.startsWith('\\ ');
+  const hasDiffHeader = meaningfulLines.some(
+    (line) => line.startsWith('@@') || line.startsWith('diff --git') || line.startsWith('--- ') || line.startsWith('+++ ')
+  );
+  const diffBodyLines = meaningfulLines.filter(
+    (line) => !isDiffMetadataLine(line)
+  );
+  return (
+    hasDiffHeader &&
+    diffBodyLines.some((line) => line.startsWith('+') || line.startsWith('-')) &&
+    meaningfulLines.every(
+      (line) =>
+        line.startsWith('+') ||
+        line.startsWith('-') ||
+        line.startsWith(' ') ||
+        isDiffMetadataLine(line)
+    )
+  );
+}
+
+function repoFindingSnippetDiffMarker(line: string, isDiffSnippet: boolean): '+' | '-' | null {
+  if (!isDiffSnippet || line.startsWith('+++ ') || line.startsWith('--- ')) {
+    return null;
+  }
+  if (line.startsWith('+')) {
+    return '+';
+  }
+  if (line.startsWith('-')) {
+    return '-';
+  }
+  return null;
+}
+
+function repoFindingSnippetLineClass(diffMarker: '+' | '-' | null): string {
+  if (diffMarker === '+') {
+    return 'idt-repo-finding-code-line is-add';
+  }
+  if (diffMarker === '-') {
+    return 'idt-repo-finding-code-line is-remove';
+  }
+  return 'idt-repo-finding-code-line';
+}
+
+function renderRepoFindingLineSnippet(snippet: string) {
+  const lines = snippet.split('\n');
+  const isDiffSnippet = repoFindingSnippetLooksLikeDiff(lines);
+  return lines.map((line, index) => {
+    const diffMarker = repoFindingSnippetDiffMarker(line, isDiffSnippet);
+    return (
+      <span className={repoFindingSnippetLineClass(diffMarker)} key={`${index}-${line}`}>
+        {diffMarker ? <span className="idt-repo-finding-code-marker">{diffMarker}</span> : null}
+        {diffMarker ? line.slice(1) || ' ' : line || ' '}
+      </span>
+    );
+  });
+}
+
 function repoFindingMatchesAny(finding: ApiFinding, tokens: string[]): boolean {
   const haystack = repoFindingSearchText(finding);
   return tokens.some((token) => haystack.includes(token));
@@ -22158,9 +22254,9 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                 )}
                 {selectedFinding.line_snippet ? (
                   <div className="idt-repo-finding-code">
-                    <span>Evidence line</span>
+                    <span className="idt-repo-finding-code-label">Evidence line</span>
                     <pre>
-                      <code>{selectedFinding.line_snippet}</code>
+                      <code>{renderRepoFindingLineSnippet(selectedFinding.line_snippet)}</code>
                     </pre>
                   </div>
                 ) : null}
@@ -22653,6 +22749,505 @@ function workspaceSoleOwnerMemberLabel(member: WorkspaceSoleOwnerAffectedMember)
   return `${member.user_id || member.member_id} (${member.role})`;
 }
 
+const APPEARANCE_THEME_OPTIONS: Array<{
+  id: AppearanceThemeMode;
+  label: string;
+  icon: ReactNode;
+}> = [
+  { id: 'light', label: 'Light', icon: <Sun size={15} aria-hidden="true" /> },
+  { id: 'dark', label: 'Dark', icon: <Moon size={15} aria-hidden="true" /> },
+  { id: 'system', label: 'System', icon: <Monitor size={15} aria-hidden="true" /> }
+];
+
+const APPEARANCE_MOTION_OPTIONS: Array<{ id: AppearanceReduceMotion; label: string }> = [
+  { id: 'system', label: 'System' },
+  { id: 'on', label: 'On' },
+  { id: 'off', label: 'Off' }
+];
+
+const APPEARANCE_DIFF_OPTIONS: Array<{ id: AppearanceDiffMarkers; label: string }> = [
+  { id: 'color', label: 'Color' },
+  { id: 'symbols', label: '+/-' }
+];
+
+const APPEARANCE_UI_FONT_OPTIONS: AppearanceFontID[] = ['system', 'inter', 'geist'];
+const APPEARANCE_CODE_FONT_OPTIONS: AppearanceFontID[] = ['mono-system', 'ibm-plex-mono'];
+
+function appearancePresetOptions(mode: 'light' | 'dark') {
+  return APPEARANCE_PRESETS.filter((preset) =>
+    mode === 'light' ? preset.mode === 'light' : preset.mode === 'dark' || preset.mode === 'both'
+  );
+}
+
+type AppearanceSegmentedControlProps<T extends string> = {
+  label: string;
+  value: T;
+  options: Array<{ id: T; label: string; icon?: ReactNode }>;
+  onChange: (nextValue: T) => void;
+};
+
+function AppearanceSegmentedControl<T extends string>({
+  label,
+  value,
+  options,
+  onChange
+}: AppearanceSegmentedControlProps<T>) {
+  return (
+    <div className="idt-appearance-segmented" role="group" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          className="idt-appearance-segment"
+          aria-pressed={value === option.id}
+          onClick={() => onChange(option.id)}
+        >
+          {option.icon}
+          <span>{option.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type AppearanceSwitchProps = {
+  checked: boolean;
+  label: string;
+  onChange: (checked: boolean) => void;
+};
+
+function AppearanceSwitch({ checked, label, onChange }: AppearanceSwitchProps) {
+  return (
+    <button
+      type="button"
+      className="idt-appearance-switch"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+    >
+      <span aria-hidden="true" />
+    </button>
+  );
+}
+
+type AppearanceNumberInputProps = {
+  label: string;
+  max: number;
+  min: number;
+  onCommit: (value: number) => void;
+  value: number;
+};
+
+function AppearanceNumberInput({
+  label,
+  max,
+  min,
+  onCommit,
+  value
+}: AppearanceNumberInputProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [draft, setDraft] = useState(() => String(value));
+
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) {
+      setDraft(String(value));
+    }
+  }, [value]);
+
+  const commitDraft = () => {
+    const parsed = Number(draft);
+    if (!Number.isFinite(parsed)) {
+      setDraft(String(value));
+      return;
+    }
+    onCommit(parsed);
+  };
+
+  return (
+    <input
+      ref={inputRef}
+      aria-label={label}
+      type="number"
+      min={min}
+      max={max}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commitDraft}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          commitDraft();
+          event.currentTarget.blur();
+        }
+        if (event.key === 'Escape') {
+          setDraft(String(value));
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
+export function ProductAppearanceSettingsPage() {
+  const params = useParams<ScopeRouteParams>();
+  const scope = resolveScopeFromParams(params);
+  const settingsPath = scope ? buildScopedPath(scope, 'settings') : '/app';
+  const [preferences, setPreferences] = useState<AppearancePreferences>(() =>
+    readAppearancePreferences()
+  );
+  const resolvedTheme = resolveAppearanceThemeMode(preferences.themeMode);
+  const activePreset = findAppearancePreset(
+    resolvedTheme === 'light' ? preferences.lightPreset : preferences.darkPreset
+  );
+  const effectiveColors = preferences.customColors
+    ? {
+        accent: preferences.accent,
+        background: preferences.background,
+        foreground: preferences.foreground
+      }
+    : {
+        accent: activePreset.accent,
+        background: activePreset.background,
+        foreground: activePreset.foreground
+      };
+
+  useEffect(() => {
+    applyAppearancePreferences(preferences);
+  }, [preferences]);
+
+  const commitPreferences = useCallback((patch: Partial<AppearancePreferences>) => {
+    setPreferences((current) => {
+      const next = normalizeAppearancePreferences({ ...current, ...patch });
+      const saved = saveAppearancePreferences(next);
+      applyAppearancePreferences(saved);
+      return saved;
+    });
+  }, []);
+
+  const updatePreset = (key: 'lightPreset' | 'darkPreset', presetID: AppearancePresetID) => {
+    const preset = findAppearancePreset(presetID);
+    const activePresetKey = resolvedTheme === 'light' ? 'lightPreset' : 'darkPreset';
+    if (key !== activePresetKey) {
+      commitPreferences({ [key]: preset.id });
+      return;
+    }
+    commitPreferences({
+      [key]: preset.id,
+      accent: preset.accent,
+      background: preset.background,
+      foreground: preset.foreground,
+      customColors: false
+    });
+  };
+
+  const updateHexPreference = (
+    key: 'accent' | 'background' | 'foreground',
+    value: string
+  ) => {
+    commitPreferences({
+      accent: key === 'accent' ? value : effectiveColors.accent,
+      background: key === 'background' ? value : effectiveColors.background,
+      foreground: key === 'foreground' ? value : effectiveColors.foreground,
+      customColors: true
+    });
+  };
+
+  return (
+    <section className="idt-app-panel idt-settings-page idt-appearance-page">
+      <header className="idt-settings-header idt-appearance-header">
+        <div>
+          <Link className="idt-appearance-back" to={settingsPath}>
+            Back to settings
+          </Link>
+          <h2>Appearance</h2>
+        </div>
+      </header>
+
+      <section className="idt-settings-card idt-appearance-card" aria-labelledby="idt-appearance-theme-heading">
+        <div className="idt-appearance-card-header">
+          <div>
+            <h3 id="idt-appearance-theme-heading">Theme</h3>
+            <p>Use light, dark, or match your system</p>
+          </div>
+          <AppearanceSegmentedControl
+            label="Theme"
+            value={preferences.themeMode}
+            options={APPEARANCE_THEME_OPTIONS}
+            onChange={(themeMode) => commitPreferences({ themeMode })}
+          />
+        </div>
+
+        <div className="idt-appearance-preview" aria-label="Theme preview">
+          <div className="idt-appearance-preview-pane" data-side="before">
+            {[1, 2, 3, 4, 5].map((line) => (
+              <div key={`before-${line}`} className="idt-appearance-code-line">
+                <span>{line}</span>
+                <code>
+                  {line === 1 ? 'const themePreview: {' : ''}
+                  {line === 2 ? '  surface: "sidebar",' : ''}
+                  {line === 3 ? '  accent: "#2563eb",' : ''}
+                  {line === 4 ? '  contrast: 42,' : ''}
+                  {line === 5 ? '};' : ''}
+                </code>
+              </div>
+            ))}
+          </div>
+          <div className="idt-appearance-preview-pane" data-side="after">
+            {[1, 2, 3, 4, 5].map((line) => (
+              <div key={`after-${line}`} className="idt-appearance-code-line">
+                <span>{line}</span>
+                <code>
+                  {line === 1 ? 'const themePreview: {' : ''}
+                  {line === 2 ? '  surface: "sidebar-edge",' : ''}
+                  {line === 3 ? `  accent: "${effectiveColors.accent}",` : ''}
+                  {line === 4 ? `  contrast: ${preferences.contrast},` : ''}
+                  {line === 5 ? '};' : ''}
+                </code>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="idt-appearance-control-list">
+          <label className="idt-appearance-control-row">
+            <span>
+              <strong>Light theme</strong>
+            </span>
+            <select
+              aria-label="Light theme"
+              value={preferences.lightPreset}
+              onChange={(event) => updatePreset('lightPreset', event.target.value as AppearancePresetID)}
+            >
+              {appearancePresetOptions('light').map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="idt-appearance-control-row">
+            <span>
+              <strong>Dark theme</strong>
+            </span>
+            <select
+              aria-label="Dark theme"
+              value={preferences.darkPreset}
+              onChange={(event) => updatePreset('darkPreset', event.target.value as AppearancePresetID)}
+            >
+              {appearancePresetOptions('dark').map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {[
+            ['accent', 'Accent', effectiveColors.accent],
+            ['background', 'Background', effectiveColors.background],
+            ['foreground', 'Foreground', effectiveColors.foreground]
+          ].map(([key, label, value]) => (
+            <label key={key} className="idt-appearance-control-row">
+              <span>
+                <strong>{label}</strong>
+              </span>
+              <span className="idt-appearance-color-input">
+                <input
+                  aria-label={`${label} color`}
+                  type="color"
+                  value={value}
+                  onChange={(event) =>
+                    updateHexPreference(key as 'accent' | 'background' | 'foreground', event.target.value)
+                  }
+                />
+                <code>{value}</code>
+              </span>
+            </label>
+          ))}
+
+          <label className="idt-appearance-control-row">
+            <span>
+              <strong>UI font</strong>
+            </span>
+            <select
+              aria-label="UI font"
+              value={preferences.uiFont}
+              onChange={(event) => commitPreferences({ uiFont: event.target.value as AppearanceFontID })}
+            >
+              {APPEARANCE_UI_FONT_OPTIONS.map((fontID) => (
+                <option key={fontID} value={fontID}>
+                  {APPEARANCE_FONT_LABELS[fontID]}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="idt-appearance-control-row">
+            <span>
+              <strong>Code font</strong>
+            </span>
+            <select
+              aria-label="Code font"
+              value={preferences.codeFont}
+              onChange={(event) => commitPreferences({ codeFont: event.target.value as AppearanceFontID })}
+            >
+              {APPEARANCE_CODE_FONT_OPTIONS.map((fontID) => (
+                <option key={fontID} value={fontID}>
+                  {APPEARANCE_FONT_LABELS[fontID]}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="idt-appearance-control-row">
+            <span>
+              <strong>Translucent sidebar</strong>
+            </span>
+            <AppearanceSwitch
+              checked={preferences.translucentSidebar}
+              label="Translucent sidebar"
+              onChange={(translucentSidebar) => commitPreferences({ translucentSidebar })}
+            />
+          </div>
+
+          <label className="idt-appearance-control-row idt-appearance-slider-row">
+            <span>
+              <strong>Contrast</strong>
+            </span>
+            <span className="idt-appearance-slider">
+              <input
+                aria-label="Contrast"
+                type="range"
+                min="0"
+                max="100"
+                value={preferences.contrast}
+                onChange={(event) => commitPreferences({ contrast: Number(event.target.value) })}
+              />
+              <strong>{preferences.contrast}</strong>
+            </span>
+          </label>
+        </div>
+      </section>
+
+      <section className="idt-settings-card idt-appearance-card idt-appearance-behavior-card">
+        <div className="idt-appearance-behavior-row">
+          <div>
+            <h3>Use pointer cursors</h3>
+            <p>Change the cursor to a pointer when hovering over interactive elements</p>
+          </div>
+          <AppearanceSwitch
+            checked={preferences.pointerCursors}
+            label="Use pointer cursors"
+            onChange={(pointerCursors) => commitPreferences({ pointerCursors })}
+          />
+        </div>
+
+        <div className="idt-appearance-behavior-row">
+          <div>
+            <h3>Reduce motion</h3>
+            <p>Reduce animations or match your system</p>
+          </div>
+          <AppearanceSegmentedControl
+            label="Reduce motion"
+            value={preferences.reduceMotion}
+            options={APPEARANCE_MOTION_OPTIONS}
+            onChange={(reduceMotion) => commitPreferences({ reduceMotion })}
+          />
+        </div>
+
+        <label className="idt-appearance-behavior-row">
+          <span>
+            <h3>UI font size</h3>
+            <p>Adjust the base size used for the Identrail UI</p>
+          </span>
+          <span className="idt-appearance-number">
+            <AppearanceNumberInput
+              label="UI font size"
+              min={14}
+              max={22}
+              value={preferences.uiFontSize}
+              onCommit={(uiFontSize) => commitPreferences({ uiFontSize })}
+            />
+            <span>px</span>
+          </span>
+        </label>
+
+        <label className="idt-appearance-behavior-row">
+          <span>
+            <h3>Code font size</h3>
+            <p>Adjust the base size used for code across previews and diffs</p>
+          </span>
+          <span className="idt-appearance-number">
+            <AppearanceNumberInput
+              label="Code font size"
+              min={12}
+              max={22}
+              value={preferences.codeFontSize}
+              onCommit={(codeFontSize) => commitPreferences({ codeFontSize })}
+            />
+            <span>px</span>
+          </span>
+        </label>
+
+        <div className="idt-appearance-behavior-row">
+          <div>
+            <h3>Diff markers</h3>
+            <p>Use colored bars and backgrounds or show plus and minus symbols on each changed line</p>
+          </div>
+          <AppearanceSegmentedControl
+            label="Diff markers"
+            value={preferences.diffMarkers}
+            options={APPEARANCE_DIFF_OPTIONS}
+            onChange={(diffMarkers) => commitPreferences({ diffMarkers })}
+          />
+        </div>
+
+        <div className="idt-appearance-behavior-row">
+          <div>
+            <h3>Font smoothing</h3>
+            <p>Use native macOS font anti-aliasing</p>
+          </div>
+          <AppearanceSwitch
+            checked={preferences.fontSmoothing}
+            label="Font smoothing"
+            onChange={(fontSmoothing) => commitPreferences({ fontSmoothing })}
+          />
+        </div>
+      </section>
+
+      <section className="idt-appearance-dock-card" aria-labelledby="idt-appearance-icon-heading">
+        <div>
+          <h3 id="idt-appearance-icon-heading">App icon</h3>
+          <p>Choose the icon style Identrail uses inside the app shell</p>
+        </div>
+        <div className="idt-appearance-icon-options">
+          {[
+            ['default', 'Default'],
+            ['light', 'Identrail L...'],
+            ['dark', 'Identrail D...']
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className="idt-appearance-icon-option"
+              aria-pressed={preferences.appIcon === id}
+              onClick={() => commitPreferences({ appIcon: id as AppearancePreferences['appIcon'] })}
+            >
+              <span className="idt-appearance-icon-swatch" data-icon-tone={id} aria-hidden="true">
+                <Palette size={22} />
+              </span>
+              <span>{label}</span>
+              {preferences.appIcon === id ? <Check size={16} aria-hidden="true" /> : <span aria-hidden="true" />}
+            </button>
+          ))}
+        </div>
+      </section>
+
+    </section>
+  );
+}
+
 export function ProductSettingsPage() {
   const params = useParams<ScopeRouteParams>();
   const scope = resolveScopeFromParams(params);
@@ -22884,6 +23479,7 @@ export function ProductSettingsPage() {
   const mfaStatus = authConfig?.auth.workos_login_enabled ? 'Hosted login' : 'Not configured';
   const developerScopeLabel = scopes.length ? scopes.map(formatTokenLabel).join(', ') : 'No custom restrictions';
   const developerProviderLabel = authProviders.length ? authProviders.join(', ') : 'None advertised';
+  const appearancePath = scope ? buildScopedPath(scope, 'settings/appearance') : '/app';
 
   const handleProfileEdit = () => {
     if (profileEditing) {
@@ -23306,6 +23902,22 @@ export function ProductSettingsPage() {
           <h2>Settings</h2>
         </div>
       </header>
+
+      <section className="idt-settings-card idt-settings-appearance-entry" aria-labelledby="idt-settings-appearance-heading">
+        <div className="idt-settings-card-header">
+          <div>
+            <h3 id="idt-settings-appearance-heading">Appearance</h3>
+          </div>
+          <Palette size={18} aria-hidden="true" />
+        </div>
+        <p>Theme, fonts, contrast, motion, and app icon preferences.</p>
+        <Link className="idt-settings-action-row" to={appearancePath}>
+          <span>
+            <strong>Open appearance settings</strong>
+          </span>
+          <ChevronRight size={16} aria-hidden="true" />
+        </Link>
+      </section>
 
       <section className="idt-settings-card idt-profile-card" aria-labelledby="idt-profile-heading">
         <div className="idt-settings-card-header">

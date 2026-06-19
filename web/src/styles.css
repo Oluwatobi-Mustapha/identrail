@@ -172,37 +172,37 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .idt-modal-backdrop,
-  .idt-modal,
-  .idt-permission-preview-modal,
-  .idt-repo-finding-detail-modal,
-  .idt-danger-modal,
-  .idt-command-palette-backdrop,
-  .idt-command-palette,
-  .idt-domain-drawer-root,
-  .idt-domain-drawer-scrim,
-  .idt-domain-drawer,
-  .idt-domain-flyout,
-  .idt-domain-flyout-section,
-  .idt-domain-flyout-nested-body,
-  .idt-profile-avatar-menu,
-  .idt-auth-theme-menu,
-  .idt-app-sidebar-account-menu,
-  .idt-app-sidebar-workspace-menu,
-  .idt-app-alert,
-  .idt-settings-inline-status,
-  .idt-form-error,
-  .idt-auth-provider-grid,
-  .idt-scan-stepper li.is-active,
-  .idt-danger-modal-error,
-  .idt-danger-modal-blocker,
-  .idt-form-success,
-  .idt-auth-mfa-setup,
-  .idt-auth-provider-stack,
-  .idt-settings-disclosure[open] .idt-settings-disclosure-body,
-  .idt-settings-inline-disclosure[open] .idt-settings-disclosure-body,
-  .idt-hold-confirm.is-holding::before,
-  .idt-hold-confirm.is-rejected {
+  html:not([data-reduce-motion='off']) .idt-modal-backdrop,
+  html:not([data-reduce-motion='off']) .idt-modal,
+  html:not([data-reduce-motion='off']) .idt-permission-preview-modal,
+  html:not([data-reduce-motion='off']) .idt-repo-finding-detail-modal,
+  html:not([data-reduce-motion='off']) .idt-danger-modal,
+  html:not([data-reduce-motion='off']) .idt-command-palette-backdrop,
+  html:not([data-reduce-motion='off']) .idt-command-palette,
+  html:not([data-reduce-motion='off']) .idt-domain-drawer-root,
+  html:not([data-reduce-motion='off']) .idt-domain-drawer-scrim,
+  html:not([data-reduce-motion='off']) .idt-domain-drawer,
+  html:not([data-reduce-motion='off']) .idt-domain-flyout,
+  html:not([data-reduce-motion='off']) .idt-domain-flyout-section,
+  html:not([data-reduce-motion='off']) .idt-domain-flyout-nested-body,
+  html:not([data-reduce-motion='off']) .idt-profile-avatar-menu,
+  html:not([data-reduce-motion='off']) .idt-auth-theme-menu,
+  html:not([data-reduce-motion='off']) .idt-app-sidebar-account-menu,
+  html:not([data-reduce-motion='off']) .idt-app-sidebar-workspace-menu,
+  html:not([data-reduce-motion='off']) .idt-app-alert,
+  html:not([data-reduce-motion='off']) .idt-settings-inline-status,
+  html:not([data-reduce-motion='off']) .idt-form-error,
+  html:not([data-reduce-motion='off']) .idt-auth-provider-grid,
+  html:not([data-reduce-motion='off']) .idt-scan-stepper li.is-active,
+  html:not([data-reduce-motion='off']) .idt-danger-modal-error,
+  html:not([data-reduce-motion='off']) .idt-danger-modal-blocker,
+  html:not([data-reduce-motion='off']) .idt-form-success,
+  html:not([data-reduce-motion='off']) .idt-auth-mfa-setup,
+  html:not([data-reduce-motion='off']) .idt-auth-provider-stack,
+  html:not([data-reduce-motion='off']) .idt-settings-disclosure[open] .idt-settings-disclosure-body,
+  html:not([data-reduce-motion='off']) .idt-settings-inline-disclosure[open] .idt-settings-disclosure-body,
+  html:not([data-reduce-motion='off']) .idt-hold-confirm.is-holding::before,
+  html:not([data-reduce-motion='off']) .idt-hold-confirm.is-rejected {
     animation: none !important;
   }
 }
@@ -6387,7 +6387,7 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
   gap: 0.45rem;
 }
 
-.idt-repo-finding-code span {
+.idt-repo-finding-code-label {
   color: #9fb5d8;
   font-size: 0.74rem;
   font-weight: 700;
@@ -6408,6 +6408,45 @@ html[data-theme] .idt-executive-report-shell .idt-exec-report__footer p {
 .idt-repo-finding-code code {
   font-family: var(--idt-mono);
   font-size: 0.84rem;
+}
+
+.idt-repo-finding-code-line {
+  position: relative;
+  display: block;
+  min-height: 1.45em;
+  white-space: pre-wrap;
+}
+
+html[data-diff-markers='color'] .idt-repo-finding-code-line:is(.is-add, .is-remove) {
+  margin-inline: -0.35rem;
+  padding-inline: 0.55rem 0.35rem;
+  border-left: 3px solid transparent;
+  border-radius: 0.35rem;
+}
+
+html[data-diff-markers='color'] .idt-repo-finding-code-line.is-add {
+  border-left-color: rgba(52, 211, 153, 0.72);
+  background: rgba(34, 197, 94, 0.12);
+}
+
+html[data-diff-markers='color'] .idt-repo-finding-code-line.is-remove {
+  border-left-color: rgba(248, 113, 113, 0.72);
+  background: rgba(239, 68, 68, 0.13);
+}
+
+.idt-repo-finding-code-marker {
+  display: none;
+}
+
+html[data-diff-markers='symbols'] .idt-repo-finding-code-line:is(.is-add, .is-remove) {
+  padding-left: 1.2rem;
+}
+
+html[data-diff-markers='symbols'] .idt-repo-finding-code-marker {
+  position: absolute;
+  display: inline;
+  left: 0;
+  font-weight: 900;
 }
 
 .idt-repo-finding-remediation {
@@ -8108,7 +8147,7 @@ html[data-theme='light'] .idt-repo-finding-trend {
 html[data-theme='light'] .idt-repo-finding-stat span,
 html[data-theme='light'] .idt-repo-finding-row-meta,
 html[data-theme='light'] .idt-repo-finding-facts dt,
-html[data-theme='light'] .idt-repo-finding-code span {
+html[data-theme='light'] .idt-repo-finding-code-label {
   color: #5473a4;
 }
 
@@ -22421,7 +22460,7 @@ html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend-subtitl
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-trend-meta span,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-group h4,
 html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-facts dt,
-html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-code span,
+html[data-theme='light'] .idt-app-console-layout .idt-repo-finding-code-label,
 html[data-theme='light'] .idt-app-console-layout .idt-settings-header p,
 html[data-theme='light'] .idt-app-console-layout .idt-settings-card p,
 html[data-theme='light'] .idt-app-console-layout .idt-settings-route-grid span,
@@ -30541,23 +30580,23 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .idt-btn::before,
-  .idt-esc-close::before,
-  .idt-modal-close::before,
-  .idt-domain-drawer-close::before,
-  .idt-hold-confirm::before,
-  .idt-onboarding-input-wrap.has-error input,
-  .idt-onboarding-input-wrap.has-error textarea,
-  .idt-onboarding-inline-error {
+  html:not([data-reduce-motion='off']) .idt-btn::before,
+  html:not([data-reduce-motion='off']) .idt-esc-close::before,
+  html:not([data-reduce-motion='off']) .idt-modal-close::before,
+  html:not([data-reduce-motion='off']) .idt-domain-drawer-close::before,
+  html:not([data-reduce-motion='off']) .idt-hold-confirm::before,
+  html:not([data-reduce-motion='off']) .idt-onboarding-input-wrap.has-error input,
+  html:not([data-reduce-motion='off']) .idt-onboarding-input-wrap.has-error textarea,
+  html:not([data-reduce-motion='off']) .idt-onboarding-inline-error {
     animation: none !important;
     transition: none !important;
   }
 
-  .idt-btn:active:not(:disabled),
-  .idt-esc-close:active,
-  .idt-modal-close:active,
-  .idt-domain-drawer-close:active,
-  .idt-domain-drawer {
+  html:not([data-reduce-motion='off']) .idt-btn:active:not(:disabled),
+  html:not([data-reduce-motion='off']) .idt-esc-close:active,
+  html:not([data-reduce-motion='off']) .idt-modal-close:active,
+  html:not([data-reduce-motion='off']) .idt-domain-drawer-close:active,
+  html:not([data-reduce-motion='off']) .idt-domain-drawer {
     transform: none !important;
   }
 }
@@ -30726,6 +30765,632 @@ html[data-theme='light'] .idt-settings-sessions-card .idt-session-row {
   white-space: nowrap;
 }
 
+html[data-appearance-ready='true'] #main-content:has(.idt-app-console-layout),
+html[data-appearance-ready='true'] #main-content:has(.idt-account-security-page),
+html[data-appearance-ready='true'] #main-content:has(.idt-app-shell-screen),
+html[data-appearance-ready='true'] #main-content:has(.idt-executive-report-shell) {
+  background: var(--appearance-bg, #121518);
+}
+
+html[data-appearance-ready='true']:has(.idt-app-console-layout),
+html[data-appearance-ready='true']:has(.idt-account-security-page),
+html[data-appearance-ready='true']:has(.idt-app-shell-screen),
+html[data-appearance-ready='true']:has(.idt-executive-report-shell) {
+  font-size: var(--appearance-ui-font-size, 16px);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout,
+html[data-appearance-ready='true'] .idt-account-security-page,
+html[data-appearance-ready='true'] .idt-app-shell-screen,
+html[data-appearance-ready='true'] .idt-executive-report-shell {
+  --app-bg: var(--appearance-bg, #121518);
+  --app-panel: var(--appearance-panel, #090b0e);
+  --app-panel-strong: color-mix(in srgb, var(--appearance-panel, #090b0e) var(--appearance-panel-mix, 76%), black);
+  --app-border: var(--appearance-border, #2b3037);
+  --app-border-soft: color-mix(in srgb, var(--appearance-border, #2b3037) var(--appearance-border-mix, 72%), transparent);
+  --app-text: var(--appearance-fg, #f5f7f8);
+  --app-muted: var(--appearance-muted, #adb5bf);
+  --app-dim: color-mix(in srgb, var(--appearance-muted, #adb5bf) var(--appearance-muted-mix, 74%), var(--appearance-bg, #121518));
+  --idt-console-rail: color-mix(in srgb, var(--appearance-panel, #090b0e) 92%, var(--appearance-bg, #121518));
+  --idt-console-rail-hover: color-mix(in srgb, var(--appearance-panel, #090b0e) 88%, var(--appearance-fg, #f5f7f8) 8%);
+  --idt-console-surface: var(--appearance-panel, #090b0e);
+  --idt-console-surface-raised: color-mix(in srgb, var(--appearance-panel, #090b0e) 92%, var(--appearance-fg, #f5f7f8) 8%);
+  --idt-console-surface-quiet: color-mix(in srgb, var(--appearance-panel, #090b0e) 94%, var(--appearance-bg, #121518) 6%);
+  --idt-console-surface-deep: color-mix(in srgb, var(--appearance-panel, #090b0e) 86%, var(--appearance-bg, #121518) 14%);
+  --idt-console-focus: var(--appearance-accent, #7c6dff);
+  --idt-console-shadow: 0 18px 48px color-mix(in srgb, var(--appearance-bg, #121518) 32%, transparent);
+  --idt-product-font: var(--appearance-ui-font, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
+  --idt-mono: var(--appearance-code-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  background: var(--appearance-bg, #121518);
+  color: var(--appearance-fg, #f5f7f8);
+  font-family: var(--appearance-ui-font, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
+  font-size: var(--appearance-ui-font-size, 16px);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout :is(pre, code, textarea),
+html[data-appearance-ready='true'] .idt-account-security-page :is(pre, code, textarea),
+html[data-appearance-ready='true'] .idt-app-shell-screen :is(pre, code, textarea),
+html[data-appearance-ready='true'] .idt-executive-report-shell :is(pre, code, textarea) {
+  font-family: var(--appearance-code-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout :is(pre, code),
+html[data-appearance-ready='true'] .idt-account-security-page :is(pre, code),
+html[data-appearance-ready='true'] .idt-app-shell-screen :is(pre, code),
+html[data-appearance-ready='true'] .idt-executive-report-shell :is(pre, code) {
+  font-size: var(--appearance-code-font-size, 14px);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout :is(
+  .idt-app-shell-header,
+  .idt-overview-header,
+  .idt-workspace-admin-header,
+  .idt-projects-header,
+  .idt-source-onboarding-header,
+  .idt-repo-findings-header,
+  .idt-settings-header,
+  .idt-overview-card,
+  .idt-projects-list,
+  .idt-project-composer,
+  .idt-project-card,
+  .idt-source-card,
+  .idt-source-config,
+  .idt-source-install-card,
+  .idt-source-advanced,
+  .idt-source-diagnostics article,
+  .idt-domain-header,
+  .idt-domain-kpi,
+  .idt-domain-status-panel,
+  .idt-domain-empty-state,
+  .idt-domain-error-state,
+  .idt-domain-detail-panel,
+  .idt-domain-evidence-panel,
+  .idt-domain-filter-bar,
+  .idt-domain-filter-fields input,
+  .idt-domain-filter-fields select,
+  .idt-domain-loading-state,
+  .idt-domain-readiness-items article > span,
+  .idt-domain-action-footer,
+  .idt-domain-table-wrap,
+  .idt-domain-evidence-panel pre,
+  .idt-domain-status-panel header > span,
+  .idt-repo-finding-list,
+  .idt-repo-finding-detail,
+  .idt-repo-finding-trend,
+  .idt-repo-finding-bucket,
+  .idt-repo-finding-detail-section,
+  .idt-repo-finding-detail-modal,
+  .idt-repo-finding-row,
+  .idt-settings-card,
+  .idt-settings-facts div,
+  .idt-overview-risk-row,
+  .idt-overview-scan-row,
+  .idt-overview-projects a,
+  .idt-overview-actions a,
+  .idt-settings-route-grid a
+),
+html[data-appearance-ready='true'] .idt-account-security-page :is(
+  .idt-app-shell-header,
+  .idt-security-overview article,
+  .idt-session-row
+),
+html[data-appearance-ready='true'] .idt-executive-report-shell :is(
+  .idt-executive-report-header,
+  .idt-executive-report-metrics article,
+  .idt-executive-report-section,
+  .idt-executive-severity-list article,
+  .idt-executive-type-list article,
+  .idt-executive-narrative article
+) {
+  border-color: var(--app-border);
+  background: var(--app-panel);
+  color: var(--app-text);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout :is(h1, h2, h3, h4, strong),
+html[data-appearance-ready='true'] .idt-account-security-page :is(h1, h2, h3, strong),
+html[data-appearance-ready='true'] .idt-executive-report-shell :is(h1, h2, h3, h4, strong) {
+  color: var(--app-text);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout :is(
+  p,
+  dd,
+  li,
+  .idt-overview-projects span,
+  .idt-overview-actions span,
+  .idt-overview-projects small,
+  .idt-source-card small,
+  .idt-source-diagnostics small,
+  .idt-domain-kpi span,
+  .idt-domain-kpi p,
+  .idt-domain-header p,
+  .idt-domain-status-panel p,
+  .idt-domain-empty-state p,
+  .idt-domain-error-state p,
+  .idt-domain-detail-panel p,
+  .idt-domain-filter-fields label,
+  .idt-domain-evidence-panel figcaption span,
+  .idt-repo-finding-row-meta,
+  .idt-repo-finding-trend-subtitle,
+  .idt-repo-finding-trend-meta span,
+  .idt-repo-finding-facts dt,
+  .idt-repo-finding-code-label,
+  .idt-settings-route-grid span,
+  .idt-settings-facts dt
+),
+html[data-appearance-ready='true'] .idt-account-security-page :is(p, dd),
+html[data-appearance-ready='true'] .idt-executive-report-shell :is(p, dd, .idt-executive-report-metrics p) {
+  color: var(--app-muted);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-account-trigger {
+  color: var(--app-text);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout :is(
+  .idt-app-sidebar-workspace-copy strong,
+  .idt-app-sidebar-workspace-meta strong,
+  .idt-app-sidebar-account-name strong,
+  .idt-app-sidebar-account-meta strong
+) {
+  color: var(--app-text);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-quick-find,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a {
+  color: var(--app-muted);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout :is(
+  .idt-app-sidebar-workspace-caret,
+  .idt-app-sidebar-workspace-meta-eyebrow,
+  .idt-app-sidebar-account-name span,
+  .idt-app-sidebar-account-caret,
+  .idt-app-sidebar-account-meta span,
+  .idt-app-quick-find-icon,
+  .idt-app-quick-find-label,
+  .idt-app-quick-find-key,
+  .idt-app-nav-icon
+) {
+  color: var(--app-muted);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger:hover,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger:focus-visible,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger[aria-expanded='true'],
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-account-trigger:hover,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-account-trigger:focus-visible,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-sidebar-account-trigger[aria-expanded='true'],
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a:hover:not(.active),
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a:focus-visible:not(.active) {
+  color: var(--app-text);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a.active {
+  background: var(--idt-console-rail-hover);
+  color: var(--app-text);
+}
+
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a:hover .idt-app-nav-icon,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a:focus-visible .idt-app-nav-icon,
+html[data-appearance-ready='true'] .idt-app-console-layout .idt-app-shell-nav a.active .idt-app-nav-icon {
+  color: var(--app-text);
+}
+
+html[data-font-smoothing='true'] body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html[data-pointer-cursors='true'] :is(a, button, summary, select, input[type='checkbox'], input[type='radio'], input[type='range'], input[type='color']) {
+  cursor: pointer;
+}
+
+html[data-reduce-motion='on'] *,
+html[data-reduce-motion='on'] *::before,
+html[data-reduce-motion='on'] *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 1ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-reduce-motion='system'] *,
+  html[data-reduce-motion='system'] *::before,
+  html[data-reduce-motion='system'] *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+html[data-appearance-translucent-sidebar='true'] .idt-app-sidebar {
+  background: color-mix(in srgb, var(--appearance-panel, #090b0e) 82%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+html[data-appearance-app-icon='light'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger .idt-app-sidebar-mark {
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(5, 6, 7, 0.14), 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+html[data-appearance-app-icon='light'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger .idt-app-sidebar-mark img {
+  filter: none;
+}
+
+html[data-appearance-app-icon='dark'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger .idt-app-sidebar-mark {
+  background: #050607;
+  box-shadow: inset 0 0 0 1px var(--appearance-accent, #7c6dff), 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+html[data-appearance-app-icon='dark'] .idt-app-console-layout .idt-app-sidebar-workspace-trigger .idt-app-sidebar-mark img {
+  filter: brightness(0.9) saturate(1.15);
+  mix-blend-mode: screen;
+}
+
+.idt-settings-appearance-entry {
+  gap: 0.9rem;
+}
+
+.idt-settings-appearance-entry > p {
+  margin: -0.35rem 0 0;
+  color: var(--app-muted);
+}
+
+.idt-settings-appearance-entry .idt-settings-card-header > svg {
+  color: var(--appearance-accent, #7c6dff);
+}
+
+.idt-appearance-page {
+  max-width: 64rem;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.idt-appearance-header h2 {
+  margin-top: 0.45rem;
+}
+
+.idt-appearance-back {
+  color: var(--app-muted);
+  font-size: 0.92rem;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.idt-appearance-back:hover,
+.idt-appearance-back:focus-visible {
+  color: var(--app-text);
+}
+
+.idt-appearance-card {
+  overflow: hidden;
+  padding: 0;
+}
+
+.idt-appearance-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.2rem;
+  border-bottom: 1px solid var(--app-border-soft);
+}
+
+.idt-appearance-card-header h3,
+.idt-appearance-card-header p {
+  margin: 0;
+}
+
+.idt-appearance-card-header p,
+.idt-appearance-behavior-row p,
+.idt-appearance-dock-card p {
+  color: var(--app-muted);
+}
+
+.idt-appearance-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+  border-radius: 999px;
+  padding: 0.18rem;
+  background: color-mix(in srgb, var(--app-panel) 78%, var(--app-text) 8%);
+}
+
+.idt-appearance-segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 0.72rem;
+  background: transparent;
+  color: var(--app-muted);
+  font: inherit;
+  font-weight: 750;
+}
+
+.idt-appearance-segment[aria-pressed='true'] {
+  background: var(--app-panel);
+  color: var(--app-text);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.idt-appearance-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-bottom: 1px solid var(--app-border-soft);
+  background: var(--app-panel);
+  font-family: var(--appearance-code-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: var(--appearance-code-font-size, 14px);
+}
+
+.idt-appearance-preview-pane {
+  min-width: 0;
+  padding: 0.85rem 0;
+}
+
+.idt-appearance-preview-pane + .idt-appearance-preview-pane {
+  border-left: 1px solid var(--appearance-accent, #7c6dff);
+}
+
+.idt-appearance-code-line {
+  position: relative;
+  display: grid;
+  grid-template-columns: 3.2rem minmax(0, 1fr);
+  min-height: 2rem;
+  align-items: center;
+}
+
+.idt-appearance-code-line span {
+  color: var(--app-muted);
+  text-align: right;
+  padding-right: 0.85rem;
+}
+
+.idt-appearance-code-line code {
+  overflow: hidden;
+  color: var(--app-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.idt-appearance-preview-pane[data-side='before'] .idt-appearance-code-line:nth-child(n + 2):nth-child(-n + 4) {
+  background: rgba(239, 68, 68, 0.16);
+}
+
+.idt-appearance-preview-pane[data-side='after'] .idt-appearance-code-line:nth-child(n + 2):nth-child(-n + 4) {
+  background: color-mix(in srgb, var(--appearance-accent, #7c6dff) 18%, transparent);
+}
+
+html[data-diff-markers='symbols'] .idt-appearance-preview-pane[data-side='before'] .idt-appearance-code-line:nth-child(n + 2):nth-child(-n + 4)::before,
+html[data-diff-markers='symbols'] .idt-appearance-preview-pane[data-side='after'] .idt-appearance-code-line:nth-child(n + 2):nth-child(-n + 4)::before {
+  position: absolute;
+  left: 0.65rem;
+  color: var(--app-text);
+  font-weight: 900;
+}
+
+html[data-diff-markers='symbols'] .idt-appearance-preview-pane[data-side='before'] .idt-appearance-code-line:nth-child(n + 2):nth-child(-n + 4)::before {
+  content: '-';
+}
+
+html[data-diff-markers='symbols'] .idt-appearance-preview-pane[data-side='after'] .idt-appearance-code-line:nth-child(n + 2):nth-child(-n + 4)::before {
+  content: '+';
+}
+
+.idt-appearance-control-list {
+  display: grid;
+}
+
+.idt-appearance-control-row,
+.idt-appearance-behavior-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  min-height: 3.4rem;
+  padding: 0.75rem 1.2rem;
+  border-bottom: 1px solid var(--app-border-soft);
+}
+
+.idt-appearance-control-row:last-child,
+.idt-appearance-behavior-row:last-child {
+  border-bottom: 0;
+}
+
+.idt-appearance-control-row strong,
+.idt-appearance-behavior-row h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.idt-appearance-behavior-row p {
+  margin: 0.15rem 0 0;
+}
+
+.idt-appearance-control-row select,
+.idt-appearance-number input {
+  min-height: 2.1rem;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0 0.8rem;
+  background: var(--app-panel);
+  color: var(--app-text);
+  font: inherit;
+}
+
+.idt-appearance-control-row select {
+  min-width: 12rem;
+}
+
+.idt-appearance-color-input,
+.idt-appearance-slider,
+.idt-appearance-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.idt-appearance-color-input input {
+  width: 2.2rem;
+  height: 2rem;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.idt-appearance-color-input code {
+  min-width: 5.5rem;
+  color: var(--app-muted);
+  font-family: var(--appearance-code-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+}
+
+.idt-appearance-slider input {
+  width: min(13rem, 34vw);
+  accent-color: var(--appearance-accent, #7c6dff);
+}
+
+.idt-appearance-switch {
+  position: relative;
+  width: 2.9rem;
+  height: 1.65rem;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-muted) 32%, var(--app-panel));
+}
+
+.idt-appearance-switch span {
+  position: absolute;
+  top: 0.2rem;
+  left: 0.22rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  background: var(--app-text);
+  transition: transform 160ms ease;
+}
+
+.idt-appearance-switch[aria-checked='true'] {
+  background: var(--appearance-accent, #7c6dff);
+}
+
+.idt-appearance-switch[aria-checked='true'] span {
+  transform: translateX(1.2rem);
+}
+
+.idt-appearance-number input {
+  width: 5.3rem;
+  text-align: center;
+}
+
+.idt-appearance-dock-card {
+  display: grid;
+  gap: 1rem;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  padding: 1.2rem;
+  background: var(--app-panel);
+}
+
+.idt-appearance-dock-card h3,
+.idt-appearance-dock-card p {
+  margin: 0;
+}
+
+.idt-appearance-icon-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.idt-appearance-icon-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 1rem;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 4.6rem;
+  border: 1px solid var(--app-border-soft);
+  border-radius: 8px;
+  padding: 0.8rem;
+  background: var(--app-panel);
+  color: var(--app-text);
+  font: inherit;
+  text-align: left;
+}
+
+.idt-appearance-icon-option[aria-pressed='true'] {
+  border-color: var(--appearance-accent, #7c6dff);
+  box-shadow: inset 0 0 0 1px var(--appearance-accent, #7c6dff);
+}
+
+.idt-appearance-icon-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.7rem;
+  height: 2.7rem;
+  border-radius: 8px;
+  background: #111418;
+  color: #ffffff;
+}
+
+.idt-appearance-icon-swatch[data-icon-tone='light'] {
+  background: #ffffff;
+  color: #111418;
+}
+
+.idt-appearance-icon-swatch[data-icon-tone='dark'] {
+  background: #050607;
+  color: var(--appearance-accent, #7c6dff);
+}
+
+@media (max-width: 760px) {
+  .idt-appearance-card-header,
+  .idt-appearance-control-row,
+  .idt-appearance-behavior-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .idt-appearance-card-header {
+    display: grid;
+  }
+
+  .idt-appearance-segmented,
+  .idt-appearance-control-row select,
+  .idt-appearance-color-input,
+  .idt-appearance-slider,
+  .idt-appearance-number {
+    width: 100%;
+  }
+
+  .idt-appearance-segment {
+    flex: 1 1 0;
+  }
+
+  .idt-appearance-preview,
+  .idt-appearance-icon-options {
+    grid-template-columns: 1fr;
+  }
+
+  .idt-appearance-preview-pane + .idt-appearance-preview-pane {
+    border-top: 1px solid var(--appearance-accent, #7c6dff);
+    border-left: 0;
+  }
+
+  .idt-appearance-slider input {
+    width: 100%;
+  }
+}
+
 .idt-app-console-layout .idt-workspace-admin {
   gap: 1rem;
 }
@@ -30743,7 +31408,7 @@ html[data-theme='light'] .idt-settings-sessions-card .idt-session-row {
 .idt-app-console-layout .idt-workspace-admin-grid > article {
   border: 1px solid var(--app-border);
   border-radius: 8px;
-  background: #050506;
+  background: var(--app-panel);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.035), var(--idt-console-shadow);
 }
 
@@ -30761,7 +31426,7 @@ html[data-theme='light'] .idt-settings-sessions-card .idt-session-row {
   display: grid;
   align-content: center;
   gap: 0.1rem;
-  background: #070708;
+  background: var(--app-panel);
 }
 
 .idt-app-console-layout .idt-workspace-stats h3 {
@@ -30838,12 +31503,12 @@ html[data-theme='light'] .idt-settings-sessions-card .idt-session-row {
   border: 1px solid var(--app-border);
   border-radius: 8px;
   padding: 0.85rem;
-  background: #050506;
+  background: var(--app-panel);
 }
 
 .idt-app-console-layout .idt-workspace-table-wrap {
   border-radius: 8px;
-  background: #050506;
+  background: var(--app-panel);
 }
 
 .idt-app-console-layout .idt-workspace-table th,

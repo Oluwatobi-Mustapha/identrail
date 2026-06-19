@@ -1384,6 +1384,22 @@ async function renderProductSettingsPage(options: {
   };
 }
 
+async function renderProductAppearanceSettingsPage() {
+  vi.resetModules();
+  const { ProductAppearanceSettingsPage } = await import('./productShell');
+  render(
+    <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/settings/appearance']}>
+      <Routes>
+        <Route
+          path="/app/:tenantID/:workspaceID/settings/appearance"
+          element={<ProductAppearanceSettingsPage />}
+        />
+        <Route path="/app/:tenantID/:workspaceID/settings" element={<h2>Settings</h2>} />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
 async function renderProjectDetail(
   githubBackend: BackendFeatureState,
   githubConnection = connectedGitHub,
@@ -1570,6 +1586,16 @@ describe('ProductSettingsPage profile', () => {
     vi.restoreAllMocks();
     vi.doUnmock('./hooks/useMe');
     vi.resetModules();
+  });
+
+  it('links to the dedicated appearance settings page', async () => {
+    await renderProductSettingsPage();
+
+    expect(await screen.findByRole('heading', { name: 'Appearance' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open appearance settings/i })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/settings/appearance'
+    );
   });
 
   it('updates profile fields optimistically from settings', async () => {
@@ -1801,6 +1827,215 @@ describe('ProductSettingsPage profile', () => {
     fireEvent.pointerDown(document.body);
     expect(screen.queryByRole('menuitem', { name: /Update photo/i })).not.toBeInTheDocument();
   });
+});
+
+describe('ProductAppearanceSettingsPage', () => {
+  afterEach(() => {
+    window.localStorage.removeItem('identrail-appearance');
+    window.localStorage.removeItem('identrail-theme');
+    delete document.documentElement.dataset.appearanceReady;
+    delete document.documentElement.dataset.appearancePreset;
+    delete document.documentElement.dataset.theme;
+    document.documentElement.removeAttribute('style');
+    vi.restoreAllMocks();
+    vi.resetModules();
+  });
+
+  it('loads without workspace API calls and applies theme preferences immediately', async () => {
+    const api = await import('./api/client');
+    const getWhoAmI = vi.spyOn(api.apiClient, 'getWhoAmI');
+
+    await renderProductAppearanceSettingsPage();
+
+    expect(await screen.findByRole('heading', { name: 'Appearance' })).toBeInTheDocument();
+    expect(getWhoAmI).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dark' }));
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}')).toMatchObject({
+      themeMode: 'dark'
+    });
+  });
+
+  it('persists Codex-style controls through the allowlisted appearance model', async () => {
+    await renderProductAppearanceSettingsPage();
+
+    fireEvent.change(screen.getByLabelText('Light theme'), { target: { value: 'xcode' } });
+    fireEvent.change(screen.getByLabelText('Accent color'), { target: { value: '#123456' } });
+    fireEvent.click(screen.getByRole('switch', { name: 'Use pointer cursors' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Identrail D...' }));
+
+    const stored = JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}');
+    expect(stored).toMatchObject({
+      lightPreset: 'xcode',
+      accent: '#123456',
+      customColors: true,
+      pointerCursors: true,
+      appIcon: 'dark'
+    });
+    expect(document.documentElement.style.getPropertyValue('--appearance-accent')).toBe('#123456');
+    expect(document.documentElement.dataset.pointerCursors).toBe('true');
+    expect(document.documentElement.dataset.appearanceAppIcon).toBe('dark');
+  });
+
+  it('keeps dark palettes out of the light appearance preset choices', async () => {
+    await renderProductAppearanceSettingsPage();
+
+    const lightTheme = screen.getByLabelText('Light theme');
+    const darkTheme = screen.getByLabelText('Dark theme');
+
+    expect(within(lightTheme).queryByRole('option', { name: 'Vercel' })).not.toBeInTheDocument();
+    expect(within(lightTheme).queryByRole('option', { name: 'GitHub' })).not.toBeInTheDocument();
+    expect(within(lightTheme).getByRole('option', { name: 'Xcode' })).toBeInTheDocument();
+    expect(within(darkTheme).getByRole('option', { name: 'Vercel' })).toBeInTheDocument();
+    expect(within(darkTheme).getByRole('option', { name: 'GitHub' })).toBeInTheDocument();
+  });
+
+  it('sanitizes stored appearance values before they reach CSS variables', async () => {
+    const { normalizeAppearancePreferences } = await import('./appearance');
+
+    const normalized = normalizeAppearancePreferences({
+      themeMode: 'dark',
+      lightPreset: 'vercel',
+      darkPreset: 'notion',
+      accent: 'url(javascript:alert(1))',
+      background: 'expression(alert(1))',
+      foreground: '#abcdef',
+      customColors: 'yes',
+      uiFont: 'url(https://evil.example/font.woff2)',
+      codeFont: '<script>alert(1)</script>',
+      contrast: 999,
+      reduceMotion: 'drop-table',
+      appIcon: '../../private'
+    });
+
+    expect(normalized).toMatchObject({
+      lightPreset: 'notion',
+      darkPreset: 'identrail',
+      accent: '#7c6dff',
+      background: '#121518',
+      foreground: '#abcdef',
+      customColors: false,
+      uiFont: 'system',
+      codeFont: 'mono-system',
+      contrast: 100,
+      reduceMotion: 'system',
+      appIcon: 'default'
+    });
+  });
+
+  it('uses preset colors for legacy light-theme users without custom colors', async () => {
+    const { applyStoredAppearancePreferences } = await import('./appearance');
+    window.localStorage.setItem('identrail-theme', 'light');
+
+    applyStoredAppearancePreferences();
+
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(document.documentElement.dataset.appearancePreset).toBe('notion');
+    expect(document.documentElement.style.getPropertyValue('--appearance-bg')).toBe('#ffffff');
+    expect(document.documentElement.style.getPropertyValue('--appearance-fg')).toBe('#37352f');
+  });
+
+  it('does not seed custom colors from an inactive preset', async () => {
+    await renderProductAppearanceSettingsPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dark' }));
+    fireEvent.change(screen.getByLabelText('Light theme'), { target: { value: 'xcode' } });
+    fireEvent.change(screen.getByLabelText('Accent color'), { target: { value: '#123456' } });
+
+    const stored = JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}');
+    expect(stored).toMatchObject({
+      themeMode: 'dark',
+      lightPreset: 'xcode',
+      accent: '#123456',
+      background: '#121518',
+      foreground: '#f5f7f8',
+      customColors: true
+    });
+    expect(document.documentElement.style.getPropertyValue('--appearance-bg')).toBe('#121518');
+    expect(document.documentElement.style.getPropertyValue('--appearance-fg')).toBe('#f5f7f8');
+  });
+
+  it('seeds the visible preset colors before enabling custom colors', async () => {
+    await renderProductAppearanceSettingsPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Light' }));
+    fireEvent.change(screen.getByLabelText('Accent color'), { target: { value: '#123456' } });
+
+    const stored = JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}');
+    expect(stored).toMatchObject({
+      themeMode: 'light',
+      lightPreset: 'notion',
+      accent: '#123456',
+      background: '#ffffff',
+      foreground: '#37352f',
+      customColors: true
+    });
+    expect(document.documentElement.style.getPropertyValue('--appearance-accent')).toBe('#123456');
+    expect(document.documentElement.style.getPropertyValue('--appearance-bg')).toBe('#ffffff');
+    expect(document.documentElement.style.getPropertyValue('--appearance-fg')).toBe('#37352f');
+  });
+
+  it('exposes contrast as real color-mix inputs for shell styles', async () => {
+    const { applyAppearancePreferences, normalizeAppearancePreferences } = await import('./appearance');
+
+    applyAppearancePreferences(
+      normalizeAppearancePreferences({
+        themeMode: 'dark',
+        contrast: 100
+      })
+    );
+
+    expect(document.documentElement.style.getPropertyValue('--appearance-panel-mix')).toBe('88%');
+    expect(document.documentElement.style.getPropertyValue('--appearance-border-mix')).toBe('100%');
+    expect(document.documentElement.style.getPropertyValue('--appearance-muted-mix')).toBe('90%');
+  });
+
+  it('applies code typography preferences as root style variables', async () => {
+    const { applyAppearancePreferences, normalizeAppearancePreferences } = await import('./appearance');
+
+    applyAppearancePreferences(
+      normalizeAppearancePreferences({
+        codeFont: 'ibm-plex-mono',
+        codeFontSize: 18
+      })
+    );
+
+    expect(document.documentElement.style.getPropertyValue('--appearance-code-font')).toContain('IBM Plex Mono');
+    expect(document.documentElement.style.getPropertyValue('--appearance-code-font-size')).toBe('18px');
+  });
+
+  it('defers font-size clamping until number inputs commit', async () => {
+    await renderProductAppearanceSettingsPage();
+
+    const uiFontSize = screen.getByLabelText('UI font size') as HTMLInputElement;
+    fireEvent.focus(uiFontSize);
+    fireEvent.change(uiFontSize, { target: { value: '1' } });
+
+    expect(uiFontSize.value).toBe('1');
+    expect(window.localStorage.getItem('identrail-appearance')).toBeNull();
+
+    fireEvent.change(uiFontSize, { target: { value: '18' } });
+    expect(uiFontSize.value).toBe('18');
+
+    fireEvent.blur(uiFontSize);
+    expect(JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}')).toMatchObject({
+      uiFontSize: 18
+    });
+
+    const codeFontSize = screen.getByLabelText('Code font size') as HTMLInputElement;
+    fireEvent.focus(codeFontSize);
+    fireEvent.change(codeFontSize, { target: { value: '2' } });
+
+    expect(codeFontSize.value).toBe('2');
+
+    fireEvent.blur(codeFontSize);
+    await waitFor(() => expect(codeFontSize.value).toBe('12'));
+    expect(JSON.parse(window.localStorage.getItem('identrail-appearance') ?? '{}')).toMatchObject({
+      codeFontSize: 12
+    });
+  });
+
 });
 
 describe('ProductShellLayout', () => {
@@ -2279,7 +2514,8 @@ describe('Domain-first app routes', () => {
       '/app/:tenantID/:workspaceID/kubernetes/findings',
       '/app/:tenantID/:workspaceID/kubernetes/remediation',
       '/app/:tenantID/:workspaceID/reports',
-      '/app/:tenantID/:workspaceID/settings'
+      '/app/:tenantID/:workspaceID/settings',
+      '/app/:tenantID/:workspaceID/settings/appearance'
     ]);
     expect(DOMAIN_APP_ROUTE_MANIFEST).not.toContain('/app/:tenantID/:workspaceID/projects');
     expect(DOMAIN_APP_ROUTE_MANIFEST).not.toContain('/app/:tenantID/:workspaceID/findings');
@@ -4779,6 +5015,8 @@ describe('ProductFindingsPage states', () => {
       title: 'IAM role with wildcard trust',
       human_summary: 'AssumeRole trust policy allows any principal.',
       remediation: 'Tighten trust policy principals.',
+      source_url: 'https://github.com/identrail/identrail/blob/main/policy.tf#L7',
+      line_snippet: '@@ -1 +1 @@\n+ allow = true\n- allow = false',
       created_at: '2026-05-17T11:06:00Z'
     };
 
@@ -4792,6 +5030,21 @@ describe('ProductFindingsPage states', () => {
     rowButton.focus();
     fireEvent.click(rowButton);
 
+    const addedLine = await screen.findByText((_, element) =>
+      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '+ allow = true')
+    );
+    const removedLine = await screen.findByText((_, element) =>
+      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '- allow = false')
+    );
+    expect(screen.getByText('Evidence line')).toHaveClass('idt-repo-finding-code-label');
+    expect(screen.getByText('@@ -1 +1 @@')).toHaveClass('idt-repo-finding-code-line');
+    expect(addedLine).toHaveClass('idt-repo-finding-code-line', 'is-add');
+    expect(removedLine).toHaveClass('idt-repo-finding-code-line', 'is-remove');
+    expect(addedLine).not.toHaveClass('idt-repo-finding-code-label');
+    expect(removedLine).not.toHaveClass('idt-repo-finding-code-label');
+    expect(within(addedLine).getByText('+')).toHaveClass('idt-repo-finding-code-marker');
+    expect(within(removedLine).getByText('-')).toHaveClass('idt-repo-finding-code-marker');
+
     const closeButton = await screen.findByRole('button', { name: /Close finding detail/i });
     fireEvent.click(closeButton);
 
@@ -4801,6 +5054,120 @@ describe('ProductFindingsPage states', () => {
     await waitFor(() => {
       expect(document.activeElement).toBe(rowButton);
     });
+  });
+
+  it('does not mark ordinary source lines that start with plus or dash prefixes as diffs', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-with-yaml-source',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 1
+    };
+
+    const finding: Finding = {
+      id: 'finding-yaml-list',
+      scan_id: scan.id,
+      type: 'workflow_permission',
+      severity: 'medium',
+      title: 'Workflow grants broad permissions',
+      human_summary: 'A workflow permission entry needs review.',
+      remediation: 'Limit workflow permissions.',
+      source_url: 'https://github.com/identrail/identrail/blob/main/workflow.yml#L12',
+      line_snippet: '+enabled\n- name: prod',
+      created_at: '2026-05-17T11:06:00Z'
+    };
+
+    await renderFindings({ repoScans: [scan], repoFindings: [finding] });
+
+    const rowButton = (await screen.findAllByRole('listitem')).find((node) =>
+      node.textContent?.includes('Workflow grants broad permissions')
+    ) as HTMLButtonElement | undefined;
+    expect(rowButton).toBeDefined();
+    if (!rowButton) return;
+    fireEvent.click(rowButton);
+
+    const plusSourceLine = await screen.findByText((_, element) =>
+      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '+enabled')
+    );
+    const yamlSourceLine = await screen.findByText((_, element) =>
+      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '- name: prod')
+    );
+    expect(plusSourceLine).not.toHaveClass('is-add');
+    expect(yamlSourceLine).not.toHaveClass('is-remove');
+    expect(plusSourceLine.querySelector('.idt-repo-finding-code-marker')).toBeNull();
+    expect(yamlSourceLine.querySelector('.idt-repo-finding-code-marker')).toBeNull();
+  });
+
+  it('marks one-sided repository diff hunks as changed lines', async () => {
+    const scan: RepoScanRecord = {
+      ...queuedRepoScan,
+      id: 'repo-scan-with-one-sided-diff',
+      status: 'succeeded',
+      finished_at: '2026-05-17T11:06:00Z',
+      finding_count: 2
+    };
+
+    const additionFinding: Finding = {
+      id: 'finding-add-only-diff',
+      scan_id: scan.id,
+      type: 'workflow_permission',
+      severity: 'medium',
+      title: 'Workflow adds broad permissions',
+      human_summary: 'A workflow permission entry was added.',
+      remediation: 'Limit workflow permissions.',
+      source_url: 'https://github.com/identrail/identrail/blob/main/workflow.yml#L12',
+      line_snippet: [
+        'diff --git a/workflow.yml b/workflow.yml',
+        'new file mode 100644',
+        'index 0000000..1111111',
+        '--- /dev/null',
+        '+++ b/workflow.yml',
+        '@@ -0,0 +1 @@',
+        '+++count'
+      ].join('\n'),
+      created_at: '2026-05-17T11:06:00Z'
+    };
+    const removalFinding: Finding = {
+      ...additionFinding,
+      id: 'finding-remove-only-diff',
+      title: 'Workflow removes guardrail',
+      human_summary: 'A workflow guardrail was removed.',
+      line_snippet: '@@ -1 +0,0 @@\n---count'
+    };
+
+    await renderFindings({ repoScans: [scan], repoFindings: [additionFinding, removalFinding] });
+
+    const addRow = (await screen.findAllByRole('listitem')).find((node) =>
+      node.textContent?.includes('Workflow adds broad permissions')
+    ) as HTMLButtonElement | undefined;
+    expect(addRow).toBeDefined();
+    if (!addRow) return;
+    fireEvent.click(addRow);
+
+    const addedLine = await screen.findByText((_, element) =>
+      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '+++count')
+    );
+    expect(addedLine).toHaveClass('is-add');
+    expect(within(addedLine).getByText('+')).toHaveClass('idt-repo-finding-code-marker');
+
+    fireEvent.click(await screen.findByRole('button', { name: /Close finding detail/i }));
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /Close finding detail/i })).not.toBeInTheDocument();
+    });
+
+    const removeRow = (await screen.findAllByRole('listitem')).find((node) =>
+      node.textContent?.includes('Workflow removes guardrail')
+    ) as HTMLButtonElement | undefined;
+    expect(removeRow).toBeDefined();
+    if (!removeRow) return;
+    fireEvent.click(removeRow);
+
+    const removedLine = await screen.findByText((_, element) =>
+      Boolean(element?.classList.contains('idt-repo-finding-code-line') && element.textContent === '---count')
+    );
+    expect(removedLine).toHaveClass('is-remove');
+    expect(within(removedLine).getByText('-')).toHaveClass('idt-repo-finding-code-marker');
   });
 
   it('keeps visible filters when active filters match no findings', async () => {
