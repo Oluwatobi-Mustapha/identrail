@@ -2173,6 +2173,7 @@ export function ProductGitHubCallbackPage() {
     let mounted = true;
     const query = new URLSearchParams(location.search);
     const state = normalizeValue(query.get('state') ?? '');
+    const code = normalizeValue(query.get('code') ?? '');
     const setupAction = normalizeValue(query.get('setup_action') ?? '');
     const installationID = Number.parseInt(normalizeValue(query.get('installation_id') ?? ''), 10);
 
@@ -2181,10 +2182,15 @@ export function ProductGitHubCallbackPage() {
         setError('GitHub did not return a valid installation callback.');
         return;
       }
+      if (!code) {
+        setError('GitHub did not return an authorization code. Please retry the installation.');
+        return;
+      }
       try {
         const response = await apiClient.completeGitHubConnector({
           state,
           installation_id: installationID,
+          code,
           setup_action: setupAction || undefined
         });
         if (mounted) {
