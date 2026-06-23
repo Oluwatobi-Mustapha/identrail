@@ -106,6 +106,7 @@ import {
   type AWSPermissionPreviewItem,
   type CurrentUserContext,
   type ExecutiveReport,
+  type ExecutiveReportDomain,
   type Finding as ApiFinding,
   type FindingLifecycleStatus,
   type GitHubConnectorStartResponse,
@@ -17979,54 +17980,6 @@ export function ProductGitHubRemediationPage() {
   );
 }
 
-export function ProductReportsPage() {
-  const params = useParams<ScopeRouteParams>();
-  const scope = resolveScopeFromParams(params);
-  const reportPath = scope ? buildScopedPath(scope, 'reports') : '/app';
-
-  return (
-    <section className="idt-app-panel idt-reports-page">
-      <header className="idt-settings-header">
-        <div>
-          <p className="idt-app-kicker">Reports</p>
-          <h2>Reports</h2>
-          <p>
-            Executive posture, trend narratives, and domain outcome reporting now live inside the scoped app instead of
-            being treated as a detached workspace artifact.
-          </p>
-        </div>
-        <div className="idt-inline-actions">
-          <Link className="idt-btn idt-btn-primary" to="/reports/executive">
-            Open executive report
-          </Link>
-        </div>
-      </header>
-      <div className="idt-domain-kpi-strip" aria-label="Report route readiness">
-        <article className="idt-domain-kpi is-success">
-          <span>Route</span>
-          <strong>Live</strong>
-          <p>{reportPath}</p>
-        </article>
-        <article className="idt-domain-kpi">
-          <span>Scope</span>
-          <strong>Domain</strong>
-          <p>AWS, GitHub, Kubernetes, and executive reporting can land here in later PRs.</p>
-        </article>
-        <article className="idt-domain-kpi">
-          <span>Output</span>
-          <strong>Board</strong>
-          <p>Designed for executive posture and remediation outcome summaries.</p>
-        </article>
-      </div>
-      <DomainStatusPanel eyebrow="Reporting foundation" title="Outcome views are staged" status="Staged" tone="success">
-        <p>
-          This route keeps the IA complete while the deeper executive outcome, domain coverage, and remediation reporting
-          experiences arrive in their planned sequence.
-        </p>
-      </DomainStatusPanel>
-    </section>
-  );
-}
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'idt:sidebar:collapsed';
 const SIDEBAR_WIDTH_STORAGE_KEY = 'idt:sidebar:width';
@@ -19717,14 +19670,74 @@ export function ProductOverviewPage() {
   );
 }
 
+// Domains the executive report can be scoped to. Empty string means "All".
+// Kept aligned with ExecutiveReportDomain in the API client + the server's
+// parseExecutiveReportDomain allowlist; unknown values are rejected server-side.
+const EXECUTIVE_REPORT_DOMAIN_OPTIONS: Array<{ value: ExecutiveReportDomain; label: string }> = [
+  { value: '', label: 'All' },
+  { value: 'aws', label: 'AWS' },
+  { value: 'github', label: 'GitHub' },
+  { value: 'kubernetes', label: 'Kubernetes' }
+];
+
+// parseExecutiveReportDomainParam separates "no domain in URL" (effective = '',
+// invalidRaw = null) from "URL has a domain value that is not allowlisted"
+// (effective = '', invalidRaw = the raw string). Without this distinction the
+// page would silently widen a stale or typo'd value like ?domain=awss to "All",
+// which defeats the server-side typo protection added in this PR.
+function parseExecutiveReportDomainParam(raw: string | null | undefined): {
+  effective: ExecutiveReportDomain;
+  invalidRaw: string | null;
+} {
+  if (raw === null || raw === undefined) {
+    return { effective: '', invalidRaw: null };
+  }
+  const trimmed = raw.trim();
+  if (trimmed === '') {
+    // ?domain= with an empty value behaves as "no filter".
+    return { effective: '', invalidRaw: null };
+  }
+  const lower = trimmed.toLowerCase();
+  if (lower === 'aws' || lower === 'github' || lower === 'kubernetes') {
+    return { effective: lower, invalidRaw: null };
+  }
+  return { effective: '', invalidRaw: trimmed };
+}
+
 export function ProductExecutiveReportPage() {
   const { me, loading: sessionLoading, error: sessionError, unauthenticated } = useMe();
+  const params = useParams<ScopeRouteParams>();
+  const scope = resolveScopeFromParams(params);
   const [report, setReport] = useState<ExecutiveReport | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const [reportError, setReportError] = useState('');
+  const location = useLocation();
+  const navigate = useNavigate();
+  const tenantID = scope?.tenantID ?? me?.org_id;
+  const workspaceID = scope?.workspaceID ?? me?.workspace_id;
+  // Drive the active domain off the URL so deep links / refreshes preserve it.
+  // parseExecutiveReportDomainParam tells us whether the URL is bad so we can
+  // surface that as an error rather than silently widen to All.
+  const { effective: selectedDomain, invalidRaw: invalidDomainRaw } = parseExecutiveReportDomainParam(
+    new URLSearchParams(location.search).get('domain')
+  );
 
   useEffect(() => {
-    if (!me?.org_id || !me.workspace_id) {
+    if (!tenantID || !workspaceID) {
+      return;
+    }
+    // Skip the fetch entirely when the URL carries an unrecognized domain
+    // value; the error panel below already explains the recovery path.
+    //
+    // Clear loadingReport AND reportError because if the URL transitions from
+    // valid to invalid while a prior request is still in flight, that
+    // request's `finally` is gated by the cleaned-up `mounted` closure and
+    // will never clear the loading flag. Without this clear, the render path
+    // would stay on the loading spinner instead of showing the recovery panel.
+    if (invalidDomainRaw !== null) {
+      setReport(null);
+      setLoadingReport(false);
+      setReportError('');
       return;
     }
 
@@ -19733,10 +19746,10 @@ export function ProductExecutiveReportPage() {
       setLoadingReport(true);
       setReportError('');
       try {
-        const response = await apiClient.getExecutiveReport({
-          tenantID: me.org_id,
-          workspaceID: me.workspace_id
-        });
+        const response = await apiClient.getExecutiveReport(
+          { domain: selectedDomain },
+          { tenantID, workspaceID }
+        );
         if (mounted) {
           setReport(response);
         }
@@ -19762,14 +19775,75 @@ export function ProductExecutiveReportPage() {
     return () => {
       mounted = false;
     };
-  }, [me?.org_id, me?.workspace_id]);
+  }, [tenantID, workspaceID, selectedDomain, invalidDomainRaw]);
+
+  const handleDomainChange = (next: ExecutiveReportDomain) => {
+    if (next === selectedDomain && invalidDomainRaw === null) {
+      return;
+    }
+    const params = new URLSearchParams(location.search);
+    if (next === '') {
+      params.delete('domain');
+    } else {
+      params.set('domain', next);
+    }
+    const search = params.toString();
+    navigate({ pathname: location.pathname, search: search ? `?${search}` : '' }, { replace: true });
+  };
+
+  // The segmented switch is rendered both on the report itself and inside the
+  // invalid-domain error panel, so the user can recover from a bad URL.
+  const renderDomainSwitch = () => (
+    <div className="idt-exec-report__domain" role="tablist" aria-label="Report domain">
+      {EXECUTIVE_REPORT_DOMAIN_OPTIONS.map((option) => {
+        const active = option.value === selectedDomain && invalidDomainRaw === null;
+        return (
+          <button
+            key={option.value || 'all'}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            className={`idt-exec-report__domain-tab${active ? ' is-active' : ''}`}
+            onClick={() => handleDomainChange(option.value)}
+            disabled={loadingReport && active}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  // Order matters: unauthenticated must win (we cannot render anything without
+  // a session), then invalidDomainRaw, then loading. Putting invalidDomainRaw
+  // above loadingReport guarantees a bad URL shows the recovery panel even if
+  // a prior in-flight request left loadingReport stuck (its `finally` was
+  // gated by the cleaned-up `mounted` closure and never cleared).
+  if (unauthenticated) {
+    return <Navigate to="/signin?return_to=%2Freports%2Fexecutive" replace />;
+  }
+
+  if (invalidDomainRaw !== null) {
+    return (
+      <section className="idt-app-shell-screen idt-executive-report-shell" role="alert">
+        <article className="idt-app-panel idt-app-panel-error">
+          <p className="idt-app-kicker">Executive report</p>
+          <h1>Unknown report domain</h1>
+          <p>
+            <code>{invalidDomainRaw}</code> is not a recognized report domain. Choose AWS, GitHub, Kubernetes, or All to
+            continue.
+          </p>
+          {renderDomainSwitch()}
+          <Link className="idt-btn idt-btn-ghost" to="/app">
+            Return to app
+          </Link>
+        </article>
+      </section>
+    );
+  }
 
   if (sessionLoading || loadingReport) {
     return <AppShellLoading message="Loading executive report" />;
-  }
-
-  if (unauthenticated) {
-    return <Navigate to="/signin?return_to=%2Freports%2Fexecutive" replace />;
   }
 
   if (sessionError || reportError) {
@@ -19810,7 +19884,12 @@ export function ProductExecutiveReportPage() {
     severity,
     count: report.open_by_severity[severity] ?? 0
   }));
-  const appPath = buildCurrentUserAppPath(me);
+  // "Back to workspace" must return to the workspace whose report is shown.
+  // For a scoped route (/app/:tenantID/:workspaceID/reports) that is the route
+  // scope, which can differ from the user's current/default workspace; only
+  // fall back to the current-user path for the unscoped legacy route.
+  const appPath =
+    tenantID && workspaceID ? buildTenantWorkspacePath(tenantID, workspaceID) : buildCurrentUserAppPath(me);
 
   const totalOpen = report.total_open_findings;
   const sharePct = (count: number) => (totalOpen > 0 ? Math.round((count / totalOpen) * 100) : 0);
@@ -19834,6 +19913,7 @@ export function ProductExecutiveReportPage() {
               <span>Generated {formatDateLabel(report.generated_at)}</span>
             </p>
           </div>
+          {renderDomainSwitch()}
           <div className="idt-exec-report__actions">
             <Link className="idt-btn idt-btn-ghost" to={appPath}>
               Back to workspace
