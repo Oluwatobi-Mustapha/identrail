@@ -36,6 +36,9 @@ func TestGetAWSRemediationCasesBuildsContract(t *testing.T) {
 	if result.Summary.SourceTypeCounts["ai_agent_risk"] == 0 && result.Summary.SourceTypeCounts["least_privilege"] == 0 {
 		t.Fatalf("expected at least one upstream source emitting cases: %+v", result.Summary.SourceTypeCounts)
 	}
+	if result.Summary.SourceTypeCounts["trust_policy_hardening"] == 0 {
+		t.Fatalf("expected IAM role trust-policy hardening cases for downstream dry-run/executor joins: %+v", result.Summary.SourceTypeCounts)
+	}
 	if result.Summary.RelationshipCount != len(result.Relationships) || len(result.Relationships) == 0 {
 		t.Fatalf("expected relationships and matching count: summary=%+v relationships=%+v", result.Summary, result.Relationships)
 	}
@@ -66,12 +69,68 @@ func TestGetAWSRemediationCasesBuildsContract(t *testing.T) {
 		if c.EvidenceBoundary != awsRemediationCaseEvidenceBoundary() {
 			t.Fatalf("case crossed evidence boundary: %+v", c)
 		}
+		if c.SourceType == "trust_policy_hardening" && (c.IdentityType != "iam_role" || c.DiffIntent.Kind != "iam_trust_diff") {
+			t.Fatalf("trust-policy hardening case must stay scoped to IAM role trust diffs: %+v", c)
+		}
 		if len(c.AuditTrail) == 0 || c.AuditTrail[0].EventType != "proposed" {
 			t.Fatalf("case missing proposed audit entry: %+v", c.AuditTrail)
 		}
 		if strings.Contains(strings.ToLower(c.Summary), "secret value") && !strings.Contains(strings.ToLower(c.Summary), "not collected") {
 			t.Fatalf("summary must not imply secret value collection: %s", c.Summary)
 		}
+	}
+}
+
+func TestAWSRemediationCasesAggregateTrustPolicySourceHealth(t *testing.T) {
+	sources := awsRemediationCaseSources{
+		risk:        AWSAIAgentRiskResult{Status: awsPlatformDependencyStatusReady},
+		least:       AWSLeastPrivilegeResult{Status: awsPlatformDependencyStatusReady},
+		equivalence: AWSSecretPermissionEquivalenceResult{Status: awsPlatformDependencyStatusReady},
+		blast:       AWSBlastRadiusResult{Status: awsPlatformDependencyStatusReady},
+		trust: AWSTrustPolicyHardeningResult{
+			Status:           awsPlatformDependencyStatusDegraded,
+			FailureReasons:   []string{"trust policy planner degraded"},
+			RemediationHints: []string{"retry trust policy hardening"},
+			Diagnostics: []AWSTrustPolicyHardeningDiagnostic{{
+				Collector:   "aws_trust_policy_hardening",
+				SourceID:    "cross-account-trust",
+				Code:        "trust_source_delayed",
+				Message:     "Trust source delayed.",
+				Remediation: "Retry trust source.",
+				Retryable:   true,
+			}},
+			CoverageGaps: []AWSTrustPolicyHardeningCoverageGap{{
+				Capability:  "trust_policy_runtime_evidence",
+				Status:      "partial_failure",
+				Reason:      "Runtime trust evidence delayed.",
+				Remediation: "Retry runtime trust evidence.",
+			}},
+		},
+	}
+	diagnostics := awsRemediationCaseDiagnostics(sources)
+	status, _ := summarizeAWSRemediationCaseStatus(sources, nil, diagnostics)
+	if status != awsPlatformDependencyStatusDegraded {
+		t.Fatalf("trust source health must affect remediation-case status, got %s", status)
+	}
+	if !awsStringSliceContains(awsRemediationCaseFailureReasons(sources), "trust policy planner degraded") {
+		t.Fatalf("trust failure reasons were not propagated")
+	}
+	if !awsStringSliceContains(awsRemediationCaseRemediationHints(sources), "retry trust policy hardening") {
+		t.Fatalf("trust remediation hints were not propagated")
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Collector != "aws_trust_policy_hardening" || !diagnostics[0].Retryable {
+		t.Fatalf("trust diagnostics were not propagated: %+v", diagnostics)
+	}
+	gaps := awsRemediationCaseCoverageGaps(sources)
+	foundTrustGap := false
+	for _, gap := range gaps {
+		if gap.Capability == "trust_policy_runtime_evidence" {
+			foundTrustGap = true
+			break
+		}
+	}
+	if !foundTrustGap {
+		t.Fatalf("trust coverage gaps were not propagated: %+v", gaps)
 	}
 }
 
@@ -304,6 +363,77 @@ func TestAWSRemediationCaseReachesApprovedWhenApprovalNotRequired(t *testing.T) 
 	}
 	if c.Lifecycle != "approved" {
 		t.Fatalf("executable action_required case with no approval gate should reach approved lifecycle, got %s", c.Lifecycle)
+	}
+}
+
+func TestAWSRemediationCaseTrustPolicyHardeningReadyPlanPreservesApprovedState(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 40, 0, 0, time.UTC)
+	plan := AWSTrustPolicyHardeningPlan{
+		PlanID:             "aws-trust-policy-hardening:ready-plan",
+		Severity:           "high",
+		Status:             "action_required",
+		Score:              82,
+		Confidence:         0.9,
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		ResourceType:       "iam_role",
+		ResourceNodeID:     "aws:identity:arn:aws:iam::123456789012:role/payments-cross-account",
+		ResourceARN:        "arn:aws:iam::123456789012:role/payments-cross-account",
+		ResourceLabel:      "payments-cross-account",
+		HardeningDirection: "add_org_or_source_condition",
+		Summary:            "Runtime evidence supports adding trust-policy conditions.",
+		ReadyForApply:      true,
+		PublicPrincipal:    false,
+		BreakageProjection: AWSTrustPolicyHardeningBreakageProjection{Level: "low", Rationale: "Runtime callers are known."},
+		RollbackPlan:       AWSTrustPolicyHardeningRollbackPlan{Strategy: "restore_trust_policy", Steps: []string{"Restore the previous trust policy."}},
+		VerificationPlan:   AWSTrustPolicyHardeningVerificationPlan{Strategy: "trust_policy_re_evaluate", Steps: []string{"Re-run trust-policy hardening."}},
+		ImpactedNodes:      []string{"aws:identity:arn:aws:iam::123456789012:role/payments-cross-account"},
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	c, ok := awsRemediationCaseFromTrustPolicyHardening(plan, now)
+	if !ok {
+		t.Fatalf("expected trust-policy hardening case")
+	}
+	if !c.ApprovalRequired {
+		t.Fatalf("iam_trust_diff trust-policy case must require approval: %+v", c)
+	}
+	if c.ApprovalState != "approved" {
+		t.Fatalf("ready trust-policy plan must preserve approved state for dry-run/executor flow, got %s", c.ApprovalState)
+	}
+	if c.Lifecycle != "approved" {
+		t.Fatalf("ready trust-policy plan must remain approved lifecycle, got %s", c.Lifecycle)
+	}
+}
+
+func TestAWSRemediationCaseTrustPolicyHardeningSkipsNonIAMRolePlans(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 45, 0, 0, time.UTC)
+	plan := AWSTrustPolicyHardeningPlan{
+		PlanID:             "aws-trust-policy-hardening:s3-resource-policy",
+		Severity:           "high",
+		Status:             "action_required",
+		Score:              81,
+		Confidence:         0.91,
+		AccountID:          "123456789012",
+		Region:             "us-east-1",
+		Service:            "s3",
+		ResourceType:       "s3_bucket",
+		ResourceNodeID:     "aws:resource:s3:::payments-data",
+		ResourceARN:        "arn:aws:s3:::payments-data",
+		ResourceLabel:      "payments-data",
+		HardeningDirection: "add_org_or_source_condition",
+		Summary:            "Runtime evidence supports hardening a resource policy.",
+		ReadyForApply:      true,
+		PublicPrincipal:    false,
+		BreakageProjection: AWSTrustPolicyHardeningBreakageProjection{Level: "low", Rationale: "Runtime callers are known."},
+		RollbackPlan:       AWSTrustPolicyHardeningRollbackPlan{Strategy: "restore_resource_policy", Steps: []string{"Restore the previous resource policy."}},
+		VerificationPlan:   AWSTrustPolicyHardeningVerificationPlan{Strategy: "resource_policy_re_evaluate", Steps: []string{"Re-run trust-policy hardening."}},
+		ImpactedNodes:      []string{"aws:resource:s3:::payments-data"},
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if c, ok := awsRemediationCaseFromTrustPolicyHardening(plan, now); ok {
+		t.Fatalf("non-IAM role trust-policy plan must not become an IAM trust diff case: %+v", c)
 	}
 }
 

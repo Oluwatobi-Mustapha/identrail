@@ -29,10 +29,10 @@ func TestGetAWSRuntimeEventsBuildsMetadataOnlyContract(t *testing.T) {
 	if result.CurrentIssueRef != "#1517" || result.Version != awsRuntimeEventsVersion || result.Status != "ready" {
 		t.Fatalf("unexpected runtime event contract metadata: %+v", result)
 	}
-	if result.Summary.TotalEvents != 8 || result.Summary.FilteredEvents != 8 || result.Summary.RelationshipCount != len(result.Relationships) {
+	if result.Summary.TotalEvents != 10 || result.Summary.FilteredEvents != 10 || result.Summary.RelationshipCount != len(result.Relationships) {
 		t.Fatalf("unexpected runtime event summary: %+v relationships=%d", result.Summary, len(result.Relationships))
 	}
-	if result.Summary.SecretReadCount != 1 || result.Summary.KMSDecryptCount != 1 || result.Summary.AgentEventCount != 1 || result.Summary.STSSessionCount == 0 || result.Summary.IAMLastUsedSignalCount != 2 || result.Summary.AccessAnalyzerCount != 1 {
+	if result.Summary.SecretReadCount != 1 || result.Summary.KMSDecryptCount != 1 || result.Summary.AgentEventCount != 1 || result.Summary.STSSessionCount != 2 || result.Summary.IAMLastUsedSignalCount != 2 || result.Summary.AccessAnalyzerCount != 2 {
 		t.Fatalf("expected runtime event type counts, got %+v", result.Summary)
 	}
 	if result.Summary.DormantAccessCount != 2 {
@@ -94,7 +94,7 @@ func TestGetAWSRuntimeEventsFiltersIAMAccessSignals(t *testing.T) {
 			wantSignal:    "access-analyzer",
 			wantAnalyzer:  true,
 			wantEventType: "access-analyzer",
-			wantFiltered:  1,
+			wantFiltered:  2,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -106,8 +106,8 @@ func TestGetAWSRuntimeEventsFiltersIAMAccessSignals(t *testing.T) {
 			if err != nil {
 				t.Fatalf("get filtered signal runtime events: %v", err)
 			}
-			if result.Summary.TotalEvents != 8 || result.Summary.FilteredEvents != tc.wantFiltered || len(result.Records) != tc.wantFiltered {
-				t.Fatalf("expected one filtered signal with retained total count, got summary=%+v records=%+v", result.Summary, result.Records)
+			if result.Summary.TotalEvents != 10 || result.Summary.FilteredEvents != tc.wantFiltered || len(result.Records) != tc.wantFiltered {
+				t.Fatalf("expected filtered signal count with retained total count, got summary=%+v records=%+v", result.Summary, result.Records)
 			}
 			for _, record := range result.Records {
 				if record.EventType != tc.wantEventType || record.SignalCategory != tc.wantSignal || record.EvidenceCategory != tc.evidence {
@@ -121,6 +121,38 @@ func TestGetAWSRuntimeEventsFiltersIAMAccessSignals(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestGetAWSRuntimeEventsPartialFailureRetainsIAMLastUsedSignals(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 6, 14, 18, 40, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-runtime-partial-signals")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-runtime-partial-signals", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+
+	result, err := svc.GetAWSRuntimeEvents(ctx, "default", "project-runtime-partial-signals", AWSRuntimeEventRequest{
+		ConnectorID:  "aws-prod",
+		FixtureState: "partial_failure",
+		EventType:    "iam-last-used",
+		Evidence:     "iam-last-used",
+	})
+	if err != nil {
+		t.Fatalf("get partial failure iam last-used signals: %v", err)
+	}
+	if result.Status != awsPlatformDependencyStatusDegraded || len(result.Diagnostics) == 0 {
+		t.Fatalf("partial failure should stay degraded with source diagnostic: %+v", result)
+	}
+	if result.Summary.TotalEvents != 8 || result.Summary.FilteredEvents != 2 || len(result.Records) != 2 {
+		t.Fatalf("partial failure must retain IAM last-used records while dropping only Access Analyzer, summary=%+v records=%+v", result.Summary, result.Records)
+	}
+	for _, record := range result.Records {
+		if record.EventType != "iam-last-used" || record.SignalCategory != "iam-last-used" {
+			t.Fatalf("unexpected retained signal record: %+v", record)
+		}
 	}
 }
 

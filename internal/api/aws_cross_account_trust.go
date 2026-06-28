@@ -797,20 +797,131 @@ func awsCrossAccountTrustFindingFromBlastRadius(finding AWSBlastRadiusFinding, a
 
 func awsCrossAccountTrustDedupeFindings(findings []AWSCrossAccountTrustFinding) []AWSCrossAccountTrustFinding {
 	seen := map[string]AWSCrossAccountTrustFinding{}
+	seenOrder := make([]string, 0, len(findings))
 	for _, finding := range findings {
 		if finding.FindingID == "" {
 			continue
+		}
+		if _, ok := seen[finding.FindingID]; !ok {
+			seenOrder = append(seenOrder, finding.FindingID)
 		}
 		if existing, ok := seen[finding.FindingID]; ok && existing.Score >= finding.Score {
 			continue
 		}
 		seen[finding.FindingID] = finding
 	}
-	out := make([]AWSCrossAccountTrustFinding, 0, len(seen))
-	for _, finding := range seen {
-		out = append(out, finding)
+	corroborated := map[string]AWSCrossAccountTrustFinding{}
+	corroboratedOrder := make([]string, 0, len(seenOrder))
+	for _, findingID := range seenOrder {
+		finding, ok := seen[findingID]
+		if !ok {
+			continue
+		}
+		key := awsCrossAccountTrustCorroborationKey(finding)
+		if key == "" {
+			key = "finding:" + finding.FindingID
+		}
+		if _, ok := corroborated[key]; !ok {
+			corroboratedOrder = append(corroboratedOrder, key)
+			corroborated[key] = finding
+			continue
+		}
+		if existing, ok := corroborated[key]; ok {
+			corroborated[key] = awsCrossAccountTrustMergeCorroboratingFindings(existing, finding)
+		}
+	}
+	out := make([]AWSCrossAccountTrustFinding, 0, len(corroborated))
+	for _, key := range corroboratedOrder {
+		if finding, ok := corroborated[key]; ok {
+			out = append(out, finding)
+		}
 	}
 	return out
+}
+
+func awsCrossAccountTrustCorroborationKey(finding AWSCrossAccountTrustFinding) string {
+	principal := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(finding.ExternalPrincipalARN, finding.ExternalPrincipalAccount)))
+	resource := strings.ToLower(strings.TrimSpace(firstNonEmptyAWSValue(finding.ResourceARN, finding.ResourceNodeID)))
+	if principal == "" || resource == "" {
+		return ""
+	}
+	return principal + "|" + resource
+}
+
+func awsCrossAccountTrustMergeCorroboratingFindings(existing, incoming AWSCrossAccountTrustFinding) AWSCrossAccountTrustFinding {
+	base, other := existing, incoming
+	if awsCrossAccountTrustPrefersCorroborationBase(incoming, existing) {
+		base, other = incoming, existing
+	}
+	base.RuntimeObserved = base.RuntimeObserved || other.RuntimeObserved
+	base.AnalyzerBacked = base.AnalyzerBacked || other.AnalyzerBacked
+	base.PublicPrincipal = base.PublicPrincipal || other.PublicPrincipal
+	base.TrustedWithinOrganization = base.TrustedWithinOrganization || other.TrustedWithinOrganization
+	base.HasCondition = base.HasCondition && other.HasCondition
+	base.ConditionKeys = dedupeStrings(append(base.ConditionKeys, other.ConditionKeys...))
+	base.PolicySources = dedupeStrings(append(base.PolicySources, other.PolicySources...))
+	base.ImpactedNodes = dedupeStrings(append(base.ImpactedNodes, other.ImpactedNodes...))
+	base.Evidence = append(base.Evidence, other.Evidence...)
+	if len(base.ImpactedPath) == 0 {
+		base.ImpactedPath = other.ImpactedPath
+	}
+	if base.ExternalPrincipalAccount == "" {
+		base.ExternalPrincipalAccount = other.ExternalPrincipalAccount
+	}
+	if base.ExternalPrincipalOUPath == "" {
+		base.ExternalPrincipalOUPath = other.ExternalPrincipalOUPath
+	}
+	if base.Service == "" {
+		base.Service = other.Service
+	}
+	if base.ResourceType == "" {
+		base.ResourceType = other.ResourceType
+	}
+	if base.ResourceARN == "" {
+		base.ResourceARN = other.ResourceARN
+	}
+	if base.ResourceNodeID == "" {
+		base.ResourceNodeID = other.ResourceNodeID
+	}
+	if base.ResourceLabel == "" {
+		base.ResourceLabel = other.ResourceLabel
+	}
+	if base.Confidence < other.Confidence {
+		base.Confidence = other.Confidence
+	}
+	if other.Score > base.Score {
+		base.Score = other.Score
+		base.Severity = awsPrivilegeEscalationSeverity(base.Score)
+	}
+	base.Status = awsPrivilegeEscalationFindingStatus(base.Score, base.Confidence)
+	if other.UpdatedAt.After(base.UpdatedAt) {
+		base.UpdatedAt = other.UpdatedAt
+	}
+	return base
+}
+
+func awsCrossAccountTrustPrefersCorroborationBase(candidate, current AWSCrossAccountTrustFinding) bool {
+	candidateIAMRole := awsCrossAccountTrustFindingTargetsIAMRole(candidate)
+	currentIAMRole := awsCrossAccountTrustFindingTargetsIAMRole(current)
+	if candidate.RuntimeObserved && candidateIAMRole && !(current.RuntimeObserved && currentIAMRole) {
+		return true
+	}
+	if current.RuntimeObserved && currentIAMRole && !(candidate.RuntimeObserved && candidateIAMRole) {
+		return false
+	}
+	if candidateIAMRole && !currentIAMRole {
+		return true
+	}
+	if candidate.Score != current.Score {
+		return candidate.Score > current.Score && !(current.RuntimeObserved && currentIAMRole)
+	}
+	return candidate.FindingID < current.FindingID
+}
+
+func awsCrossAccountTrustFindingTargetsIAMRole(finding AWSCrossAccountTrustFinding) bool {
+	resourceType := normalizeAWSRuntimeEventFilterToken(finding.ResourceType)
+	resourceARN := strings.ToLower(strings.TrimSpace(finding.ResourceARN))
+	return resourceType == "iam-role" || resourceType == "iam_role" || strings.Contains(resourceARN, ":role/")
 }
 
 func filterAWSCrossAccountTrustFindings(findings []AWSCrossAccountTrustFinding, request AWSCrossAccountTrustRequest) ([]AWSCrossAccountTrustFinding, map[string]string) {

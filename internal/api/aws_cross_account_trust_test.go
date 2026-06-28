@@ -195,6 +195,152 @@ func TestAWSCrossAccountTrustFindingsSuppressExplicitDenyOverrides(t *testing.T)
 	}
 }
 
+func TestAWSCrossAccountTrustDedupeFindingsUsesDeterministicCorroborationBase(t *testing.T) {
+	first := AWSCrossAccountTrustFinding{
+		FindingID:            "aws-cross-account-trust:z-runtime",
+		FindingType:          "cross_account_resource_access",
+		Score:                80,
+		Severity:             "high",
+		ExternalPrincipalARN: "arn:aws:iam::999999999999:role/partner",
+		ResourceARN:          "arn:aws:s3:::partner-feed",
+		ResourceType:         "s3_bucket",
+		RuntimeObserved:      true,
+		Evidence:             []AWSCrossAccountTrustEvidence{{Source: "runtime_events", EvidenceRef: "runtime://z"}},
+	}
+	second := AWSCrossAccountTrustFinding{
+		FindingID:            "aws-cross-account-trust:a-analyzer",
+		FindingType:          "access_analyzer_external_access",
+		Score:                80,
+		Severity:             "high",
+		ExternalPrincipalARN: "arn:aws:iam::999999999999:role/partner",
+		ResourceARN:          "arn:aws:s3:::partner-feed",
+		ResourceType:         "s3",
+		AnalyzerBacked:       true,
+		Evidence:             []AWSCrossAccountTrustEvidence{{Source: "access_analyzer", EvidenceRef: "analyzer://a"}},
+	}
+
+	for _, findings := range [][]AWSCrossAccountTrustFinding{
+		{first, second},
+		{second, first},
+	} {
+		merged := awsCrossAccountTrustDedupeFindings(findings)
+		if len(merged) != 1 {
+			t.Fatalf("expected corroborated findings to merge, got %+v", merged)
+		}
+		if merged[0].FindingID != second.FindingID {
+			t.Fatalf("expected deterministic lowest-ID base, got %+v", merged[0])
+		}
+		if !merged[0].RuntimeObserved || !merged[0].AnalyzerBacked || len(merged[0].Evidence) != 2 {
+			t.Fatalf("expected merged corroboration signals, got %+v", merged[0])
+		}
+	}
+}
+
+func TestAWSCrossAccountTrustCorroborationPreservesUnconditionedGrant(t *testing.T) {
+	conditioned := AWSCrossAccountTrustFinding{
+		FindingID:            "aws-cross-account-trust:conditioned",
+		FindingType:          "cross_account_resource_access",
+		Score:                86,
+		Severity:             "high",
+		Status:               "action_required",
+		Confidence:           0.91,
+		Service:              "s3",
+		ResourceType:         "s3_bucket",
+		ResourceARN:          "arn:aws:s3:::partner-feed",
+		ResourceNodeID:       "aws:resource:s3-bucket:partner-feed",
+		ExternalPrincipalARN: "arn:aws:iam::999999999999:role/partner",
+		HasCondition:         true,
+		ConditionKeys:        []string{"aws:PrincipalOrgID"},
+		Evidence:             []AWSCrossAccountTrustEvidence{{Source: "s3_bucket_reachability", EvidenceRef: "s3://conditioned"}},
+	}
+	unconditioned := conditioned
+	unconditioned.FindingID = "aws-cross-account-trust:unconditioned"
+	unconditioned.HasCondition = false
+	unconditioned.ConditionKeys = nil
+	unconditioned.Evidence = []AWSCrossAccountTrustEvidence{{Source: "s3_bucket_reachability", EvidenceRef: "s3://unconditioned"}}
+
+	merged := awsCrossAccountTrustDedupeFindings([]AWSCrossAccountTrustFinding{conditioned, unconditioned})
+	if len(merged) != 1 {
+		t.Fatalf("expected same principal/resource grants to merge, got %+v", merged)
+	}
+	if merged[0].HasCondition {
+		t.Fatalf("merged grant must preserve that one source statement was unconditioned: %+v", merged[0])
+	}
+	if len(merged[0].ConditionKeys) == 0 {
+		t.Fatalf("merged grant should retain conditioned-statement keys as evidence: %+v", merged[0])
+	}
+	summary := summarizeAWSCrossAccountTrust(merged, merged, nil)
+	if summary.UnconditionalGrantCount != 1 {
+		t.Fatalf("summary must still count the unsafe unconditioned grant, got %+v", summary)
+	}
+	plan, ok := awsTrustPolicyHardeningPlanFromFinding(merged[0], time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC))
+	if !ok || plan.HardeningDirection != "add_org_or_source_condition" {
+		t.Fatalf("planner must still add a missing condition boundary for the unconditioned grant, ok=%v plan=%+v", ok, plan)
+	}
+}
+
+func TestAWSCrossAccountTrustCorroborationRecomputesStatusForReadyIAMRole(t *testing.T) {
+	now := time.Date(2026, 6, 29, 11, 0, 0, 0, time.UTC)
+	runtime := AWSCrossAccountTrustFinding{
+		FindingID:            "aws-cross-account-trust:z-runtime-role",
+		FindingType:          "runtime_cross_account_assumption",
+		Score:                82,
+		Severity:             "high",
+		Status:               "review",
+		Confidence:           0.5,
+		AccountID:            "123456789012",
+		Region:               "us-east-1",
+		Service:              "iam",
+		ResourceType:         "iam_role",
+		ResourceARN:          "arn:aws:iam::123456789012:role/payments-cross-account",
+		ResourceNodeID:       "aws:identity:arn:aws:iam::123456789012:role/payments-cross-account",
+		ResourceLabel:        "payments-cross-account",
+		ExternalPrincipalARN: "arn:aws:iam::555555555555:role/billing-runner",
+		RuntimeObserved:      true,
+		HasCondition:         true,
+		ConditionKeys:        []string{"sts:SourceIdentity"},
+		Evidence:             []AWSCrossAccountTrustEvidence{{Source: "runtime_events", EvidenceRef: "runtime://role"}},
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+	analyzer := AWSCrossAccountTrustFinding{
+		FindingID:            "aws-cross-account-trust:a-analyzer-role",
+		FindingType:          "access_analyzer_external_access",
+		Score:                82,
+		Severity:             "high",
+		Status:               "action_required",
+		Confidence:           0.91,
+		AccountID:            runtime.AccountID,
+		Region:               runtime.Region,
+		Service:              "sts",
+		ResourceType:         "sts",
+		ResourceARN:          runtime.ResourceARN,
+		ResourceNodeID:       "aws:runtime-resource:iam-role:payments-cross-account",
+		ResourceLabel:        runtime.ResourceLabel,
+		ExternalPrincipalARN: runtime.ExternalPrincipalARN,
+		AnalyzerBacked:       true,
+		Evidence:             []AWSCrossAccountTrustEvidence{{Source: "access_analyzer", EvidenceRef: "analyzer://role"}},
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+
+	merged := awsCrossAccountTrustDedupeFindings([]AWSCrossAccountTrustFinding{runtime, analyzer})
+	if len(merged) != 1 {
+		t.Fatalf("expected corroborated IAM role findings to merge, got %+v", merged)
+	}
+	if merged[0].FindingID != runtime.FindingID || merged[0].Status != "action_required" || merged[0].Confidence != analyzer.Confidence {
+		t.Fatalf("expected runtime IAM-role base with recomputed action_required status, got %+v", merged[0])
+	}
+	plan, ok := awsTrustPolicyHardeningPlanFromFinding(merged[0], now)
+	if !ok || !plan.ReadyForApply || plan.Status != "action_required" {
+		t.Fatalf("expected ready action_required trust-policy plan, ok=%v plan=%+v", ok, plan)
+	}
+	c, ok := awsRemediationCaseFromTrustPolicyHardening(plan, now)
+	if !ok || c.ApprovalState != "approved" || c.Lifecycle != "approved" {
+		t.Fatalf("expected approved remediation case for ready corroborated IAM role, ok=%v case=%+v", ok, c)
+	}
+}
+
 func TestGetAWSCrossAccountTrustFailureStates(t *testing.T) {
 	now := time.Date(2026, 6, 21, 13, 10, 0, 0, time.UTC)
 	svc, ws := newCrossAccountTrustService(t, "project-cross-account-trust-states", now)
