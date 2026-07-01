@@ -338,7 +338,7 @@ func awsRemediationApprovalEntryFromCase(source AWSRemediationCase, now time.Tim
 		Confidence:         source.Confidence,
 		Title:              fmt.Sprintf("Approval: %s", source.Title),
 		Summary:            fmt.Sprintf("RBAC-gated approval workflow for remediation case %s. Identrail does not mutate AWS; later wave executors apply the change after approval.", source.CaseID),
-		AccountID:          source.AccountID,
+		AccountID:          firstNonEmptyAWSValue(source.AccountID, firstString(source.TargetAccountIDs)),
 		Region:             source.Region,
 		Requestor:          requestor,
 		RequiredApprovers:  approvers,
@@ -433,13 +433,19 @@ func awsRemediationApprovalScope(source AWSRemediationCase, connectorID string) 
 	if strings.TrimSpace(source.IdentityNodeID) != "" {
 		identityNodes = append(identityNodes, source.IdentityNodeID)
 	}
+	resourceNodes := emptyStrings(dedupeStrings(source.ResourceNodeIDs))
+	if strings.EqualFold(source.SourceType, "aws_permission_boundary_scp") {
+		scopeType = "identity"
+		identityNodes = awsPermissionBoundaryExecutorSupportedTargets(append(identityNodes, source.ResourceNodeIDs...))
+		resourceNodes = nil
+	}
 	return AWSRemediationApprovalScope{
 		ScopeType:       scopeType,
-		AccountIDs:      emptyStrings(dedupeStrings([]string{source.AccountID})),
+		AccountIDs:      emptyStrings(dedupeStrings(append([]string{source.AccountID}, source.TargetAccountIDs...))),
 		Regions:         emptyStrings(dedupeStrings([]string{source.Region})),
 		ConnectorIDs:    connectors,
-		IdentityNodeIDs: identityNodes,
-		ResourceNodeIDs: emptyStrings(dedupeStrings(source.ResourceNodeIDs)),
+		IdentityNodeIDs: emptyStrings(dedupeStrings(identityNodes)),
+		ResourceNodeIDs: resourceNodes,
 	}
 }
 
@@ -646,10 +652,10 @@ func filterAWSRemediationApprovalEntries(entries []AWSRemediationApprovalEntry, 
 	}
 	filtered := make([]AWSRemediationApprovalEntry, 0, len(entries))
 	for _, entry := range entries {
-		if filters["account_id"] != "" && filters["account_id"] != entry.AccountID {
+		if filters["account_id"] != "" && !awsRemediationApprovalAccountMatch(entry, filters["account_id"]) {
 			continue
 		}
-		if filters["region"] != "" && !strings.EqualFold(filters["region"], entry.Region) {
+		if filters["region"] != "" && !awsRemediationApprovalRegionMatch(entry, filters["region"]) {
 			continue
 		}
 		if filters["case_id"] != "" && !strings.EqualFold(filters["case_id"], entry.CaseID) {
@@ -691,6 +697,33 @@ func filterAWSRemediationApprovalEntries(entries []AWSRemediationApprovalEntry, 
 		filtered = append(filtered, entry)
 	}
 	return filtered, applied
+}
+
+func awsRemediationApprovalAccountMatch(entry AWSRemediationApprovalEntry, accountID string) bool {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return true
+	}
+	if strings.TrimSpace(entry.AccountID) == accountID {
+		return true
+	}
+	for _, scopeAccountID := range entry.Scope.AccountIDs {
+		if strings.TrimSpace(scopeAccountID) == accountID {
+			return true
+		}
+	}
+	return false
+}
+
+func awsRemediationApprovalRegionMatch(entry AWSRemediationApprovalEntry, region string) bool {
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return true
+	}
+	if strings.TrimSpace(entry.Region) == "" && strings.EqualFold(entry.SourceType, "aws_permission_boundary_scp") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(entry.Region), region)
 }
 
 func awsRemediationApprovalHasApproverRole(entry AWSRemediationApprovalEntry, needle string) bool {

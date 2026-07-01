@@ -101,6 +101,7 @@ type AWSRemediationDryRunEntry struct {
 	Title              string                                  `json:"title"`
 	Summary            string                                  `json:"summary"`
 	AccountID          string                                  `json:"account_id"`
+	AccountIDs         []string                                `json:"account_ids,omitempty"`
 	Region             string                                  `json:"region"`
 	IdempotencyKey     string                                  `json:"idempotency_key"`
 	DryRunRef          string                                  `json:"dry_run_ref"`
@@ -311,7 +312,8 @@ func awsRemediationDryRunEntryFromApproval(approval AWSRemediationApprovalEntry,
 		Confidence:         approval.Confidence,
 		Title:              fmt.Sprintf("Dry-run: %s", approval.Title),
 		Summary:            fmt.Sprintf("Read-only simulation of remediation case %s. Identrail never calls AWS write APIs; later wave executors apply the change after approval.", approval.CaseID),
-		AccountID:          approval.AccountID,
+		AccountID:          firstNonEmptyAWSValue(approval.AccountID, firstString(approval.Scope.AccountIDs)),
+		AccountIDs:         emptyStrings(dedupeStrings(approval.Scope.AccountIDs)),
 		Region:             approval.Region,
 		IdempotencyKey:     approval.IdempotencyKey,
 		DryRunRef:          firstNonEmptyAWSValue(approval.DryRunRef, fmt.Sprintf("dry-run://%s/%s/simulated", approval.SourceType, approval.CaseID)),
@@ -346,6 +348,11 @@ func awsRemediationDryRunIntendedAPICalls(approval AWSRemediationApprovalEntry) 
 	if approval.DiffIntent.NoOp {
 		return []AWSRemediationDryRunIntendedAPICall{awsRemediationDryRunNoOpCall(targets.identity, approval.IdempotencyKey)}
 	}
+	if awsRemediationDryRunIsPermissionBoundaryApproval(approval) {
+		if calls := awsRemediationDryRunPermissionBoundaryCalls(approval); len(calls) > 0 {
+			return calls
+		}
+	}
 	caseID := approval.CaseID
 	if call, ok := awsRemediationDryRunCallForDiffKind(approval.DiffIntent, targets, approval.IdempotencyKey, caseID); ok {
 		return []AWSRemediationDryRunIntendedAPICall{call}
@@ -354,6 +361,38 @@ func awsRemediationDryRunIntendedAPICalls(approval AWSRemediationApprovalEntry) 
 		return []AWSRemediationDryRunIntendedAPICall{call}
 	}
 	return []AWSRemediationDryRunIntendedAPICall{awsRemediationDryRunNoOpCall(targets.identity, approval.IdempotencyKey)}
+}
+
+func awsRemediationDryRunIsPermissionBoundaryApproval(approval AWSRemediationApprovalEntry) bool {
+	return strings.EqualFold(approval.SourceType, "aws_permission_boundary_scp") || strings.EqualFold(strings.TrimSpace(approval.DiffIntent.Kind), "permission_boundary_diff")
+}
+
+func awsRemediationDryRunPermissionBoundaryCalls(approval AWSRemediationApprovalEntry) []AWSRemediationDryRunIntendedAPICall {
+	targets := awsPermissionBoundaryExecutorSupportedTargets(approval.Scope.IdentityNodeIDs)
+	calls := make([]AWSRemediationDryRunIntendedAPICall, 0, len(targets))
+	for _, target := range targets {
+		operation := awsRemediationDryRunPutBoundaryOperation(target)
+		calls = append(calls, AWSRemediationDryRunIntendedAPICall{
+			Service:          "iam",
+			Operation:        operation,
+			TargetResource:   target,
+			ParameterRefs:    []string{awsRemediationDryRunScopedIdempotencyKey(approval.IdempotencyKey, operation, target), "boundary_ref://" + approval.CaseID + "/after"},
+			Idempotent:       true,
+			RequiresApproval: true,
+		})
+	}
+	return calls
+}
+
+func awsRemediationDryRunScopedIdempotencyKey(base, operation, target string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return ""
+	}
+	if strings.TrimSpace(target) == "" {
+		return stableAWSBlastRadiusToken(base, operation)
+	}
+	return stableAWSBlastRadiusToken(base, operation, target)
 }
 
 // awsRemediationDryRunTargetSet pairs the identity-first and resource-first
@@ -573,20 +612,29 @@ func awsRemediationDryRunCallForSourceType(sourceType string, targets awsRemedia
 
 // awsRemediationDryRunIAMPrincipalKind classifies the target IAM principal as
 // role/user/group from its node ID or ARN so the dry-run can route IAM
-// inline-policy and permissions-boundary operations correctly. Returns
-// "role" when the principal type cannot be determined, which matches the
-// most common AWS machine-identity remediation target.
+// inline-policy operations correctly. Returns "role" when the principal type
+// cannot be determined, which matches the most common AWS machine-identity
+// remediation target.
 func awsRemediationDryRunIAMPrincipalKind(target string) string {
+	if kind := awsRemediationDryRunClassifiedIAMPrincipalKind(target); kind != "" {
+		return kind
+	}
+	return "role"
+}
+
+func awsRemediationDryRunClassifiedIAMPrincipalKind(target string) string {
 	normalized := strings.ToLower(strings.TrimSpace(target))
 	switch {
 	case normalized == "":
-		return "role"
+		return ""
 	case strings.Contains(normalized, ":user/"), strings.Contains(normalized, ":identity:user/"):
 		return "user"
 	case strings.Contains(normalized, ":group/"), strings.Contains(normalized, ":identity:group/"):
 		return "group"
-	default:
+	case strings.Contains(normalized, ":role/"), strings.Contains(normalized, ":identity:role/"):
 		return "role"
+	default:
+		return ""
 	}
 }
 
@@ -907,10 +955,10 @@ func filterAWSRemediationDryRunEntries(entries []AWSRemediationDryRunEntry, requ
 	}
 	filtered := make([]AWSRemediationDryRunEntry, 0, len(entries))
 	for _, entry := range entries {
-		if filters["account_id"] != "" && filters["account_id"] != entry.AccountID {
+		if filters["account_id"] != "" && !awsRemediationDryRunAccountMatch(entry, filters["account_id"]) {
 			continue
 		}
-		if filters["region"] != "" && !strings.EqualFold(filters["region"], entry.Region) {
+		if filters["region"] != "" && !awsRemediationDryRunRegionMatch(entry, filters["region"]) {
 			continue
 		}
 		if filters["approval_id"] != "" && !strings.EqualFold(filters["approval_id"], entry.ApprovalID) {
@@ -939,6 +987,33 @@ func filterAWSRemediationDryRunEntries(entries []AWSRemediationDryRunEntry, requ
 	return filtered, applied
 }
 
+func awsRemediationDryRunAccountMatch(entry AWSRemediationDryRunEntry, accountID string) bool {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return true
+	}
+	if strings.TrimSpace(entry.AccountID) == accountID {
+		return true
+	}
+	for _, scopedAccountID := range entry.AccountIDs {
+		if strings.TrimSpace(scopedAccountID) == accountID {
+			return true
+		}
+	}
+	return false
+}
+
+func awsRemediationDryRunRegionMatch(entry AWSRemediationDryRunEntry, region string) bool {
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return true
+	}
+	if strings.TrimSpace(entry.Region) == "" && strings.EqualFold(entry.SourceType, "aws_permission_boundary_scp") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(entry.Region), region)
+}
+
 func awsRemediationDryRunSearchMatch(entry AWSRemediationDryRunEntry, needle string) bool {
 	needle = strings.ToLower(strings.TrimSpace(needle))
 	if needle == "" {
@@ -951,6 +1026,7 @@ func awsRemediationDryRunSearchMatch(entry AWSRemediationDryRunEntry, needle str
 		entry.DiffIntent.Kind, entry.DiffIntent.DiffSummary,
 		entry.RollbackPlan.Strategy, entry.VerificationPlan.Strategy,
 	}
+	values = append(values, entry.AccountIDs...)
 	values = append(values, entry.SourceSignals...)
 	for _, call := range entry.IntendedAPICalls {
 		values = append(values, call.Service, call.Operation, call.TargetResource)

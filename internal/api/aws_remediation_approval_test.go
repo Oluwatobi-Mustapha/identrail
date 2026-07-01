@@ -140,6 +140,52 @@ func TestFilterAWSRemediationApprovalEntriesAppliesFilters(t *testing.T) {
 	}
 }
 
+func TestFilterAWSRemediationApprovalEntriesMatchesScopeAccounts(t *testing.T) {
+	entries := []AWSRemediationApprovalEntry{
+		{
+			ApprovalID: "boundary-cross-account",
+			AccountID:  "",
+			Scope:      AWSRemediationApprovalScope{ScopeType: "identity", AccountIDs: []string{"111111111111", "222222222222"}},
+		},
+		{
+			ApprovalID: "boundary-other-account",
+			AccountID:  "333333333333",
+			Scope:      AWSRemediationApprovalScope{ScopeType: "identity", AccountIDs: []string{"333333333333"}},
+		},
+	}
+
+	filtered, applied := filterAWSRemediationApprovalEntries(entries, AWSRemediationApprovalRequest{AccountID: "222222222222"})
+	if applied["account_id"] != "222222222222" {
+		t.Fatalf("expected applied account filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].ApprovalID != "boundary-cross-account" {
+		t.Fatalf("expected scope account match to retain approval entry: %+v", filtered)
+	}
+}
+
+func TestFilterAWSRemediationApprovalEntriesKeepsMultiRegionBoundaryEntries(t *testing.T) {
+	entries := []AWSRemediationApprovalEntry{
+		{
+			ApprovalID: "approval-multi-region-boundary",
+			SourceType: "aws_permission_boundary_scp",
+			Region:     "",
+		},
+		{
+			ApprovalID: "approval-west-boundary",
+			SourceType: "aws_permission_boundary_scp",
+			Region:     "us-west-2",
+		},
+	}
+
+	filtered, applied := filterAWSRemediationApprovalEntries(entries, AWSRemediationApprovalRequest{Region: "us-east-1"})
+	if applied["region"] != "us-east-1" {
+		t.Fatalf("expected applied region filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].ApprovalID != "approval-multi-region-boundary" {
+		t.Fatalf("expected empty-region boundary approval to survive region drill-down: %+v", filtered)
+	}
+}
+
 func TestAWSRemediationApprovalEntryHonorsRBACGatesAndKillSwitch(t *testing.T) {
 	source := AWSRemediationCase{
 		CaseID:             "case-rbac",
@@ -209,6 +255,33 @@ func TestAWSRemediationApprovalScopeUsesAccountForBlastRadiusSource(t *testing.T
 		scope := awsRemediationApprovalScope(AWSRemediationCase{SourceType: tc.sourceType, ResourceNodeIDs: tc.resourceNodeIDs}, "aws-prod")
 		if scope.ScopeType != tc.want {
 			t.Fatalf("source_type=%q resourceNodes=%v: scope_type=%q want=%q", tc.sourceType, tc.resourceNodeIDs, scope.ScopeType, tc.want)
+		}
+	}
+}
+
+func TestAWSRemediationApprovalScopeFiltersPermissionBoundaryTargets(t *testing.T) {
+	scope := awsRemediationApprovalScope(AWSRemediationCase{
+		SourceType:     "aws_permission_boundary_scp",
+		IdentityNodeID: "aws:identity:arn:aws:iam::111111111111:role/app-role",
+		ResourceNodeIDs: []string{
+			"aws:s3:::payments-prod",
+			"aws:identity:arn:aws:iam::111111111111:group/app-group",
+			"aws:identity:arn:aws:iam::222222222222:user/app-user",
+		},
+	}, "aws-prod")
+	if scope.ScopeType != "identity" || len(scope.ResourceNodeIDs) != 0 {
+		t.Fatalf("permission boundary scope should stay identity-only, got %+v", scope)
+	}
+	want := map[string]bool{
+		"aws:identity:arn:aws:iam::111111111111:role/app-role": true,
+		"aws:identity:arn:aws:iam::222222222222:user/app-user": true,
+	}
+	if len(scope.IdentityNodeIDs) != len(want) {
+		t.Fatalf("expected only explicit IAM role/user targets, got %+v", scope.IdentityNodeIDs)
+	}
+	for _, target := range scope.IdentityNodeIDs {
+		if !want[target] {
+			t.Fatalf("unsupported permission boundary target leaked into approval scope: %q in %+v", target, scope.IdentityNodeIDs)
 		}
 	}
 }

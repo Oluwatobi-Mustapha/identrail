@@ -125,6 +125,52 @@ func TestFilterAWSRemediationDryRunEntriesAppliesFilters(t *testing.T) {
 	}
 }
 
+func TestFilterAWSRemediationDryRunEntriesMatchesScopedAccounts(t *testing.T) {
+	entries := []AWSRemediationDryRunEntry{
+		{
+			DryRunID:   "boundary-cross-account",
+			AccountID:  "",
+			AccountIDs: []string{"111111111111", "222222222222"},
+		},
+		{
+			DryRunID:   "boundary-other-account",
+			AccountID:  "333333333333",
+			AccountIDs: []string{"333333333333"},
+		},
+	}
+
+	filtered, applied := filterAWSRemediationDryRunEntries(entries, AWSRemediationDryRunRequest{AccountID: "111111111111"})
+	if applied["account_id"] != "111111111111" {
+		t.Fatalf("expected applied account filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].DryRunID != "boundary-cross-account" {
+		t.Fatalf("expected scoped account match to retain dry-run entry: %+v", filtered)
+	}
+}
+
+func TestFilterAWSRemediationDryRunEntriesKeepsMultiRegionBoundaryEntries(t *testing.T) {
+	entries := []AWSRemediationDryRunEntry{
+		{
+			DryRunID:   "dry-run-multi-region-boundary",
+			SourceType: "aws_permission_boundary_scp",
+			Region:     "",
+		},
+		{
+			DryRunID:   "dry-run-west-boundary",
+			SourceType: "aws_permission_boundary_scp",
+			Region:     "us-west-2",
+		},
+	}
+
+	filtered, applied := filterAWSRemediationDryRunEntries(entries, AWSRemediationDryRunRequest{Region: "us-east-1"})
+	if applied["region"] != "us-east-1" {
+		t.Fatalf("expected applied region filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].DryRunID != "dry-run-multi-region-boundary" {
+		t.Fatalf("expected empty-region boundary dry-run to survive region drill-down: %+v", filtered)
+	}
+}
+
 func TestAWSRemediationDryRunOutcomeHonorsApprovalGates(t *testing.T) {
 	now := time.Date(2026, 6, 27, 11, 0, 0, 0, time.UTC)
 
@@ -495,6 +541,87 @@ func TestAWSRemediationDryRunIAMOperationFollowsPrincipalKind(t *testing.T) {
 		calls := awsRemediationDryRunIntendedAPICalls(tc.approval)
 		if len(calls) == 0 || calls[0].Operation != tc.wantOp || calls[0].TargetResource != tc.wantTarget {
 			t.Fatalf("%s: want op=%s target=%s, got %+v", tc.name, tc.wantOp, tc.wantTarget, calls)
+		}
+	}
+}
+
+func TestAWSRemediationDryRunPermissionBoundaryEmitsCallPerTarget(t *testing.T) {
+	approval := AWSRemediationApprovalEntry{
+		SourceType:     "aws_permission_boundary_scp",
+		CaseID:         "case-boundary-multi-target",
+		IdempotencyKey: "idk",
+		Scope: AWSRemediationApprovalScope{
+			IdentityNodeIDs: []string{
+				"aws:identity:arn:aws:iam::111111111111:role/app-a",
+				"aws:s3:::payments-prod",
+				"aws:identity:arn:aws:iam::111111111111:group/app-group",
+				"aws:identity:arn:aws:iam::111111111111:role/app-b",
+				"aws:identity:arn:aws:iam::111111111111:user/app-user",
+				"aws:bedrock-agent:us-east-1:111111111111:agent/app-agent",
+			},
+		},
+		DiffIntent: AWSRemediationDiffIntent{Kind: "permission_boundary_diff"},
+	}
+	wantTargets := []string{
+		"aws:identity:arn:aws:iam::111111111111:role/app-a",
+		"aws:identity:arn:aws:iam::111111111111:role/app-b",
+		"aws:identity:arn:aws:iam::111111111111:user/app-user",
+	}
+
+	calls := awsRemediationDryRunIntendedAPICalls(approval)
+	if len(calls) != 3 {
+		t.Fatalf("expected one permission-boundary dry-run call per retained target, got %+v", calls)
+	}
+	seenTargets := map[string]bool{}
+	seenIdempotencyRefs := map[string]bool{}
+	for _, call := range calls {
+		if call.Service != "iam" || !call.Idempotent || !call.RequiresApproval {
+			t.Fatalf("permission-boundary dry-run call has wrong metadata: %+v", call)
+		}
+		if call.Operation != "PutRolePermissionsBoundary" && call.Operation != "PutUserPermissionsBoundary" {
+			t.Fatalf("permission-boundary dry-run call has wrong operation: %+v", call)
+		}
+		if strings.Contains(call.TargetResource, ":user/") && call.Operation != "PutUserPermissionsBoundary" {
+			t.Fatalf("user target must use PutUserPermissionsBoundary: %+v", call)
+		}
+		if strings.Contains(call.TargetResource, ":role/") && call.Operation != "PutRolePermissionsBoundary" {
+			t.Fatalf("role target must use PutRolePermissionsBoundary: %+v", call)
+		}
+		if len(call.ParameterRefs) == 0 || strings.TrimSpace(call.ParameterRefs[0]) == "" {
+			t.Fatalf("permission-boundary dry-run call should have a scoped idempotency ref: %+v", call)
+		}
+		if seenIdempotencyRefs[call.ParameterRefs[0]] {
+			t.Fatalf("permission-boundary dry-run calls should not share idempotency refs: %+v", calls)
+		}
+		seenTargets[call.TargetResource] = true
+		seenIdempotencyRefs[call.ParameterRefs[0]] = true
+	}
+	for _, target := range wantTargets {
+		if !seenTargets[target] {
+			t.Fatalf("missing permission-boundary dry-run call for target %q in %+v", target, calls)
+		}
+	}
+	for _, unsupported := range []string{"aws:s3:::payments-prod", "aws:identity:arn:aws:iam::111111111111:group/app-group", "aws:bedrock-agent:us-east-1:111111111111:agent/app-agent"} {
+		if seenTargets[unsupported] {
+			t.Fatalf("unsupported permission-boundary target should not produce a dry-run call: %q in %+v", unsupported, calls)
+		}
+	}
+
+	resources := awsRemediationDryRunAffectedResources(approval, calls)
+	apiTargets := map[string]bool{}
+	for _, resource := range resources {
+		if resource.ChangeKind == "api_target" {
+			apiTargets[resource.NodeID] = true
+		}
+	}
+	for _, target := range wantTargets {
+		if !apiTargets[target] {
+			t.Fatalf("missing api_target affected resource for target %q in %+v", target, resources)
+		}
+	}
+	for _, unsupported := range []string{"aws:s3:::payments-prod", "aws:identity:arn:aws:iam::111111111111:group/app-group", "aws:bedrock-agent:us-east-1:111111111111:agent/app-agent"} {
+		if apiTargets[unsupported] {
+			t.Fatalf("unsupported permission-boundary target should not be reported as an api_target: %q in %+v", unsupported, resources)
 		}
 	}
 }

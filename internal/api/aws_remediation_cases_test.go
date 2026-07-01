@@ -39,6 +39,9 @@ func TestGetAWSRemediationCasesBuildsContract(t *testing.T) {
 	if result.Summary.SourceTypeCounts["trust_policy_hardening"] == 0 {
 		t.Fatalf("expected IAM role trust-policy hardening cases for downstream dry-run/executor joins: %+v", result.Summary.SourceTypeCounts)
 	}
+	if result.Summary.SourceTypeCounts["aws_permission_boundary_scp"] == 0 {
+		t.Fatalf("expected permission-boundary cases for downstream dry-run/executor joins: %+v", result.Summary.SourceTypeCounts)
+	}
 	if result.Summary.RelationshipCount != len(result.Relationships) || len(result.Relationships) == 0 {
 		t.Fatalf("expected relationships and matching count: summary=%+v relationships=%+v", result.Summary, result.Relationships)
 	}
@@ -71,6 +74,9 @@ func TestGetAWSRemediationCasesBuildsContract(t *testing.T) {
 		}
 		if c.SourceType == "trust_policy_hardening" && (c.IdentityType != "iam_role" || c.DiffIntent.Kind != "iam_trust_diff") {
 			t.Fatalf("trust-policy hardening case must stay scoped to IAM role trust diffs: %+v", c)
+		}
+		if c.SourceType == "aws_permission_boundary_scp" && ((c.IdentityType != "iam_role" && c.IdentityType != "iam_user") || c.DiffIntent.Kind != "permission_boundary_diff") {
+			t.Fatalf("permission-boundary case must stay scoped to IAM identity boundary diffs: %+v", c)
 		}
 		if len(c.AuditTrail) == 0 || c.AuditTrail[0].EventType != "proposed" {
 			t.Fatalf("case missing proposed audit entry: %+v", c.AuditTrail)
@@ -196,6 +202,201 @@ func TestGetAWSRemediationCasesAppliesFilters(t *testing.T) {
 	}
 	if len(search.Cases) == 0 {
 		t.Fatalf("expected rotation cases in the success fixture")
+	}
+}
+
+func TestFilterAWSRemediationCasesMatchesBoundaryTargetAccounts(t *testing.T) {
+	cases := []AWSRemediationCase{
+		{
+			CaseID:           "case-cross-account-boundary",
+			SourceType:       "aws_permission_boundary_scp",
+			AccountID:        "",
+			TargetAccountIDs: []string{"111111111111", "222222222222"},
+			Region:           "us-east-1",
+		},
+		{
+			CaseID:           "case-other-boundary",
+			SourceType:       "aws_permission_boundary_scp",
+			AccountID:        "333333333333",
+			TargetAccountIDs: []string{"333333333333"},
+			Region:           "us-east-1",
+		},
+	}
+
+	filtered, applied := filterAWSRemediationCases(cases, AWSRemediationCaseRequest{AccountID: "222222222222"})
+	if applied["account_id"] != "222222222222" {
+		t.Fatalf("expected applied account filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].CaseID != "case-cross-account-boundary" {
+		t.Fatalf("expected target account match to retain boundary case: %+v", filtered)
+	}
+}
+
+func TestFilterAWSRemediationCasesKeepsMultiRegionBoundaryCases(t *testing.T) {
+	cases := []AWSRemediationCase{
+		{
+			CaseID:     "case-multi-region-boundary",
+			SourceType: "aws_permission_boundary_scp",
+			Region:     "",
+		},
+		{
+			CaseID:     "case-west-boundary",
+			SourceType: "aws_permission_boundary_scp",
+			Region:     "us-west-2",
+		},
+	}
+
+	filtered, applied := filterAWSRemediationCases(cases, AWSRemediationCaseRequest{Region: "us-east-1"})
+	if applied["region"] != "us-east-1" {
+		t.Fatalf("expected applied region filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].CaseID != "case-multi-region-boundary" {
+		t.Fatalf("expected empty-region boundary case to survive region drill-down: %+v", filtered)
+	}
+}
+
+func TestFilterAWSRemediationCasesMatchesBoundaryTargetIdentity(t *testing.T) {
+	cases := []AWSRemediationCase{
+		{
+			CaseID:          "case-cross-identity-boundary",
+			SourceType:      "aws_permission_boundary_scp",
+			IdentityNodeID:  "aws:identity:arn:aws:iam::111111111111:role/app-a",
+			ResourceNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:role/app-a", "aws:identity:arn:aws:iam::111111111111:role/app-b"},
+		},
+		{
+			CaseID:          "case-other-boundary",
+			SourceType:      "aws_permission_boundary_scp",
+			IdentityNodeID:  "aws:identity:arn:aws:iam::111111111111:role/app-c",
+			ResourceNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:role/app-c"},
+		},
+	}
+
+	filtered, applied := filterAWSRemediationCases(cases, AWSRemediationCaseRequest{Identity: "role/app-b"})
+	if applied["identity"] != "role/app-b" {
+		t.Fatalf("expected applied identity filter, got %+v", applied)
+	}
+	if len(filtered) != 1 || filtered[0].CaseID != "case-cross-identity-boundary" {
+		t.Fatalf("expected boundary target identity match to retain case: %+v", filtered)
+	}
+}
+
+func TestAWSRemediationCaseFromPermissionBoundaryFiltersUnsupportedTargets(t *testing.T) {
+	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	plan := AWSPermissionBoundarySCPPlan{
+		PlanID: "permission-boundary-unsupported-targets",
+		Kind:   awsPermissionBoundaryKind,
+		TargetIdentityNodeIDs: []string{
+			"aws:identity:arn:aws:iam::111111111111:group/app-group",
+			"aws:s3:::payments-prod",
+			"aws:identity:arn:aws:iam::222222222222:user/app-user",
+		},
+		ImpactedNodes: []string{
+			"aws:identity:arn:aws:iam::111111111111:group/app-group",
+			"aws:s3:::payments-prod",
+			"aws:identity:arn:aws:iam::222222222222:user/app-user",
+		},
+		TargetAccountIDs: []string{"111111111111", "222222222222"},
+	}
+
+	boundaryCase, ok := awsRemediationCaseFromPermissionBoundary(plan, now)
+	if !ok {
+		t.Fatalf("expected permission boundary case from role/user plan")
+	}
+	if boundaryCase.IdentityNodeID != "aws:identity:arn:aws:iam::222222222222:user/app-user" {
+		t.Fatalf("expected first supported target node to drive case identity: %+v", boundaryCase)
+	}
+	if boundaryCase.IdentityType != "iam_user" {
+		t.Fatalf("expected retained user target to drive case identity type, got %q", boundaryCase.IdentityType)
+	}
+	if len(boundaryCase.ResourceNodeIDs) != 1 || boundaryCase.ResourceNodeIDs[0] != "aws:identity:arn:aws:iam::222222222222:user/app-user" {
+		t.Fatalf("expected resource nodes to exclude unsupported target kinds: %+v", boundaryCase.ResourceNodeIDs)
+	}
+	if len(boundaryCase.ImpactedNodes) != 1 || boundaryCase.ImpactedNodes[0] != "aws:identity:arn:aws:iam::222222222222:user/app-user" {
+		t.Fatalf("expected impacted nodes to exclude unsupported target kinds: %+v", boundaryCase.ImpactedNodes)
+	}
+	if boundaryCase.AccountID != "222222222222" {
+		t.Fatalf("expected case account to use retained target account, got %q", boundaryCase.AccountID)
+	}
+	if len(boundaryCase.TargetAccountIDs) != 1 || boundaryCase.TargetAccountIDs[0] != "222222222222" {
+		t.Fatalf("expected target accounts to exclude unsupported target accounts: %+v", boundaryCase.TargetAccountIDs)
+	}
+
+	nonARNPlan := plan
+	nonARNPlan.PlanID = "permission-boundary-non-arn-unsupported-targets"
+	nonARNPlan.TargetIdentityNodeIDs = []string{"aws:identity:group/app-group", "aws:s3:::payments-prod", "aws:identity:user/app-user"}
+	nonARNPlan.ImpactedNodes = []string{"aws:identity:group/app-group", "aws:s3:::payments-prod", "aws:identity:user/app-user"}
+	nonARNCase, ok := awsRemediationCaseFromPermissionBoundary(nonARNPlan, now)
+	if !ok {
+		t.Fatalf("expected permission boundary case from non-ARN role/user plan")
+	}
+	if nonARNCase.IdentityType != "iam_user" {
+		t.Fatalf("expected non-ARN retained user target to drive case identity type, got %q", nonARNCase.IdentityType)
+	}
+	if nonARNCase.AccountID != "" {
+		t.Fatalf("expected non-ARN filtered case account to avoid unsafe de-duped account fallback, got %q", nonARNCase.AccountID)
+	}
+	if len(nonARNCase.TargetAccountIDs) != 0 {
+		t.Fatalf("expected non-ARN filtered target accounts to avoid unsafe de-duped account fallback: %+v", nonARNCase.TargetAccountIDs)
+	}
+
+	nonARNRepeatedAccountPlan := plan
+	nonARNRepeatedAccountPlan.PlanID = "permission-boundary-non-arn-repeated-account"
+	nonARNRepeatedAccountPlan.TargetIdentityNodeIDs = []string{"aws:identity:role/app-a", "aws:identity:role/app-b", "aws:identity:group/app-group"}
+	nonARNRepeatedAccountPlan.ImpactedNodes = []string{"aws:identity:role/app-a", "aws:identity:role/app-b", "aws:identity:group/app-group"}
+	nonARNRepeatedAccountPlan.TargetAccountIDs = []string{"111111111111", "222222222222"}
+	nonARNRepeatedAccountCase, ok := awsRemediationCaseFromPermissionBoundary(nonARNRepeatedAccountPlan, now)
+	if !ok {
+		t.Fatalf("expected permission boundary case from non-ARN repeated-account plan")
+	}
+	if nonARNRepeatedAccountCase.AccountID != "" || len(nonARNRepeatedAccountCase.TargetAccountIDs) != 0 {
+		t.Fatalf("expected non-ARN filtered case to avoid assigning de-duped group account scope: %+v", nonARNRepeatedAccountCase)
+	}
+
+	groupOnlyPlan := plan
+	groupOnlyPlan.PlanID = "permission-boundary-group-only"
+	groupOnlyPlan.TargetIdentityNodeIDs = []string{"aws:identity:arn:aws:iam::111111111111:group/app-group", "aws:s3:::payments-prod"}
+	if _, ok = awsRemediationCaseFromPermissionBoundary(groupOnlyPlan, now); ok {
+		t.Fatalf("expected unsupported-only boundary plan to be filtered before case projection")
+	}
+}
+
+func TestAWSRemediationCaseFromPermissionBoundaryKeepsContextOnlyImpactedRolesOutOfApplyScope(t *testing.T) {
+	now := time.Date(2026, 6, 30, 12, 5, 0, 0, time.UTC)
+	plan := AWSPermissionBoundarySCPPlan{
+		PlanID:                "permission-boundary-context-only-impacted-role",
+		Kind:                  awsPermissionBoundaryKind,
+		ReadyForApply:         true,
+		TargetIdentityNodeIDs: []string{"aws:identity:arn:aws:iam::111111111111:role/app-role"},
+		TargetAccountIDs:      []string{"111111111111"},
+		BreakageProjection:    AWSPermissionBoundarySCPBreakageProjection{Level: "low"},
+		ImpactedNodes: []string{
+			"aws:identity:arn:aws:iam::111111111111:role/app-role",
+			"aws:identity:arn:aws:iam::111111111111:role/assumed-by-app-role",
+		},
+	}
+
+	boundaryCase, ok := awsRemediationCaseFromPermissionBoundary(plan, now)
+	if !ok {
+		t.Fatalf("expected permission boundary case from single-target plan")
+	}
+	if len(boundaryCase.ResourceNodeIDs) != 1 || boundaryCase.ResourceNodeIDs[0] != "aws:identity:arn:aws:iam::111111111111:role/app-role" {
+		t.Fatalf("context-only impacted role must not be promoted into apply scope via ResourceNodeIDs: %+v", boundaryCase.ResourceNodeIDs)
+	}
+	foundContextRole := false
+	for _, node := range boundaryCase.ImpactedNodes {
+		if node == "aws:identity:arn:aws:iam::111111111111:role/assumed-by-app-role" {
+			foundContextRole = true
+		}
+	}
+	if !foundContextRole {
+		t.Fatalf("context-only impacted role should still be retained as context in ImpactedNodes: %+v", boundaryCase.ImpactedNodes)
+	}
+
+	scope := awsRemediationApprovalScope(boundaryCase, "aws-prod")
+	for _, node := range scope.IdentityNodeIDs {
+		if node == "aws:identity:arn:aws:iam::111111111111:role/assumed-by-app-role" {
+			t.Fatalf("context-only impacted role must not be promoted into approval identity scope: %+v", scope.IdentityNodeIDs)
+		}
 	}
 }
 

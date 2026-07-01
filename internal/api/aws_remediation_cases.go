@@ -114,6 +114,7 @@ type AWSRemediationCase struct {
 	Title              string                         `json:"title"`
 	Summary            string                         `json:"summary"`
 	AccountID          string                         `json:"account_id"`
+	TargetAccountIDs   []string                       `json:"target_account_ids,omitempty"`
 	Region             string                         `json:"region"`
 	IdentityNodeID     string                         `json:"identity_node_id,omitempty"`
 	IdentityARN        string                         `json:"identity_arn,omitempty"`
@@ -198,6 +199,7 @@ type awsRemediationCaseSources struct {
 	equivalence AWSSecretPermissionEquivalenceResult
 	blast       AWSBlastRadiusResult
 	trust       AWSTrustPolicyHardeningResult
+	boundary    AWSPermissionBoundarySCPResult
 }
 
 // GetAWSRemediationCases composes ranked, explainable remediation cases from
@@ -276,12 +278,14 @@ func (s *Service) GetAWSRemediationCases(ctx context.Context, workspaceID string
 			awsIssueURL(awsSecretPermissionEquivalenceCurrentIssue),
 			awsIssueURL(awsBlastRadiusCurrentIssue),
 			awsIssueURL(awsTrustPolicyHardeningCurrentIssue),
+			awsIssueURL(awsPermissionBoundarySCPCurrentIssue),
 			"/docs/aws-remediation-case-model",
 			"/docs/aws-ai-agent-risk-engine",
 			"/docs/aws-least-privilege",
 			"/docs/aws-secret-permission-equivalence-engine",
 			"/docs/aws-blast-radius-engine",
 			"/docs/aws-trust-policy-hardening-planner",
+			"/docs/aws-permission-boundary-scp-planner",
 			awsBaselineProjectEvidenceURL(scope, project),
 		}),
 		CoverageGaps: coverageGaps,
@@ -328,7 +332,11 @@ func (s *Service) awsRemediationCaseSourceSignals(ctx context.Context, workspace
 	if err != nil {
 		return awsRemediationCaseSources{}, fmt.Errorf("remediation case trust policy hardening: %w", err)
 	}
-	return awsRemediationCaseSources{risk: risk, least: least, equivalence: equivalence, blast: blast, trust: trust}, nil
+	boundary, err := s.GetAWSPermissionBoundarySCPPlans(ctx, workspaceID, projectID, AWSPermissionBoundarySCPRequest{ConnectorID: connectorID, FixtureState: fixtureState})
+	if err != nil {
+		return awsRemediationCaseSources{}, fmt.Errorf("remediation case permission boundary scp: %w", err)
+	}
+	return awsRemediationCaseSources{risk: risk, least: least, equivalence: equivalence, blast: blast, trust: trust, boundary: boundary}, nil
 }
 
 func awsRemediationCases(sources awsRemediationCaseSources, now time.Time) []AWSRemediationCase {
@@ -355,6 +363,11 @@ func awsRemediationCases(sources awsRemediationCaseSources, now time.Time) []AWS
 	}
 	for _, plan := range sources.trust.Plans {
 		if c, ok := awsRemediationCaseFromTrustPolicyHardening(plan, now); ok {
+			cases = append(cases, c)
+		}
+	}
+	for _, plan := range sources.boundary.Plans {
+		if c, ok := awsRemediationCaseFromPermissionBoundary(plan, now); ok {
 			cases = append(cases, c)
 		}
 	}
@@ -666,6 +679,106 @@ func awsRemediationTrustPolicyHardeningIsIAMRole(plan AWSTrustPolicyHardeningPla
 	return strings.Contains(resourceNodeID, ":role/")
 }
 
+func awsRemediationCaseFromPermissionBoundary(plan AWSPermissionBoundarySCPPlan, now time.Time) (AWSRemediationCase, bool) {
+	if plan.PlanID == "" || !strings.EqualFold(plan.Kind, awsPermissionBoundaryKind) {
+		return AWSRemediationCase{}, false
+	}
+	supportedTargets := awsPermissionBoundaryExecutorSupportedTargets(plan.TargetIdentityNodeIDs)
+	filteredImpactedNodes := []string{}
+	for _, node := range emptyStrings(plan.ImpactedNodes) {
+		switch awsRemediationDryRunClassifiedIAMPrincipalKind(node) {
+		case "role", "user":
+			filteredImpactedNodes = append(filteredImpactedNodes, node)
+		default:
+			continue
+		}
+	}
+	identityNodeID := firstString(emptyStrings(supportedTargets))
+	if identityNodeID == "" {
+		return AWSRemediationCase{}, false
+	}
+	scopedTargetAccountIDs := awsRemediationPermissionBoundaryScopedAccounts(plan, supportedTargets)
+	caseID := "aws-remediation-case:" + stableAWSBlastRadiusToken("permission-boundary", plan.PlanID)
+	evidenceRef := firstString(awsRemediationEvidenceRefs(plan.Evidence))
+	deniedActions := awsRemediationPermissionBoundaryDeniedActions(plan)
+	diff := AWSRemediationDiffIntent{
+		Kind:               "permission_boundary_diff",
+		BeforeRef:          evidenceRef,
+		AfterRef:           "permission-boundary://" + plan.PlanID + "/intended-boundary",
+		DiffSummary:        fmt.Sprintf("Apply permission boundary plan %s to %d captured identity target(s); deny %s before live execution.", plan.PlanID, len(emptyStrings(plan.TargetIdentityNodeIDs)), firstNonEmptyAWSValue(strings.Join(deniedActions, ", "), "the projected unused action set")),
+		ReadOnlyProjection: true,
+	}
+	owner, ownerAssigned := "iam-platform", true
+	approvalRequired := awsRemediationApprovalRequired(plan.Severity, diff.Kind)
+	approvalState := awsRemediationApprovalState(approvalRequired, ownerAssigned, plan.Status)
+	if plan.ReadyForApply && normalizeAWSRuntimeEventFilterToken(plan.Status) == "action-required" {
+		approvalState = "approved"
+	}
+	lifecycle := awsRemediationLifecycle(plan.Status, plan.Confidence, ownerAssigned, approvalState, diff)
+	c := AWSRemediationCase{
+		CaseID:             caseID,
+		CalculationVersion: awsRemediationCaseVersion,
+		SourceType:         "aws_permission_boundary_scp",
+		SourceFindingID:    plan.PlanID,
+		Lifecycle:          lifecycle,
+		Severity:           plan.Severity,
+		Status:             plan.Status,
+		Score:              plan.Score,
+		Confidence:         plan.Confidence,
+		Title:              fmt.Sprintf("Permission boundary executor for %s", firstNonEmptyAWSValue(plan.Service, identityNodeID)),
+		Summary:            plan.Summary,
+		AccountID:          firstString(scopedTargetAccountIDs),
+		TargetAccountIDs:   scopedTargetAccountIDs,
+		Region:             plan.Region,
+		IdentityNodeID:     identityNodeID,
+		IdentityName:       firstNonEmptyAWSValue(shortAWSARN(identityNodeID), identityNodeID),
+		IdentityType:       awsRemediationPermissionBoundaryIdentityType(identityNodeID),
+		// ResourceNodeIDs is the vehicle awsRemediationApprovalScope uses to
+		// pull extra targets into Scope.IdentityNodeIDs for this source
+		// type, so it must stay limited to the plan's retained boundary
+		// targets. filteredImpactedNodes may include other IAM roles/users
+		// that are merely context (e.g. an sts:AssumeRole target) and must
+		// not be promoted into apply scope; they stay in ImpactedNodes only.
+		ResourceNodeIDs:  awsRemediationResourceNodes(supportedTargets),
+		Owner:            owner,
+		OwnerAssigned:    ownerAssigned,
+		ApprovalRequired: approvalRequired,
+		ApprovalState:    approvalState,
+		DiffIntent:       diff,
+		Tradeoffs:        awsRemediationTradeoffsForPermissionBoundary(plan),
+		RollbackPlan:     awsRemediationRollbackFromPermissionBoundary(plan, evidenceRef),
+		VerificationPlan: awsRemediationVerificationFromPermissionBoundary(plan, evidenceRef),
+		SourceSignals:    dedupeStrings(append([]string{"aws_permission_boundary_scp", "permission_boundary"}, plan.SourceSignals...)),
+		Evidence:         plan.Evidence,
+		EvidenceBoundary: awsRemediationCaseEvidenceBoundary(),
+		ImpactedNodes:    dedupeStrings(append(append([]string{}, supportedTargets...), filteredImpactedNodes...)),
+		ImpactedPath:     plan.ImpactedPath,
+		NextActions:      awsRemediationNextActionList(plan.NextAction, diff),
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	return finalizeAWSRemediationCase(c, now), true
+}
+
+func awsRemediationPermissionBoundaryScopedAccounts(plan AWSPermissionBoundarySCPPlan, supportedTargets []string) []string {
+	derived := awsPermissionBoundaryExecutorAccountsForTargets(supportedTargets)
+	if len(derived) > 0 {
+		return derived
+	}
+	originalTargets := emptyStrings(plan.TargetIdentityNodeIDs)
+	if len(emptyStrings(supportedTargets)) == len(originalTargets) {
+		return emptyStrings(dedupeStrings(plan.TargetAccountIDs))
+	}
+	return nil
+}
+
+func awsRemediationPermissionBoundaryIdentityType(target string) string {
+	if awsRemediationDryRunIAMPrincipalKind(target) == "user" {
+		return "iam_user"
+	}
+	return "iam_role"
+}
+
 func finalizeAWSRemediationCase(c AWSRemediationCase, now time.Time) AWSRemediationCase {
 	c.SourceSignals = dedupeStrings(c.SourceSignals)
 	c.ImpactedNodes = emptyStrings(dedupeStrings(c.ImpactedNodes))
@@ -728,6 +841,7 @@ func mergeAWSRemediationCase(existing, incoming AWSRemediationCase) AWSRemediati
 	merged.Evidence = append(append([]AWSRemediationCaseEvidence{}, merged.Evidence...), incoming.Evidence...)
 	merged.ImpactedNodes = emptyStrings(dedupeStrings(append(merged.ImpactedNodes, incoming.ImpactedNodes...)))
 	merged.ResourceNodeIDs = emptyStrings(dedupeStrings(append(merged.ResourceNodeIDs, incoming.ResourceNodeIDs...)))
+	merged.TargetAccountIDs = emptyStrings(dedupeStrings(append(merged.TargetAccountIDs, incoming.TargetAccountIDs...)))
 	merged.NextActions = dedupeStrings(append(merged.NextActions, incoming.NextActions...))
 	merged.Tradeoffs = append(merged.Tradeoffs, incoming.Tradeoffs...)
 	merged.AuditTrail = append(merged.AuditTrail, incoming.AuditTrail...)
@@ -802,7 +916,7 @@ func awsRemediationApprovalRequired(severity, diffKind string) bool {
 		return true
 	}
 	switch diffKind {
-	case "secret_rotation", "iam_trust_diff", "kms_grant_diff":
+	case "secret_rotation", "iam_trust_diff", "kms_grant_diff", "permission_boundary_diff":
 		return true
 	}
 	return false
@@ -962,6 +1076,18 @@ func awsRemediationTradeoffsForTrustPolicyHardening(plan AWSTrustPolicyHardening
 	return out
 }
 
+func awsRemediationTradeoffsForPermissionBoundary(plan AWSPermissionBoundarySCPPlan) []AWSRemediationTradeoff {
+	out := []AWSRemediationTradeoff{
+		{Dimension: "downstream_blast_radius", Direction: "improves", Description: fmt.Sprintf("Applying the permission boundary prevents re-introduction of unused privileges across %d captured identity target(s).", len(emptyStrings(plan.TargetIdentityNodeIDs))), Severity: plan.Severity},
+	}
+	if strings.EqualFold(plan.BreakageProjection.Level, "low") {
+		out = append(out, AWSRemediationTradeoff{Dimension: "breakage_risk", Direction: "neutral", Description: plan.BreakageProjection.Rationale, Severity: "low"})
+	} else {
+		out = append(out, AWSRemediationTradeoff{Dimension: "breakage_risk", Direction: "worsens", Description: plan.BreakageProjection.Rationale, Severity: firstNonEmptyAWSValue(plan.BreakageProjection.Level, "medium")})
+	}
+	return out
+}
+
 func awsRemediationRollbackForDiff(diff AWSRemediationDiffIntent, evidenceRef string) AWSRemediationRollbackPlan {
 	switch diff.Kind {
 	case "iam_policy_diff", "role_scope_diff":
@@ -972,6 +1098,8 @@ func awsRemediationRollbackForDiff(diff AWSRemediationDiffIntent, evidenceRef st
 		return AWSRemediationRollbackPlan{Strategy: "re_create_secret_reference", Steps: []string{"Reissue the prior credential or restore the previous reference if the workload regressed.", "Capture rotation evidence in the case audit trail."}, EvidenceRef: evidenceRef}
 	case "kms_grant_diff":
 		return AWSRemediationRollbackPlan{Strategy: "restore_grant", Steps: []string{"Restore the previous KMS grant or key policy statement.", "Re-run KMS-decrypt reachability to confirm the rollback."}, EvidenceRef: evidenceRef}
+	case "permission_boundary_diff":
+		return AWSRemediationRollbackPlan{Strategy: "detach_permission_boundary", Steps: []string{"Detach the projected permission boundary from the captured identity targets.", "Re-run least-privilege and IAM policy simulation to confirm the rollback."}, EvidenceRef: evidenceRef}
 	case "ai_agent_scope_change":
 		return AWSRemediationRollbackPlan{Strategy: "re_enable_tool", Steps: []string{"Re-enable the removed tool or capability scope on the AI agent definition.", "Re-run runtime/tool-call correlation."}, EvidenceRef: evidenceRef}
 	case "owner_assignment":
@@ -1091,6 +1219,46 @@ func awsRemediationVerificationFromTrustPolicyHardening(plan AWSTrustPolicyHarde
 		FailureSignals: verification.FailureSignals,
 		EvidenceRef:    firstNonEmptyAWSValue(verification.EvidenceRef, evidenceRef),
 	}
+}
+
+func awsRemediationRollbackFromPermissionBoundary(plan AWSPermissionBoundarySCPPlan, evidenceRef string) AWSRemediationRollbackPlan {
+	rollback := plan.RollbackPlan
+	if len(rollback.Steps) == 0 {
+		return awsRemediationRollbackForDiff(AWSRemediationDiffIntent{Kind: "permission_boundary_diff"}, evidenceRef)
+	}
+	return AWSRemediationRollbackPlan{
+		Strategy:    firstNonEmptyAWSValue(rollback.Strategy, "detach_permission_boundary"),
+		Steps:       rollback.Steps,
+		EvidenceRef: firstNonEmptyAWSValue(rollback.EvidenceRef, evidenceRef),
+	}
+}
+
+func awsRemediationVerificationFromPermissionBoundary(plan AWSPermissionBoundarySCPPlan, evidenceRef string) AWSRemediationVerificationPlan {
+	verification := plan.VerificationPlan
+	if len(verification.Steps) == 0 {
+		return AWSRemediationVerificationPlan{
+			Strategy:       "permission_boundary_re_evaluate",
+			Steps:          []string{"Re-run IAM policy simulation for the boundary-bound identities.", "Re-run least-privilege and confirm the removed action set does not reappear."},
+			SuccessSignals: []string{"permission_boundary:denies-unused-actions", "least_privilege:decision-keep"},
+			FailureSignals: []string{"permission_boundary:observed-action-denied", "least_privilege:decision-remove"},
+			EvidenceRef:    evidenceRef,
+		}
+	}
+	return AWSRemediationVerificationPlan{
+		Strategy:       firstNonEmptyAWSValue(verification.Strategy, "permission_boundary_re_evaluate"),
+		Steps:          verification.Steps,
+		SuccessSignals: verification.SuccessSignals,
+		FailureSignals: verification.FailureSignals,
+		EvidenceRef:    firstNonEmptyAWSValue(verification.EvidenceRef, evidenceRef),
+	}
+}
+
+func awsRemediationPermissionBoundaryDeniedActions(plan AWSPermissionBoundarySCPPlan) []string {
+	out := []string{}
+	for _, snippet := range plan.StatementSnippets {
+		out = append(out, snippet.DeniedActions...)
+	}
+	return emptyStrings(dedupeStrings(out))
 }
 
 func awsRemediationResourceNodes(values ...interface{}) []string {
@@ -1223,10 +1391,10 @@ func filterAWSRemediationCases(cases []AWSRemediationCase, request AWSRemediatio
 	}
 	filtered := make([]AWSRemediationCase, 0, len(cases))
 	for _, c := range cases {
-		if filters["account_id"] != "" && filters["account_id"] != c.AccountID {
+		if filters["account_id"] != "" && !awsRemediationCaseAccountMatch(c, filters["account_id"]) {
 			continue
 		}
-		if filters["region"] != "" && !strings.EqualFold(filters["region"], c.Region) {
+		if filters["region"] != "" && !awsRemediationCaseRegionMatch(c, filters["region"]) {
 			continue
 		}
 		if filters["source_type"] != "" && filters["source_type"] != normalizeAWSRuntimeEventFilterToken(c.SourceType) {
@@ -1261,12 +1429,43 @@ func filterAWSRemediationCases(cases []AWSRemediationCase, request AWSRemediatio
 	return filtered, applied
 }
 
+func awsRemediationCaseAccountMatch(c AWSRemediationCase, accountID string) bool {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return true
+	}
+	if strings.TrimSpace(c.AccountID) == accountID {
+		return true
+	}
+	for _, targetAccountID := range c.TargetAccountIDs {
+		if strings.TrimSpace(targetAccountID) == accountID {
+			return true
+		}
+	}
+	return false
+}
+
+func awsRemediationCaseRegionMatch(c AWSRemediationCase, region string) bool {
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return true
+	}
+	if strings.TrimSpace(c.Region) == "" && strings.EqualFold(c.SourceType, "aws_permission_boundary_scp") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(c.Region), region)
+}
+
 func awsRemediationCaseIdentityMatch(c AWSRemediationCase, needle string) bool {
 	needle = strings.ToLower(strings.TrimSpace(needle))
 	if needle == "" {
 		return true
 	}
-	hay := strings.ToLower(strings.Join([]string{c.IdentityNodeID, c.IdentityARN, c.IdentityName, c.IdentityType, c.Owner}, " "))
+	values := []string{c.IdentityNodeID, c.IdentityARN, c.IdentityName, c.IdentityType, c.Owner}
+	if strings.EqualFold(c.SourceType, "aws_permission_boundary_scp") {
+		values = append(values, c.ResourceNodeIDs...)
+	}
+	hay := strings.ToLower(strings.Join(values, " "))
 	return strings.Contains(hay, needle)
 }
 
@@ -1276,6 +1475,7 @@ func awsRemediationCaseSearchMatch(c AWSRemediationCase, needle string) bool {
 		return true
 	}
 	values := []string{c.CaseID, c.Title, c.Summary, c.SourceFindingID, c.SourceType, c.Lifecycle, c.Severity, c.Status, c.ApprovalState, c.IdentityNodeID, c.IdentityARN, c.IdentityName, c.Provider, c.Owner, c.DiffIntent.Kind, c.DiffIntent.DiffSummary, c.DiffIntent.BeforeRef, c.DiffIntent.AfterRef, c.RollbackPlan.Strategy, c.VerificationPlan.Strategy}
+	values = append(values, c.TargetAccountIDs...)
 	values = append(values, c.ResourceNodeIDs...)
 	values = append(values, c.SourceSignals...)
 	values = append(values, c.ImpactedNodes...)
@@ -1298,7 +1498,7 @@ func awsRemediationCaseSearchMatch(c AWSRemediationCase, needle string) bool {
 }
 
 func summarizeAWSRemediationCaseStatus(sources awsRemediationCaseSources, filtered []AWSRemediationCase, diagnostics []AWSRemediationCaseDiagnostic) (string, float64) {
-	statuses := []string{sources.risk.Status, sources.least.Status, sources.equivalence.Status, sources.blast.Status, sources.trust.Status}
+	statuses := []string{sources.risk.Status, sources.least.Status, sources.equivalence.Status, sources.blast.Status, sources.trust.Status, sources.boundary.Status}
 	for _, status := range statuses {
 		if status == awsPlatformDependencyStatusBlocked {
 			return awsPlatformDependencyStatusBlocked, 0.35
@@ -1328,6 +1528,7 @@ func awsRemediationCaseFailureReasons(sources awsRemediationCaseSources) []strin
 		sources.equivalence.FailureReasons,
 		sources.blast.FailureReasons,
 		sources.trust.FailureReasons,
+		sources.boundary.FailureReasons,
 	} {
 		out = append(out, messages...)
 	}
@@ -1345,6 +1546,7 @@ func awsRemediationCaseRemediationHints(sources awsRemediationCaseSources) []str
 		sources.equivalence.RemediationHints,
 		sources.blast.RemediationHints,
 		sources.trust.RemediationHints,
+		sources.boundary.RemediationHints,
 	} {
 		out = append(out, messages...)
 	}
@@ -1382,6 +1584,9 @@ func awsRemediationCaseDiagnostics(sources awsRemediationCaseSources) []AWSRemed
 	for _, d := range sources.trust.Diagnostics {
 		appendDiag(d.Collector, d.SourceID, d.Code, d.Message, d.Remediation, d.Retryable)
 	}
+	for _, d := range sources.boundary.Diagnostics {
+		appendDiag(d.Collector, d.SourceID, d.Code, d.Message, d.Remediation, d.Retryable)
+	}
 	return out
 }
 
@@ -1408,6 +1613,9 @@ func awsRemediationCaseCoverageGaps(sources awsRemediationCaseSources) []AWSReme
 		appendGap(g.Capability, g.Status, g.Reason, g.Remediation)
 	}
 	for _, g := range sources.trust.CoverageGaps {
+		appendGap(g.Capability, g.Status, g.Reason, g.Remediation)
+	}
+	for _, g := range sources.boundary.CoverageGaps {
 		appendGap(g.Capability, g.Status, g.Reason, g.Remediation)
 	}
 	return out
