@@ -79,6 +79,8 @@ import {
   type AWSLowRiskRemediationResult,
   type AWSPermissionBoundaryExecutorEntry,
   type AWSPermissionBoundaryExecutorResult,
+  type AWSScpGuardrailExecutorEntry,
+  type AWSScpGuardrailExecutorResult,
   type AWSTrustPolicyHardeningExecutorEntry,
   type AWSTrustPolicyHardeningExecutorResult,
   type AWSBlastRadiusFinding,
@@ -185,6 +187,7 @@ import {
   DomainStatusBadge,
   DomainStatusPanel,
   DomainTimeline,
+  type DomainDataTableColumn,
   type DomainTimelineEntry
 } from './components/app/DomainFoundation';
 import { getDomainAsset, type DomainAssetKey } from './design/domainAssets';
@@ -11084,33 +11087,56 @@ function awsPermissionBoundaryExecutorReadinessLabel(entry: AWSPermissionBoundar
   return formatTokenLabel(entry.state);
 }
 
-function AWSPermissionBoundaryExecutorContent({
+type AWSExecutorProjectionResult<Row> = {
+  status: string;
+  entries: Row[];
+  caveats: string[];
+  failure_reasons: string[];
+};
+
+function AWSExecutorProjectionPanel<Row>({
   result,
   loading,
   error,
-  onRetry
+  onRetry,
+  ariaLabel,
+  heading,
+  description,
+  errorTitle,
+  loadingTitle,
+  loadingBody,
+  emptyEyebrow,
+  emptyTitle,
+  emptyBody,
+  tableLabel,
+  getRowKey,
+  columns
 }: {
-  result: AWSPermissionBoundaryExecutorResult | null;
+  result: AWSExecutorProjectionResult<Row> | null;
   loading: boolean;
   error: string;
   onRetry: () => void;
+  ariaLabel: string;
+  heading: string;
+  description: string;
+  errorTitle: string;
+  loadingTitle: string;
+  loadingBody: string;
+  emptyEyebrow: (result: AWSExecutorProjectionResult<Row>) => string;
+  emptyTitle: (result: AWSExecutorProjectionResult<Row>) => string;
+  emptyBody: (result: AWSExecutorProjectionResult<Row>) => string;
+  tableLabel: string;
+  getRowKey: (row: Row) => string;
+  columns: DomainDataTableColumn<Row>[];
 }) {
   const rows = result?.entries ?? [];
-  const summaryLine = result
-    ? `${result.summary.total_entries} total · ${result.summary.ready_for_live_apply_count} ready · ${result.summary.failed_precondition_count} blocked preconditions · ${result.summary.target_identity_count} identities`
-    : '';
   return (
-    <section className="idt-aws-runtime-correlation" aria-label="AWS approved permission boundary executor">
-      <h3>AWS approved permission boundary executor</h3>
-      <p className="idt-app-kicker">
-        Read-only projection that joins dry-run readiness with permission-boundary planner metadata. Each entry records
-        the idempotency key, intended IAM permission-boundary call, target identity scope, simulator metadata,
-        preconditions, rollback plan, verification records, and audit trail. Identrail never calls IAM write APIs at this
-        layer. {summaryLine}
-      </p>
+    <section className="idt-aws-runtime-correlation" aria-label={ariaLabel}>
+      <h3>{heading}</h3>
+      <p className="idt-app-kicker">{description}</p>
       {error ? (
         <DomainErrorState
-          title="Couldn't load AWS permission boundary executor"
+          title={errorTitle}
           body={error}
           retryAction={{ label: 'Retry', onClick: onRetry }}
         />
@@ -11118,15 +11144,15 @@ function AWSPermissionBoundaryExecutorContent({
       {!error && loading ? (
         <DomainEmptyState
           eyebrow="Loading"
-          title="Projecting permission boundary execution"
-          body="Identrail is joining dry-run readiness with permission boundary planner metadata to project execution records."
+          title={loadingTitle}
+          body={loadingBody}
         />
       ) : null}
       {!error && !loading && result && rows.length === 0 ? (
         <DomainEmptyState
-          eyebrow={result.status === 'blocked' ? 'Permission required' : 'No permission boundary executor entries'}
-          title={result.status === 'blocked' ? 'Permission boundary executor needs approved dry-run and planner evidence' : 'No permission boundary executor entries projected'}
-          body={result.failure_reasons[0] ?? 'No upstream dry-run entry joined a permission boundary plan for this environment.'}
+          eyebrow={emptyEyebrow(result)}
+          title={emptyTitle(result)}
+          body={emptyBody(result)}
         />
       ) : null}
       {!error && !loading && result && result.caveats.length > 0 ? (
@@ -11138,27 +11164,142 @@ function AWSPermissionBoundaryExecutorContent({
       ) : null}
       {rows.length > 0 ? (
         <DomainDataTable
-          label="AWS permission boundary executor entries"
+          label={tableLabel}
           rows={rows}
-          getRowKey={(row) => row.execution_id}
-          columns={[
-            { key: 'execution', header: 'Execution', render: (row) => <strong>{row.title}</strong> },
-            { key: 'operation', header: 'Operation', render: (row) => row.operation },
-            { key: 'target', header: 'Target', render: (row) => awsPermissionBoundaryExecutorTargetLabel(row) },
-            { key: 'preconditions', header: 'Preconditions', render: (row) => awsPermissionBoundaryExecutorPreconditionLabel(row) },
-            { key: 'simulation', header: 'Simulation', render: (row) => `${formatTokenLabel(row.boundary_simulation.outcome)} · ${row.boundary_simulation.denied_action_count} denied` },
-            { key: 'state', header: 'State', render: (row) => awsPermissionBoundaryExecutorReadinessLabel(row) },
-            {
-              key: 'severity',
-              header: 'Severity',
-              render: (row) => (
-                <AWSInventoryPill stage={awsPermissionBoundaryExecutorStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.state)}`} />
-              )
-            }
-          ]}
+          getRowKey={getRowKey}
+          columns={columns}
         />
       ) : null}
     </section>
+  );
+}
+
+function AWSPermissionBoundaryExecutorContent({
+  result,
+  loading,
+  error,
+  onRetry
+}: {
+  result: AWSPermissionBoundaryExecutorResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const summaryLine = result
+    ? `${result.summary.total_entries} total · ${result.summary.ready_for_live_apply_count} ready · ${result.summary.failed_precondition_count} blocked preconditions · ${result.summary.target_identity_count} identities`
+    : '';
+  return (
+    <AWSExecutorProjectionPanel
+      result={result}
+      loading={loading}
+      error={error}
+      onRetry={onRetry}
+      ariaLabel="AWS approved permission boundary executor"
+      heading="AWS approved permission boundary executor"
+      description={`Read-only projection that joins dry-run readiness with permission-boundary planner metadata. Each entry records the idempotency key, intended IAM permission-boundary call, target identity scope, simulator metadata, preconditions, rollback plan, verification records, and audit trail. Identrail never calls IAM write APIs at this layer. ${summaryLine}`}
+      errorTitle="Couldn't load AWS permission boundary executor"
+      loadingTitle="Projecting permission boundary execution"
+      loadingBody="Identrail is joining dry-run readiness with permission boundary planner metadata to project execution records."
+      emptyEyebrow={(current) => (current.status === 'blocked' ? 'Permission required' : 'No permission boundary executor entries')}
+      emptyTitle={(current) => (current.status === 'blocked' ? 'Permission boundary executor needs approved dry-run and planner evidence' : 'No permission boundary executor entries projected')}
+      emptyBody={(current) => current.failure_reasons[0] ?? 'No upstream dry-run entry joined a permission boundary plan for this environment.'}
+      tableLabel="AWS permission boundary executor entries"
+      getRowKey={(row) => row.execution_id}
+      columns={[
+        { key: 'execution', header: 'Execution', render: (row) => <strong>{row.title}</strong> },
+        { key: 'operation', header: 'Operation', render: (row) => row.operation },
+        { key: 'target', header: 'Target', render: (row) => awsPermissionBoundaryExecutorTargetLabel(row) },
+        { key: 'preconditions', header: 'Preconditions', render: (row) => awsPermissionBoundaryExecutorPreconditionLabel(row) },
+        { key: 'simulation', header: 'Simulation', render: (row) => `${formatTokenLabel(row.boundary_simulation.outcome)} · ${row.boundary_simulation.denied_action_count} denied` },
+        { key: 'state', header: 'State', render: (row) => awsPermissionBoundaryExecutorReadinessLabel(row) },
+        {
+          key: 'severity',
+          header: 'Severity',
+          render: (row) => (
+            <AWSInventoryPill stage={awsPermissionBoundaryExecutorStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.state)}`} />
+          )
+        }
+      ]}
+    />
+  );
+}
+
+function awsScpGuardrailExecutorStage(entry: AWSScpGuardrailExecutorEntry): AWSCapabilityStage {
+  if (entry.kill_switch_engaged || entry.state === 'blocked') {
+    return 'not-available';
+  }
+  if (entry.state !== 'projected' || !entry.ready_for_live_apply) {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsScpGuardrailExecutorTargetLabel(entry: AWSScpGuardrailExecutorEntry): string {
+  const accounts = entry.target_account_ids?.length ?? 0;
+  const ous = entry.target_ou_paths?.length ?? 0;
+  return `${accounts} accounts · ${ous} OUs`;
+}
+
+function awsScpGuardrailExecutorPreconditionLabel(entry: AWSScpGuardrailExecutorEntry): string {
+  const passed = entry.preconditions.filter((precondition) => precondition.status === 'passed').length;
+  const blocked = entry.preconditions.length - passed;
+  return `${passed} passed · ${blocked} blocked`;
+}
+
+function awsScpGuardrailExecutorReadinessLabel(entry: AWSScpGuardrailExecutorEntry): string {
+  if (entry.ready_for_live_apply) {
+    return `ready · ${entry.verifications.length} verifications`;
+  }
+  return formatTokenLabel(entry.state);
+}
+
+function AWSScpGuardrailExecutorContent({
+  result,
+  loading,
+  error,
+  onRetry
+}: {
+  result: AWSScpGuardrailExecutorResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const summaryLine = result
+    ? `${result.summary.total_entries} total · ${result.summary.ready_for_live_apply_count} ready · ${result.summary.failed_precondition_count} blocked preconditions · ${result.summary.target_account_count} accounts · ${result.summary.target_ou_count} OUs`
+    : '';
+  return (
+    <AWSExecutorProjectionPanel
+      result={result}
+      loading={loading}
+      error={error}
+      onRetry={onRetry}
+      ariaLabel="AWS approved SCP guardrail executor"
+      heading="AWS approved SCP guardrail executor"
+      description={`Read-only projection that joins dry-run readiness with SCP planner metadata. Each entry records the idempotency key, intended Organizations SCP attach, account/OU target scope, simulator metadata, preconditions, rollback plan, verification records, and audit trail. Identrail never calls Organizations write APIs at this layer. ${summaryLine}`}
+      errorTitle="Couldn't load AWS SCP guardrail executor"
+      loadingTitle="Projecting SCP guardrail execution"
+      loadingBody="Identrail is joining dry-run readiness with SCP planner metadata to project execution records."
+      emptyEyebrow={(current) => (current.status === 'blocked' ? 'Permission required' : 'No SCP guardrail executor entries')}
+      emptyTitle={(current) => (current.status === 'blocked' ? 'SCP guardrail executor needs approved dry-run and planner evidence' : 'No SCP guardrail executor entries projected')}
+      emptyBody={(current) => current.failure_reasons[0] ?? 'No upstream dry-run entry joined an SCP plan for this environment.'}
+      tableLabel="AWS SCP guardrail executor entries"
+      getRowKey={(row) => row.execution_id}
+      columns={[
+        { key: 'execution', header: 'Execution', render: (row) => <strong>{row.title}</strong> },
+        { key: 'operation', header: 'Operation', render: (row) => row.operation },
+        { key: 'target', header: 'Target', render: (row) => awsScpGuardrailExecutorTargetLabel(row) },
+        { key: 'preconditions', header: 'Preconditions', render: (row) => awsScpGuardrailExecutorPreconditionLabel(row) },
+        { key: 'simulation', header: 'Simulation', render: (row) => `${formatTokenLabel(row.boundary_simulation.outcome)} · ${row.boundary_simulation.denied_action_count} denied` },
+        { key: 'state', header: 'State', render: (row) => awsScpGuardrailExecutorReadinessLabel(row) },
+        {
+          key: 'severity',
+          header: 'Severity',
+          render: (row) => (
+            <AWSInventoryPill stage={awsScpGuardrailExecutorStage(row)} label={`${formatTokenLabel(row.severity)} / ${formatTokenLabel(row.state)}`} />
+          )
+        }
+      ]}
+    />
   );
 }
 
@@ -13382,6 +13523,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [permissionBoundaryExecutorLoading, setPermissionBoundaryExecutorLoading] = useState(false);
   const [permissionBoundaryExecutorError, setPermissionBoundaryExecutorError] = useState('');
   const permissionBoundaryExecutorRequestRef = useRef(0);
+  const [scpGuardrailExecutor, setScpGuardrailExecutor] = useState<AWSScpGuardrailExecutorResult | null>(null);
+  const [scpGuardrailExecutorLoading, setScpGuardrailExecutorLoading] = useState(false);
+  const [scpGuardrailExecutorError, setScpGuardrailExecutorError] = useState('');
+  const scpGuardrailExecutorRequestRef = useRef(0);
   const [secretKeyRotation, setSecretKeyRotation] = useState<AWSSecretKeyRotationResult | null>(null);
   const [secretKeyRotationLoading, setSecretKeyRotationLoading] = useState(false);
   const [secretKeyRotationError, setSecretKeyRotationError] = useState('');
@@ -13934,6 +14079,54 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       permissionBoundaryExecutorRequestRef.current += 1;
     };
   }, [loadPermissionBoundaryExecutor]);
+
+  const loadScpGuardrailExecutor = useCallback(async () => {
+    const requestID = ++scpGuardrailExecutorRequestRef.current;
+    setScpGuardrailExecutor(null);
+    setScpGuardrailExecutorError('');
+    if (routeID !== 'runtime' || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setScpGuardrailExecutorLoading(false);
+      return;
+    }
+    setScpGuardrailExecutorLoading(true);
+    try {
+      const response = await apiClient.getAWSProjectScpGuardrailExecutor(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== scpGuardrailExecutorRequestRef.current) {
+        return;
+      }
+      setScpGuardrailExecutor(response.scp_guardrail_executor);
+    } catch (error) {
+      if (requestID !== scpGuardrailExecutorRequestRef.current) {
+        return;
+      }
+      setScpGuardrailExecutorError(formatAPIError(error, 'Unable to load AWS SCP guardrail executor.'));
+    } finally {
+      if (requestID === scpGuardrailExecutorRequestRef.current) {
+        setScpGuardrailExecutorLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadScpGuardrailExecutor();
+    return () => {
+      scpGuardrailExecutorRequestRef.current += 1;
+    };
+  }, [loadScpGuardrailExecutor]);
 
   const loadSecretKeyRotation = useCallback(async () => {
     const requestID = ++secretKeyRotationRequestRef.current;
@@ -14781,6 +14974,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={permissionBoundaryExecutorLoading}
             error={permissionBoundaryExecutorError}
             onRetry={loadPermissionBoundaryExecutor}
+          />
+        ) : null}
+        {routeID === 'runtime' ? (
+          <AWSScpGuardrailExecutorContent
+            result={scpGuardrailExecutor}
+            loading={scpGuardrailExecutorLoading}
+            error={scpGuardrailExecutorError}
+            onRetry={loadScpGuardrailExecutor}
           />
         ) : null}
         {routeID === 'runtime' ? (

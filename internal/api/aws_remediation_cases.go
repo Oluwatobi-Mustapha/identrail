@@ -370,6 +370,9 @@ func awsRemediationCases(sources awsRemediationCaseSources, now time.Time) []AWS
 		if c, ok := awsRemediationCaseFromPermissionBoundary(plan, now); ok {
 			cases = append(cases, c)
 		}
+		if c, ok := awsRemediationCaseFromSCPGuardrail(plan, now); ok {
+			cases = append(cases, c)
+		}
 	}
 	return awsRemediationCaseDedupe(cases)
 }
@@ -779,6 +782,69 @@ func awsRemediationPermissionBoundaryIdentityType(target string) string {
 	return "iam_role"
 }
 
+func awsRemediationCaseFromSCPGuardrail(plan AWSPermissionBoundarySCPPlan, now time.Time) (AWSRemediationCase, bool) {
+	if plan.PlanID == "" || !strings.EqualFold(plan.Kind, awsSCPKind) {
+		return AWSRemediationCase{}, false
+	}
+	targetAccounts := emptyStrings(dedupeStrings(plan.TargetAccountIDs))
+	targetOUs := emptyStrings(dedupeStrings(plan.TargetOUPaths))
+	if len(targetAccounts) == 0 && len(targetOUs) == 0 {
+		return AWSRemediationCase{}, false
+	}
+	caseID := "aws-remediation-case:" + stableAWSBlastRadiusToken("scp-guardrail", plan.PlanID)
+	evidenceRef := firstString(awsRemediationEvidenceRefs(plan.Evidence))
+	deniedActions := awsRemediationSCPDeniedActions(plan)
+	diff := AWSRemediationDiffIntent{
+		Kind:               "scp_diff",
+		BeforeRef:          evidenceRef,
+		AfterRef:           "scp://" + plan.PlanID + "/approved-guardrail",
+		DiffSummary:        fmt.Sprintf("Apply SCP guardrail plan %s to %d account(s) and %d OU/root scope(s); deny %s before live execution.", plan.PlanID, len(targetAccounts), len(targetOUs), firstNonEmptyAWSValue(strings.Join(deniedActions, ", "), "the projected cross-account trust pattern")),
+		ReadOnlyProjection: true,
+	}
+	owner, ownerAssigned := "iam-platform", true
+	approvalRequired := awsRemediationApprovalRequired(plan.Severity, diff.Kind)
+	approvalState := awsRemediationApprovalState(approvalRequired, ownerAssigned, plan.Status)
+	if plan.ReadyForApply && normalizeAWSRuntimeEventFilterToken(plan.Status) == "action-required" {
+		approvalState = "approved"
+	}
+	lifecycle := awsRemediationLifecycle(plan.Status, plan.Confidence, ownerAssigned, approvalState, diff)
+	resourceNodes := awsRemediationResourceNodes(targetOUs, targetAccounts)
+	c := AWSRemediationCase{
+		CaseID:             caseID,
+		CalculationVersion: awsRemediationCaseVersion,
+		SourceType:         "aws_permission_boundary_scp",
+		SourceFindingID:    plan.PlanID,
+		Lifecycle:          lifecycle,
+		Severity:           plan.Severity,
+		Status:             plan.Status,
+		Score:              plan.Score,
+		Confidence:         plan.Confidence,
+		Title:              fmt.Sprintf("SCP guardrail executor for %s", firstNonEmptyAWSValue(plan.Service, firstString(targetOUs), firstString(targetAccounts), plan.PlanID)),
+		Summary:            plan.Summary,
+		AccountID:          firstString(targetAccounts),
+		TargetAccountIDs:   targetAccounts,
+		Region:             plan.Region,
+		ResourceNodeIDs:    resourceNodes,
+		Owner:              owner,
+		OwnerAssigned:      ownerAssigned,
+		ApprovalRequired:   approvalRequired,
+		ApprovalState:      approvalState,
+		DiffIntent:         diff,
+		Tradeoffs:          awsRemediationTradeoffsForSCPGuardrail(plan),
+		RollbackPlan:       awsRemediationRollbackFromSCPGuardrail(plan, evidenceRef),
+		VerificationPlan:   awsRemediationVerificationFromSCPGuardrail(plan, evidenceRef),
+		SourceSignals:      dedupeStrings(append([]string{"aws_permission_boundary_scp", "scp", "scp_guardrail"}, plan.SourceSignals...)),
+		Evidence:           plan.Evidence,
+		EvidenceBoundary:   awsRemediationCaseEvidenceBoundary(),
+		ImpactedNodes:      dedupeStrings(append(append([]string{}, resourceNodes...), plan.ImpactedNodes...)),
+		ImpactedPath:       plan.ImpactedPath,
+		NextActions:        awsRemediationNextActionList(plan.NextAction, diff),
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	return finalizeAWSRemediationCase(c, now), true
+}
+
 func finalizeAWSRemediationCase(c AWSRemediationCase, now time.Time) AWSRemediationCase {
 	c.SourceSignals = dedupeStrings(c.SourceSignals)
 	c.ImpactedNodes = emptyStrings(dedupeStrings(c.ImpactedNodes))
@@ -916,7 +982,7 @@ func awsRemediationApprovalRequired(severity, diffKind string) bool {
 		return true
 	}
 	switch diffKind {
-	case "secret_rotation", "iam_trust_diff", "kms_grant_diff", "permission_boundary_diff":
+	case "secret_rotation", "iam_trust_diff", "kms_grant_diff", "permission_boundary_diff", "scp_diff":
 		return true
 	}
 	return false
@@ -1088,6 +1154,20 @@ func awsRemediationTradeoffsForPermissionBoundary(plan AWSPermissionBoundarySCPP
 	return out
 }
 
+func awsRemediationTradeoffsForSCPGuardrail(plan AWSPermissionBoundarySCPPlan) []AWSRemediationTradeoff {
+	targetAccountCount := len(emptyStrings(plan.TargetAccountIDs))
+	targetOUCount := len(emptyStrings(plan.TargetOUPaths))
+	out := []AWSRemediationTradeoff{
+		{Dimension: "downstream_blast_radius", Direction: "improves", Description: fmt.Sprintf("Applying the SCP guardrail prevents re-introduction of the blocked behavior across %d account target(s) and %d OU/root scope(s).", targetAccountCount, targetOUCount), Severity: plan.Severity},
+	}
+	if strings.EqualFold(plan.BreakageProjection.Level, "low") {
+		out = append(out, AWSRemediationTradeoff{Dimension: "breakage_risk", Direction: "neutral", Description: plan.BreakageProjection.Rationale, Severity: "low"})
+	} else {
+		out = append(out, AWSRemediationTradeoff{Dimension: "breakage_risk", Direction: "worsens", Description: plan.BreakageProjection.Rationale, Severity: firstNonEmptyAWSValue(plan.BreakageProjection.Level, "medium")})
+	}
+	return out
+}
+
 func awsRemediationRollbackForDiff(diff AWSRemediationDiffIntent, evidenceRef string) AWSRemediationRollbackPlan {
 	switch diff.Kind {
 	case "iam_policy_diff", "role_scope_diff":
@@ -1100,6 +1180,8 @@ func awsRemediationRollbackForDiff(diff AWSRemediationDiffIntent, evidenceRef st
 		return AWSRemediationRollbackPlan{Strategy: "restore_grant", Steps: []string{"Restore the previous KMS grant or key policy statement.", "Re-run KMS-decrypt reachability to confirm the rollback."}, EvidenceRef: evidenceRef}
 	case "permission_boundary_diff":
 		return AWSRemediationRollbackPlan{Strategy: "detach_permission_boundary", Steps: []string{"Detach the projected permission boundary from the captured identity targets.", "Re-run least-privilege and IAM policy simulation to confirm the rollback."}, EvidenceRef: evidenceRef}
+	case "scp_diff":
+		return AWSRemediationRollbackPlan{Strategy: "detach_scp", Steps: []string{"Detach the projected SCP from the captured account or OU targets.", "Re-run cross-account trust and SCP simulation checks to confirm the rollback."}, EvidenceRef: evidenceRef}
 	case "ai_agent_scope_change":
 		return AWSRemediationRollbackPlan{Strategy: "re_enable_tool", Steps: []string{"Re-enable the removed tool or capability scope on the AI agent definition.", "Re-run runtime/tool-call correlation."}, EvidenceRef: evidenceRef}
 	case "owner_assignment":
@@ -1253,12 +1335,52 @@ func awsRemediationVerificationFromPermissionBoundary(plan AWSPermissionBoundary
 	}
 }
 
+func awsRemediationRollbackFromSCPGuardrail(plan AWSPermissionBoundarySCPPlan, evidenceRef string) AWSRemediationRollbackPlan {
+	rollback := plan.RollbackPlan
+	if len(rollback.Steps) == 0 {
+		return AWSRemediationRollbackPlan{
+			Strategy:    "detach_scp",
+			Steps:       []string{"Detach the projected SCP from the captured account or OU target.", "Re-run cross-account-trust to confirm the previous reachability only returns if the rollback is intended."},
+			EvidenceRef: evidenceRef,
+		}
+	}
+	return AWSRemediationRollbackPlan{
+		Strategy:    firstNonEmptyAWSValue(rollback.Strategy, "detach_scp"),
+		Steps:       rollback.Steps,
+		EvidenceRef: firstNonEmptyAWSValue(rollback.EvidenceRef, evidenceRef),
+	}
+}
+
+func awsRemediationVerificationFromSCPGuardrail(plan AWSPermissionBoundarySCPPlan, evidenceRef string) AWSRemediationVerificationPlan {
+	verification := plan.VerificationPlan
+	if len(verification.Steps) == 0 {
+		return AWSRemediationVerificationPlan{
+			Strategy:       "scp_guardrail_re_evaluate",
+			Steps:          []string{"Confirm the SCP policy is attached to every captured account or OU target.", "Confirm each target effective SCP includes the intended guardrail statement metadata ref before re-running cross-account trust analysis."},
+			SuccessSignals: []string{"organizations:scp-attached", "organizations:effective-policy-matches", "cross_account_trust:finding-resolved"},
+			FailureSignals: []string{"organizations:scp-missing", "organizations:effective-policy-mismatch", "cross_account_trust:finding-unchanged"},
+			EvidenceRef:    evidenceRef,
+		}
+	}
+	return AWSRemediationVerificationPlan{
+		Strategy:       firstNonEmptyAWSValue(verification.Strategy, "scp_guardrail_re_evaluate"),
+		Steps:          verification.Steps,
+		SuccessSignals: verification.SuccessSignals,
+		FailureSignals: verification.FailureSignals,
+		EvidenceRef:    firstNonEmptyAWSValue(verification.EvidenceRef, evidenceRef),
+	}
+}
+
 func awsRemediationPermissionBoundaryDeniedActions(plan AWSPermissionBoundarySCPPlan) []string {
 	out := []string{}
 	for _, snippet := range plan.StatementSnippets {
 		out = append(out, snippet.DeniedActions...)
 	}
 	return emptyStrings(dedupeStrings(out))
+}
+
+func awsRemediationSCPDeniedActions(plan AWSPermissionBoundarySCPPlan) []string {
+	return awsRemediationPermissionBoundaryDeniedActions(plan)
 }
 
 func awsRemediationResourceNodes(values ...interface{}) []string {
