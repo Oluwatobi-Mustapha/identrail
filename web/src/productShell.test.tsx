@@ -4903,6 +4903,128 @@ describe('Domain-first app routes', () => {
       ]
     });
     vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const getGovernanceAuditReporting = vi.spyOn(api.apiClient, 'getAWSProjectGovernanceAuditReporting').mockResolvedValue({
+      governance_audit_reporting: {
+        status: 'ready',
+        policy_version: 'aws-governance-audit-reporting-policy-v1',
+        records: [
+          {
+            report_id: 'aws-governance-audit:orders',
+            calculation_version: 'aws-governance-audit-reporting-v1',
+            policy_version: 'aws-limited-enforcement-pilot-policy-v1',
+            category: 'enforcement_outcome',
+            source_type: 'advisory_authorization',
+            source_id: 'aws-limited-enforcement-pilot:orders',
+            decision_type: 'limited_enforcement_pilot',
+            outcome: 'allow',
+            state: 'pilot_canary_ready',
+            mode: 'pilot',
+            actor: 'identrail-limited-enforcement-pilot',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            identity_node_id: 'aws:identity:orders-deployer',
+            action: 'iam:PutRolePolicy',
+            confidence: 0.95,
+            score: 80,
+            title: 'Governance audit: orders deployer',
+            summary: 'Export-safe enforcement outcome report row.',
+            input_hash: 'audit-hash-a',
+            evidence_summary: [
+              { source: 'source_link', label: 'pilot evidence', evidence_ref: '/docs/aws-limited-enforcement-pilot', exportable: true, redacted: true }
+            ],
+            evidence_links: ['/docs/aws-limited-enforcement-pilot'],
+            evidence_boundary: 'metadata_only_exportable_refs_no_secret_values_no_rendered_policy_bodies_no_customer_payloads',
+            audit_trail: [],
+            read_only_projection: true,
+            exception: false,
+            next_action: 'Export the audit row.',
+            occurred_at: '2026-07-03T10:00:00Z',
+            updated_at: '2026-07-03T10:00:00Z'
+          },
+          {
+            report_id: 'aws-governance-audit:approval',
+            calculation_version: 'aws-governance-audit-reporting-v1',
+            policy_version: 'aws-governance-audit-reporting-policy-v1',
+            category: 'approval',
+            source_type: 'aws_permission_boundary_scp',
+            source_id: 'aws-remediation-approval:boundary',
+            decision_type: 'remediation_approval',
+            outcome: 'under_review',
+            state: 'under_review',
+            approver: 'security_admin',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            confidence: 0.88,
+            score: 74,
+            title: 'Governance audit approval: boundary review',
+            summary: 'Export-safe approval workflow report row.',
+            input_hash: 'audit-hash-b',
+            evidence_summary: [],
+            evidence_links: [],
+            evidence_boundary: 'metadata_only_exportable_refs_no_secret_values_no_rendered_policy_bodies_no_customer_payloads',
+            audit_trail: [],
+            read_only_projection: true,
+            exception: false,
+            next_action: 'Review the approval.',
+            occurred_at: '2026-07-03T10:05:00Z',
+            updated_at: '2026-07-03T10:05:00Z'
+          },
+          {
+            report_id: 'aws-governance-audit:verification',
+            calculation_version: 'aws-governance-audit-reporting-v1',
+            policy_version: 'aws-governance-audit-reporting-policy-v1',
+            category: 'remediation',
+            source_type: 'post_remediation_verification',
+            source_id: 'aws-post-remediation-verification:boundary',
+            decision_type: 'post_remediation_verification',
+            outcome: 'verified',
+            state: 'verified',
+            actor: 'identrail-post-remediation-verification',
+            account_id: '123456789012',
+            region: 'us-east-1',
+            confidence: 0.82,
+            score: 70,
+            title: 'Governance audit remediation: boundary verified',
+            summary: 'Export-safe remediation verification report row.',
+            input_hash: 'audit-hash-c',
+            evidence_summary: [],
+            evidence_links: [],
+            evidence_boundary: 'metadata_only_exportable_refs_no_secret_values_no_rendered_policy_bodies_no_customer_payloads',
+            audit_trail: [],
+            read_only_projection: true,
+            exception: false,
+            next_action: 'Export the verification.',
+            occurred_at: '2026-07-03T10:10:00Z',
+            updated_at: '2026-07-03T10:10:00Z'
+          }
+        ],
+        applied_filters: {},
+        summary: {
+          total_records: 3,
+          filtered_records: 3,
+          category_counts: { enforcement_outcome: 1, approval: 1, remediation: 1 },
+          decision_type_counts: { limited_enforcement_pilot: 1, remediation_approval: 1, post_remediation_verification: 1 },
+          state_counts: { pilot_canary_ready: 1, under_review: 1, verified: 1 },
+          source_type_counts: { advisory_authorization: 1, aws_permission_boundary_scp: 1, post_remediation_verification: 1 },
+          account_counts: { '123456789012': 3 },
+          decision_count: 0,
+          approval_count: 1,
+          remediation_count: 1,
+          enforcement_outcome_count: 1,
+          exception_count: 0,
+          exportable_evidence_count: 1,
+          audit_entry_count: 0,
+          highest_score: 80,
+          average_confidence_pct: 95
+        },
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
     const getLimitedEnforcement = vi.spyOn(api.apiClient, 'getAWSProjectLimitedEnforcement').mockResolvedValue({
       limited_enforcement: {
         status: 'ready',
@@ -5107,6 +5229,33 @@ describe('Domain-first app routes', () => {
     );
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Governance' })).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS governance audit reporting records' })).toBeInTheDocument();
+    expect(screen.getByText(/Governance audit: orders deployer/i)).toBeInTheDocument();
+    expect(screen.getByText(/Governance audit approval: boundary review/i)).toBeInTheDocument();
+    expect(screen.getByText(/Governance audit remediation: boundary verified/i)).toBeInTheDocument();
+    const approvalRow = screen.getByText(/Governance audit approval: boundary review/i).closest('tr');
+    expect(approvalRow).not.toBeNull();
+    expect(within(approvalRow as HTMLTableRowElement).getByText('88%')).toHaveClass('is-success');
+    const remediationRow = screen.getByText(/Governance audit remediation: boundary verified/i).closest('tr');
+    expect(remediationRow).not.toBeNull();
+    expect(within(remediationRow as HTMLTableRowElement).getByText('82%')).toHaveClass('is-success');
+    expect(getGovernanceAuditReporting).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      expect.objectContaining({ connectorID: 'aws-connector-1' }),
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'Decision' }), {
+      target: { value: 'approval' }
+    });
+    await waitFor(() =>
+      expect(getGovernanceAuditReporting).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1', category: 'approval' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
     expect(await screen.findByRole('table', { name: 'AWS limited enforcement framework entries' })).toBeInTheDocument();
     expect(screen.getByText(/Limited enforcement framework: orders deployer/i)).toBeInTheDocument();
     expect(screen.getByText(/pilot-a/i)).toBeInTheDocument();
@@ -5124,6 +5273,101 @@ describe('Domain-first app routes', () => {
       expect.objectContaining({ connectorID: 'aws-connector-1' }),
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     );
+  });
+
+  it('loads governance audit reporting for disconnected connectors with diagnostics', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-denied',
+        display_name: 'Denied AWS',
+        account_id: '123456789012',
+        region: 'us-east-1',
+        diagnostics: [
+          {
+            code: 'permission_denied',
+            message: 'Organizations read access denied.'
+          }
+        ]
+      }
+    });
+    const getGovernanceAuditReporting = vi.spyOn(api.apiClient, 'getAWSProjectGovernanceAuditReporting').mockResolvedValue({
+      governance_audit_reporting: {
+        status: 'blocked',
+        policy_version: 'aws-governance-audit-reporting-policy-v1',
+        records: [],
+        applied_filters: {},
+        summary: {
+          total_records: 0,
+          filtered_records: 0,
+          category_counts: {},
+          decision_type_counts: {},
+          state_counts: {},
+          source_type_counts: {},
+          account_counts: {},
+          decision_count: 0,
+          approval_count: 0,
+          remediation_count: 0,
+          enforcement_outcome_count: 0,
+          exception_count: 0,
+          exportable_evidence_count: 0,
+          audit_entry_count: 0,
+          highest_score: 0,
+          average_confidence_pct: 0
+        },
+        caveats: [],
+        failure_reasons: ['Organizations read access denied.'],
+        remediation_hints: [],
+        evidence_links: [],
+        coverage_gaps: [],
+        diagnostics: [
+          {
+            collector: 'organizations',
+            source_id: 'aws-denied',
+            code: 'permission_denied',
+            message: 'Organizations read access denied.',
+            retryable: true
+          }
+        ]
+      } as any
+    });
+
+    const { ProductAWSGovernancePage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/governance?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/governance" element={<ProductAWSGovernancePage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Governance' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(getGovernanceAuditReporting).toHaveBeenCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-denied' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(await screen.findByText(/Permission required/i)).toBeInTheDocument();
+    expect(screen.getByText(/Organizations read access denied/i)).toBeInTheDocument();
   });
 
   it('passes AWS findings filters to secret-permission equivalence queries', async () => {

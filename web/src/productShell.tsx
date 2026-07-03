@@ -89,6 +89,9 @@ import {
   type AWSLimitedEnforcementResult,
   type AWSLimitedEnforcementPilotDecision,
   type AWSLimitedEnforcementPilotResult,
+  type AWSGovernanceAuditReportRecord,
+  type AWSGovernanceAuditReportingQuery,
+  type AWSGovernanceAuditReportingResult,
   type AWSSessionPolicyRecommendationEntry,
   type AWSSessionPolicyRecommendationResult,
   type AWSAgentCoreGatewayPolicyAdvisoryEntry,
@@ -11455,6 +11458,72 @@ function AWSAdvisoryAuthorizationContent({
   );
 }
 
+function awsGovernanceAuditReportingStage(record: AWSGovernanceAuditReportRecord): AWSCapabilityStage {
+  if (record.exception || record.category === 'exception') {
+    return 'not-available';
+  }
+  if (['decision', 'approval', 'remediation', 'enforcement_outcome'].includes(record.category)) {
+    return 'wired';
+  }
+  return 'coming';
+}
+
+function AWSGovernanceAuditReportingContent({
+  result,
+  loading,
+  error,
+  onRetry
+}: {
+  result: AWSGovernanceAuditReportingResult | null;
+  loading: boolean;
+  error: string;
+  onRetry: () => void;
+}) {
+  const summaryLine = result
+    ? `${result.summary.total_records} total · ${result.summary.decision_count} decisions · ${result.summary.approval_count} approvals · ${result.summary.remediation_count} remediations · ${result.summary.enforcement_outcome_count} enforcement · ${result.summary.exception_count} exceptions`
+    : '';
+  const panelResult = result
+    ? {
+        status: result.status,
+        entries: result.records,
+        caveats: result.caveats,
+        failure_reasons: result.failure_reasons
+      }
+    : null;
+  return (
+    <AWSExecutorProjectionPanel<AWSGovernanceAuditReportRecord>
+      result={panelResult}
+      loading={loading}
+      error={error}
+      onRetry={onRetry}
+      ariaLabel="AWS governance audit reporting"
+      heading="AWS governance audit reporting"
+      description={`Export-safe reporting over decisions, approvals, remediations, enforcement outcomes, and exceptions. Each row keeps source IDs, policy version, input hash, evidence refs, timestamps, actor/approver context, and audit trail metadata without exposing sensitive payloads. ${summaryLine}`}
+      errorTitle="Couldn't load AWS governance audit reporting"
+      loadingTitle="Building governance audit report"
+      loadingBody="Identrail is composing decision, approval, remediation, enforcement, and exception records into export-safe evidence rows."
+      emptyEyebrow={(current) => (current.status === 'blocked' ? 'Permission required' : 'No audit rows')}
+      emptyTitle={(current) => (current.status === 'blocked' ? 'Governance reporting needs source evidence' : 'No governance audit records projected')}
+      emptyBody={(current) => current.failure_reasons[0] ?? 'No decision, approval, remediation, enforcement, or exception record matched the current environment.'}
+      tableLabel="AWS governance audit reporting records"
+      getRowKey={(row) => row.report_id}
+      columns={[
+        { key: 'record', header: 'Record', render: (row) => <strong>{row.title}</strong> },
+        { key: 'category', header: 'Category', render: (row) => formatTokenLabel(row.category) },
+        { key: 'decision_type', header: 'Decision type', render: (row) => formatTokenLabel(row.decision_type) },
+        { key: 'state', header: 'State', render: (row) => formatTokenLabel(row.state) },
+        { key: 'actor', header: 'Actor / approver', render: (row) => row.approver || row.actor || 'system' },
+        { key: 'evidence', header: 'Evidence', render: (row) => `${row.evidence_summary.length} refs · ${row.audit_trail.length} audit rows` },
+        {
+          key: 'status',
+          header: 'Status',
+          render: (row) => <AWSInventoryPill stage={awsGovernanceAuditReportingStage(row)} label={`${Math.round(row.confidence * 100)}%`} />
+        }
+      ]}
+    />
+  );
+}
+
 function awsLimitedEnforcementStage(entry: AWSLimitedEnforcementEntry): AWSCapabilityStage {
   if (entry.enforcement_state === 'blocked_by_kill_switch' || entry.enforcement_state === 'rollback_required') {
     return 'not-available';
@@ -13607,6 +13676,53 @@ function awsSecretPermissionEquivalenceFindingsQuery(
   };
 }
 
+function awsGovernanceAuditReportingQueryFromFilters(filters: AWSInventoryFilterState): Partial<AWSGovernanceAuditReportingQuery> {
+  const query: Partial<AWSGovernanceAuditReportingQuery> = {};
+  switch (normalizeFilterValue(filters.decision ?? '')) {
+    case 'warn':
+      query.decisionType = 'advisory_authorization';
+      query.state = 'warn';
+      break;
+    case 'approval':
+      query.category = 'approval';
+      break;
+    case 'quarantine':
+      query.state = 'quarantine';
+      break;
+    case 'recommend-deny':
+      query.state = 'recommend_deny';
+      break;
+  }
+  switch (normalizeFilterValue(filters.mode ?? '')) {
+    case 'advisory':
+      query.category = query.category ?? 'decision';
+      break;
+    case 'canary':
+      query.category = query.category ?? 'enforcement_outcome';
+      query.state = query.state ?? 'pilot_canary_ready';
+      break;
+    case 'not-enforcing':
+      query.category = query.category ?? 'exception';
+      break;
+  }
+  switch (normalizeFilterValue(filters.evidence ?? '')) {
+    case 'runtime-required':
+      query.sourceType = 'advisory_authorization';
+      break;
+    case 'approval-required':
+      query.category = query.category ?? 'approval';
+      break;
+    case 'audit-required':
+      query.category = query.category ?? 'exception';
+      break;
+  }
+  const search = filters.search?.trim();
+  if (search) {
+    query.search = search;
+  }
+  return query;
+}
+
 function AWSGraphExplorerContent({
   connection,
   filters,
@@ -13987,6 +14103,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [limitedEnforcementPilotLoading, setLimitedEnforcementPilotLoading] = useState(false);
   const [limitedEnforcementPilotError, setLimitedEnforcementPilotError] = useState('');
   const limitedEnforcementPilotRequestRef = useRef(0);
+  const [governanceAuditReporting, setGovernanceAuditReporting] = useState<AWSGovernanceAuditReportingResult | null>(null);
+  const [governanceAuditReportingLoading, setGovernanceAuditReportingLoading] = useState(false);
+  const [governanceAuditReportingError, setGovernanceAuditReportingError] = useState('');
+  const governanceAuditReportingRequestRef = useRef(0);
   const [sessionPolicyRecommendations, setSessionPolicyRecommendations] = useState<AWSSessionPolicyRecommendationResult | null>(null);
   const [sessionPolicyRecommendationsLoading, setSessionPolicyRecommendationsLoading] = useState(false);
   const [sessionPolicyRecommendationsError, setSessionPolicyRecommendationsError] = useState('');
@@ -14787,6 +14907,60 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       limitedEnforcementPilotRequestRef.current += 1;
     };
   }, [loadLimitedEnforcementPilot]);
+
+  const loadGovernanceAuditReporting = useCallback(async () => {
+    const requestID = ++governanceAuditReportingRequestRef.current;
+    setGovernanceAuditReporting(null);
+    setGovernanceAuditReportingError('');
+    if (routeID !== 'governance' || !scope || !selectedEnvironmentID || !connection?.connector_id) {
+      setGovernanceAuditReportingLoading(false);
+      return;
+    }
+    setGovernanceAuditReportingLoading(true);
+    const requestFilters = awsGovernanceAuditReportingQueryFromFilters(activeFilters);
+    try {
+      const response = await apiClient.getAWSProjectGovernanceAuditReporting(
+        scope.workspaceID,
+        selectedEnvironmentID,
+        {
+          connectorID: connection.connector_id,
+          ...requestFilters
+        },
+        buildProductAuthContext(scope)
+      );
+      if (requestID !== governanceAuditReportingRequestRef.current) {
+        return;
+      }
+      setGovernanceAuditReporting(response.governance_audit_reporting);
+    } catch (error) {
+      if (requestID !== governanceAuditReportingRequestRef.current) {
+        return;
+      }
+      setGovernanceAuditReportingError(formatAPIError(error, 'Unable to load AWS governance audit reporting.'));
+    } finally {
+      if (requestID === governanceAuditReportingRequestRef.current) {
+        setGovernanceAuditReportingLoading(false);
+      }
+    }
+  }, [
+    routeID,
+    scope?.tenantID,
+    scope?.workspaceID,
+    selectedEnvironmentID,
+    activeFilters.decision,
+    activeFilters.mode,
+    activeFilters.evidence,
+    activeFilters.search,
+    connection?.connected,
+    connection?.connector_id
+  ]);
+
+  useEffect(() => {
+    void loadGovernanceAuditReporting();
+    return () => {
+      governanceAuditReportingRequestRef.current += 1;
+    };
+  }, [loadGovernanceAuditReporting]);
 
   const loadSessionPolicyRecommendations = useCallback(async () => {
     const requestID = ++sessionPolicyRecommendationsRequestRef.current;
@@ -15902,6 +16076,14 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
         ) : null}
         {routeID === 'governance' ? (
           <AWSGovernanceContent connection={connection} filters={activeFilters} onFiltersChange={onFiltersChange} />
+        ) : null}
+        {routeID === 'governance' ? (
+          <AWSGovernanceAuditReportingContent
+            result={governanceAuditReporting}
+            loading={governanceAuditReportingLoading}
+            error={governanceAuditReportingError}
+            onRetry={loadGovernanceAuditReporting}
+          />
         ) : null}
         {routeID === 'governance' ? (
           <AWSLimitedEnforcementContent
