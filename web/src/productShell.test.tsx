@@ -8100,6 +8100,58 @@ describe('GitHub domain pages (#1382)', () => {
     };
   }
 
+  it('GitHub callback shows a polished handoff and redirects to the clean connection page', async () => {
+    const api = await import('./api/client');
+    const completion = deferred<Awaited<ReturnType<typeof api.apiClient.completeGitHubConnector>>>();
+    const completeGitHubConnector = vi
+      .spyOn(api.apiClient, 'completeGitHubConnector')
+      .mockImplementation(() => completion.promise);
+
+    const productShell = await import('./productShell');
+    function LocationCapture() {
+      const location = useLocation();
+      return <p data-testid="location">{location.pathname + location.search}</p>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/github/callback?state=github-state&installation_id=12345&code=oauth-code&setup_action=install']}>
+        <Routes>
+          <Route path="/app/github/callback" element={<productShell.ProductGitHubCallbackPage />} />
+          <Route path="*" element={<LocationCapture />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText(/Finishing GitHub connection/i)).toBeInTheDocument();
+    expect(screen.getByText(/saved appearance settings/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Validating session/i)).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(completeGitHubConnector).toHaveBeenCalledWith({
+        state: 'github-state',
+        installation_id: 12345,
+        code: 'oauth-code',
+        setup_action: 'install'
+      })
+    );
+
+    await act(async () => {
+      completion.resolve({
+        connection: connectedGitHub,
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'production-platform',
+        redirect_path: '/app/tenant-a/workspace-a/github/connect?environment=production-platform'
+      });
+      await completion.promise;
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        '/app/tenant-a/workspace-a/github/connect?environment=production-platform'
+      )
+    );
+  });
+
   it('Control Center loads the GitHub connection and surfaces connection status', async () => {
     const mocks = await renderGitHubPage('control-center', { scans: [succeededRepoScan] });
 
@@ -8784,9 +8836,17 @@ describe('GitHub domain pages (#1382)', () => {
 
     await screen.findByRole('heading', { level: 2, name: 'Repositories' });
     const posturePanel = await screen.findByRole('region', { name: 'Repository posture' });
+    expect(within(posturePanel).getByText('No repository posture collected yet')).toBeInTheDocument();
+    expect(mocks.getGitHubConnectorRepositoryPosture).not.toHaveBeenCalled();
+
+    const reviewButton = within(posturePanel).getByRole('button', { name: /Review posture/i });
+    await waitFor(() => expect(reviewButton).not.toBeDisabled());
+    fireEvent.click(reviewButton);
+
     expect(await within(posturePanel).findByText('Default branch is missing required pull request reviews.')).toBeInTheDocument();
     expect(within(posturePanel).getByLabelText('GitHub posture summary')).toHaveTextContent('Secure1');
     expect(within(posturePanel).getByText('Organization posture')).toBeInTheDocument();
+    expect(within(posturePanel).getByText('Review 1 check').closest('details')).not.toHaveAttribute('open');
     await waitFor(() =>
       expect(mocks.getGitHubConnectorRepositoryPosture).toHaveBeenCalledWith(
         'github-app',
@@ -8796,6 +8856,57 @@ describe('GitHub domain pages (#1382)', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
+  });
+
+  it('Repositories page keeps posture review opt-in after switching repositories', async () => {
+    const mocks = await renderGitHubPage('repositories', {
+      githubConnection: {
+        ...connectedGitHub,
+        selected_repositories: ['identrail/identrail', 'identrail/docs']
+      },
+      scans: [succeededRepoScan]
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const posturePanel = await screen.findByRole('region', { name: 'Repository posture' });
+    const repositorySelect = within(posturePanel).getByLabelText('Repository');
+    const reviewButton = within(posturePanel).getByRole('button', { name: /Review posture/i });
+
+    await waitFor(() => expect(reviewButton).not.toBeDisabled());
+    fireEvent.click(reviewButton);
+
+    expect(await within(posturePanel).findByText('Default branch is missing required pull request reviews.')).toBeInTheDocument();
+    await waitFor(() => expect(mocks.getGitHubConnectorRepositoryPosture).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(repositorySelect, { target: { value: 'identrail/docs' } });
+
+    await waitFor(() => expect(repositorySelect).toHaveValue('identrail/docs'));
+    expect(within(posturePanel).getByText('No repository posture collected yet')).toBeInTheDocument();
+    expect(mocks.getGitHubConnectorRepositoryPosture).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(repositorySelect, { target: { value: 'identrail/identrail' } });
+
+    await waitFor(() => expect(repositorySelect).toHaveValue('identrail/identrail'));
+    expect(within(posturePanel).getByText('No repository posture collected yet')).toBeInTheDocument();
+    expect(mocks.getGitHubConnectorRepositoryPosture).toHaveBeenCalledTimes(1);
+  });
+
+  it('Repositories page disables repository posture review for PAT connections', async () => {
+    const mocks = await renderGitHubPage('repositories', {
+      githubConnection: connectedGitHubPAT,
+      scans: [succeededRepoScan]
+    });
+
+    await screen.findByRole('heading', { level: 2, name: 'Repositories' });
+    const posturePanel = await screen.findByRole('region', { name: 'Repository posture' });
+    const reviewButton = within(posturePanel).getByRole('button', { name: /GitHub App required/i });
+
+    expect(reviewButton).toBeDisabled();
+    expect(
+      within(posturePanel).getByText('Repository posture checks are available after connecting this environment with the GitHub App.')
+    ).toBeInTheDocument();
+    fireEvent.click(reviewButton);
+    expect(mocks.getGitHubConnectorRepositoryPosture).not.toHaveBeenCalled();
   });
 
   it('Repositories page bypasses in-flight refreshes after queueing a scan', async () => {

@@ -1970,13 +1970,21 @@ class ProductErrorBoundaryInner extends Component<
   }
 }
 
-function AppShellLoading({ message }: { message: string }) {
+function AppShellLoading({
+  message,
+  kicker = 'Loading',
+  body = 'Preparing workspace context.'
+}: {
+  message: string;
+  kicker?: string;
+  body?: string;
+}) {
   return (
     <section className="idt-app-shell-screen" aria-live="polite">
-      <article className="idt-app-panel">
-        <p className="idt-app-kicker">Loading</p>
+      <article className="idt-app-panel idt-app-loading-panel">
+        <p className="idt-app-kicker">{kicker}</p>
         <h1>{message}</h1>
-        <p>Preparing route context and tenancy scope.</p>
+        <p>{body}</p>
       </article>
     </section>
   );
@@ -2271,7 +2279,7 @@ export function RequireProductAuth({ children }: { children: ReactNode }) {
   }, [routeHasExplicitScope, routeTenantID, routeWorkspaceID, routeScopeKey, routeLocationKey]);
 
   if (status === 'checking' || (status === 'authenticated' && validatedScopeKey !== routeScopeKey)) {
-    return <AppShellLoading message="Validating session" />;
+    return <AppShellLoading message="Preparing workspace" body="Opening your app with the saved account and appearance settings." />;
   }
 
   if (status === 'error') {
@@ -2390,7 +2398,13 @@ export function ProductGitHubCallbackPage() {
     );
   }
 
-  return <AppShellLoading message="Completing GitHub installation" />;
+  return (
+    <AppShellLoading
+      kicker="GitHub"
+      message="Finishing GitHub connection"
+      body="Returning you to Identrail with your saved appearance settings."
+    />
+  );
 }
 
 export function ProductLogoutPage() {
@@ -21310,6 +21324,7 @@ export function ProductGitHubRepositoriesPage() {
   const selectedOneOffScanEnvironmentRef = useRef(selectedEnvironmentID);
   const selectedOneOffScanScopeRef = useRef(oneOffScanScopeKey);
   const postureRequestRef = useRef(0);
+  const postureResetKeyRef = useRef('');
   selectedOneOffScanEnvironmentRef.current = selectedEnvironmentID;
   selectedOneOffScanScopeRef.current = oneOffScanScopeKey;
   const selectedRepositories = uniqueGitHubRepositories(data.connection?.selected_repositories ?? []);
@@ -21319,7 +21334,14 @@ export function ProductGitHubRepositoriesPage() {
   const [githubOrganizationPosture, setGitHubOrganizationPosture] = useState<GitHubOrganizationPosture | null>(null);
   const [githubPostureLoading, setGitHubPostureLoading] = useState(false);
   const [githubPostureError, setGitHubPostureError] = useState('');
+  const [postureRequest, setPostureRequest] = useState({ key: '', nonce: 0 });
   const hasActiveRepositoryScan = data.scans.some((scan) => isActiveScanStatus(scan.status));
+  const postureScopeKey = scope ? `${scope.tenantID}|${scope.workspaceID}|${selectedEnvironmentID}|${postureRepository}` : '';
+  const githubPostureSupported = Boolean(
+    data.connection?.connected && data.connection.provider === 'github_app' && data.connection.connector_id
+  );
+  const postureResetKey = `${postureScopeKey}|${data.connection?.connected ? 'connected' : 'disconnected'}|${data.connection?.provider ?? ''}|${data.connection?.connector_id ?? ''}`;
+  const githubPostureSelectionReady = postureResetKeyRef.current === postureResetKey;
 
   useEffect(() => {
     const nextRepository = selectedRepositories.includes(postureRepository)
@@ -21343,6 +21365,16 @@ export function ProductGitHubRepositoriesPage() {
   useEffect(() => {
     const connection = data.connection;
     const repository = canonicalGitHubRepositoryDisplay(postureRepository);
+    if (postureResetKeyRef.current !== postureResetKey) {
+      postureResetKeyRef.current = postureResetKey;
+      postureRequestRef.current += 1;
+      setPostureRequest({ key: '', nonce: 0 });
+      setGitHubPosture(null);
+      setGitHubOrganizationPosture(null);
+      setGitHubPostureLoading(false);
+      setGitHubPostureError('');
+      return undefined;
+    }
     const requestID = postureRequestRef.current + 1;
     postureRequestRef.current = requestID;
 
@@ -21352,12 +21384,11 @@ export function ProductGitHubRepositoriesPage() {
       !connection?.connected ||
       connection.provider !== 'github_app' ||
       !connection.connector_id ||
-      !repository
+      !repository ||
+      postureRequest.key !== postureScopeKey ||
+      postureRequest.nonce <= 0
     ) {
-      setGitHubPosture(null);
-      setGitHubOrganizationPosture(null);
       setGitHubPostureLoading(false);
-      setGitHubPostureError('');
       return undefined;
     }
 
@@ -21404,6 +21435,10 @@ export function ProductGitHubRepositoriesPage() {
     data.connection?.connector_id,
     data.connection?.provider,
     postureRepository,
+    postureRequest.key,
+    postureRequest.nonce,
+    postureResetKey,
+    postureScopeKey,
     scope?.tenantID,
     scope?.workspaceID,
     selectedEnvironmentID
@@ -21530,6 +21565,16 @@ export function ProductGitHubRepositoriesPage() {
     } finally {
       setSubmittingRepository((current) => (current === repository ? '' : current));
     }
+  };
+
+  const reviewRepositoryPosture = () => {
+    if (!githubPostureSupported || !postureRepository || !githubPostureSelectionReady) {
+      return;
+    }
+    setPostureRequest((current) => ({
+      key: postureScopeKey,
+      nonce: current.nonce + 1
+    }));
   };
 
   const launchOneOffScan = async (event: FormEvent<HTMLFormElement>) => {
@@ -21817,18 +21862,34 @@ export function ProductGitHubRepositoriesPage() {
               <h3>Repository posture</h3>
               <p>Branch protection, Actions permissions, security settings, and organization posture for a selected repository.</p>
             </div>
-            {selectedRepositories.length > 1 ? (
-              <label>
-                Repository
-                <select value={postureRepository} onChange={(event) => setPostureRepository(event.target.value)}>
-                  {selectedRepositories.map((repository) => (
-                    <option key={repository} value={repository}>
-                      {repository}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
+            <div className="idt-github-posture-controls">
+              {selectedRepositories.length > 1 ? (
+                <label>
+                  Repository
+                  <select value={postureRepository} onChange={(event) => setPostureRepository(event.target.value)}>
+                    {selectedRepositories.map((repository) => (
+                      <option key={repository} value={repository}>
+                        {repository}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <button
+                type="button"
+                className="idt-btn idt-btn-ghost"
+                onClick={reviewRepositoryPosture}
+                disabled={githubPostureLoading || !postureRepository || !githubPostureSupported || !githubPostureSelectionReady}
+              >
+                {githubPostureLoading
+                  ? 'Loading posture...'
+                  : !githubPostureSupported
+                    ? 'GitHub App required'
+                    : githubPosture || githubPostureError
+                      ? 'Refresh posture'
+                      : 'Review posture'}
+              </button>
+            </div>
           </header>
           {githubPostureLoading ? (
             <DomainLoadingState label="Loading repository posture" />
@@ -21867,7 +21928,7 @@ export function ProductGitHubRepositoriesPage() {
                   </div>
                 </dl>
               </article>
-              <details className="idt-source-advanced idt-github-posture-details" open={githubPostureNeedsAttentionCount > 0}>
+              <details className="idt-source-advanced idt-github-posture-details">
                 <summary>
                   <span>
                     <strong>
@@ -21937,7 +21998,11 @@ export function ProductGitHubRepositoriesPage() {
           ) : (
             <DomainEmptyState
               title="No repository posture collected yet"
-              body="Posture checks appear here after Identrail can read the selected repository through the GitHub App."
+              body={
+                githubPostureSupported
+                  ? 'Posture checks stay quiet until you review the selected repository.'
+                  : 'Repository posture checks are available after connecting this environment with the GitHub App.'
+              }
             />
           )}
         </section>
