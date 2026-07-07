@@ -666,6 +666,25 @@ function clearProductScopedDataCaches() {
   gitHubDomainDataCacheEpochs.clear();
 }
 
+function invalidateGitHubDomainDataCacheForScope(scope: ProductSession | null) {
+  if (!scope) {
+    return;
+  }
+  const cachePrefix = `${productScopedCacheKey([scope.tenantID, scope.workspaceID])}::`;
+  const cacheKeys = [...gitHubDomainDataCache.keys()].filter((key) => key.startsWith(cachePrefix));
+  const requestKeys = [...gitHubDomainDataRequests.keys()].filter((key) => key.startsWith(cachePrefix));
+  const epochKeys = [...gitHubDomainDataCacheEpochs.keys()].filter((key) => key.startsWith(cachePrefix));
+  for (const key of cacheKeys) {
+    gitHubDomainDataCache.delete(key);
+  }
+  for (const key of requestKeys) {
+    gitHubDomainDataRequests.delete(key);
+  }
+  for (const key of epochKeys) {
+    bumpGitHubDomainDataCacheEpoch(key);
+  }
+}
+
 function resolveEnabledSourceProvider(provider: SourceProvider): SourceProvider | null {
   return DOMAIN_NAV_ORDER.includes(provider) ? provider : null;
 }
@@ -1245,6 +1264,16 @@ export function decrementRepoFindingsSummaryForDeletedFinding(
     nextSummary.sla_aged_count = Math.max(0, summary.sla_aged_count - 1);
   }
   return nextSummary;
+}
+
+export function decrementRepoFindingsSummaryForDeletedFindings(
+  summary: RepoFindingsSummary | null,
+  findings: ApiFinding[]
+): RepoFindingsSummary | null {
+  return findings.reduce<RepoFindingsSummary | null>(
+    (current, finding) => decrementRepoFindingsSummaryForDeletedFinding(current, finding),
+    summary
+  );
 }
 
 function repoFindingStatusClass(status: FindingLifecycleStatus | RepoFindingLifecycleStatus): string {
@@ -20031,6 +20060,25 @@ function gitHubDomainDataCacheKey(
   return productScopedCacheKey([scope.tenantID, scope.workspaceID, trimmedProject, String(scanLimit)]);
 }
 
+export function primeGitHubDomainDataCacheEpochForTests(
+  scope: ProductSession,
+  projectID: string,
+  scanLimit: number,
+  epoch: number
+): string {
+  const key = gitHubDomainDataCacheKey(scope, projectID, scanLimit);
+  rememberGitHubDomainDataCacheEpoch(key, epoch);
+  return key;
+}
+
+export function readGitHubDomainDataCacheEpochForTests(key: string): number | undefined {
+  return gitHubDomainDataCacheEpochs.get(key);
+}
+
+export function invalidateGitHubDomainDataCacheForScopeForTests(scope: ProductSession | null) {
+  invalidateGitHubDomainDataCacheForScope(scope);
+}
+
 function rememberGitHubDomainDataCacheEpoch(key: string, epoch: number) {
   if (!key) {
     return;
@@ -27044,7 +27092,9 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const [selectedFindingKey, setSelectedFindingKey] = useState('');
   const [findingDetailOpen, setFindingDetailOpen] = useState(false);
   const [findingMenuKey, setFindingMenuKey] = useState('');
+  const [findingMenuPlacement, setFindingMenuPlacement] = useState<'down' | 'up'>('down');
   const [deleteCandidate, setDeleteCandidate] = useState<ApiFinding | null>(null);
+  const [bulkDeleteCandidates, setBulkDeleteCandidates] = useState<ApiFinding[]>([]);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [remediationPreview, setRemediationPreview] = useState<RepoFindingRemediationPreview | null>(null);
@@ -27141,6 +27191,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       return;
     }
     setDeleteCandidate(null);
+    setBulkDeleteCandidates([]);
     setDeleteError('');
     const opener = findingDeleteOpenerRef.current;
     findingDeleteOpenerRef.current = null;
@@ -27310,6 +27361,13 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   const mttrSeconds = repoFindingSummary?.mean_time_to_resolve_seconds;
   const mttrLabel = typeof mttrSeconds === 'number' && Number.isFinite(mttrSeconds) ? formatExecutiveDuration(mttrSeconds) : 'N/A';
   const canDeleteRepoFindings = hasRepoFindingDeleteAccess(me);
+  const activeDeleteCandidates = bulkDeleteCandidates.length > 0
+    ? bulkDeleteCandidates
+    : deleteCandidate
+      ? [deleteCandidate]
+      : [];
+  const bulkDeleteActive = bulkDeleteCandidates.length > 0;
+  const deleteActionsDisabled = deleteLoading || refreshing || signalsRefreshing;
 
   const loadRepoFindings = async (targetScope: ProductSession, mode: 'initial' | 'refresh') => {
     const requestID = ++requestRef.current;
@@ -27441,14 +27499,21 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
 
   const invalidateFindingDeleteState = () => {
     findDeleteRequestRef.current += 1;
+    setFindingMenuKey('');
     setDeleteCandidate(null);
+    setBulkDeleteCandidates([]);
     setDeleteLoading(false);
     setDeleteError('');
   };
 
   const requestDeleteFinding = (finding: ApiFinding, opener: HTMLElement | null = null) => {
+    if (deleteActionsDisabled) {
+      setFindingMenuKey('');
+      return;
+    }
     setFindingMenuKey('');
     setDeleteCandidate(finding);
+    setBulkDeleteCandidates([]);
     setDeleteError('');
     findingDeleteOpenerRef.current =
       opener ??
@@ -27457,45 +27522,93 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         : null);
   };
 
-  const handleConfirmDeleteFinding = async () => {
-    if (!scope || !deleteCandidate || deleteLoading) {
+  const requestDeleteAllVisibleFindings = (opener: HTMLElement | null = null) => {
+    if (deleteActionsDisabled || filteredFindings.length === 0) {
       return;
     }
-    const candidate = deleteCandidate;
-    const deletedKey = buildRepoFindingSelectionKey(candidate);
+    setFindingMenuKey('');
+    setDeleteCandidate(null);
+    setBulkDeleteCandidates(filteredFindings);
+    setDeleteError('');
+    findingDeleteOpenerRef.current =
+      opener ??
+      (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null);
+  };
+
+  const applyDeletedRepoFindings = (deletedFindings: ApiFinding[]) => {
+    if (deletedFindings.length === 0) {
+      return;
+    }
+    const deletedKeys = new Set(deletedFindings.map(buildRepoFindingSelectionKey));
+    const deleteCountsByScan = deletedFindings.reduce<Map<string, number>>((acc, finding) => {
+      acc.set(finding.scan_id, (acc.get(finding.scan_id) ?? 0) + 1);
+      return acc;
+    }, new Map());
+    setRepoFindings((current) => current.filter((finding) => !deletedKeys.has(buildRepoFindingSelectionKey(finding))));
+    setRepoScans((current) =>
+      current.map((scan) => {
+        const deletedCount = deleteCountsByScan.get(scan.id) ?? 0;
+        if (deletedCount === 0) {
+          return scan;
+        }
+        return { ...scan, finding_count: Math.max(0, (scan.finding_count ?? 0) - deletedCount) };
+      })
+    );
+    setRepoFindingSummary((current) => decrementRepoFindingsSummaryForDeletedFindings(current, deletedFindings));
+    if (selectedFindingKey && deletedKeys.has(selectedFindingKey)) {
+      setSelectedFindingKey('');
+      setFindingDetailOpen(false);
+      findingDetailOpenerRef.current = null;
+    }
+  };
+
+  const handleConfirmDeleteFinding = async () => {
+    if (!scope || activeDeleteCandidates.length === 0 || deleteActionsDisabled) {
+      return;
+    }
+    const candidates = activeDeleteCandidates;
     const requestID = ++findDeleteRequestRef.current;
     setDeleteLoading(true);
     setDeleteError('');
     try {
-      await apiClient.deleteRepoFinding(candidate.id, candidate.scan_id, buildProductAuthContext(scope));
+      const auth = buildProductAuthContext(scope);
+      const settled = await Promise.allSettled(
+        candidates.map((candidate) => apiClient.deleteRepoFinding(candidate.id, candidate.scan_id, auth))
+      );
       if (findDeleteRequestRef.current !== requestID) {
         return;
       }
-      const normalizedLifecycleStatus = normalizeRepoFindingLifecycleStatus(candidate.lifecycle_status);
-      const repoScanFilterSelected = normalizeValue(repoScanFilter);
-      const shouldReloadFindings = normalizedLifecycleStatus === 'fixed' || repoScanFilterSelected === '';
-      if (shouldReloadFindings) {
-        if (selectedFindingKey === deletedKey) {
-          setSelectedFindingKey('');
-          setFindingDetailOpen(false);
-          findingDetailOpenerRef.current = null;
-        }
-        await loadRepoFindings(scope, 'refresh');
-      } else {
-        setRepoFindings((current) => current.filter((finding) => buildRepoFindingSelectionKey(finding) !== deletedKey));
-        setRepoScans((current) =>
-          current.map((scan) =>
-            scan.id === candidate.scan_id
-              ? { ...scan, finding_count: Math.max(0, (scan.finding_count ?? 0) - 1) }
-              : scan
-          )
+      const deletedFindings = candidates.filter((_, index) => settled[index]?.status === 'fulfilled');
+      const failedDeletes = settled.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+      if (deletedFindings.length > 0) {
+        invalidateGitHubDomainDataCacheForScope(scope);
+        applyDeletedRepoFindings(deletedFindings);
+      }
+      if (failedDeletes.length > 0) {
+        const failedCandidates = candidates.filter((_, index) => settled[index]?.status === 'rejected');
+        setBulkDeleteCandidates(failedCandidates.length > 1 ? failedCandidates : []);
+        setDeleteCandidate(failedCandidates.length === 1 ? failedCandidates[0] : null);
+        setDeleteError(
+          deletedFindings.length > 0
+            ? `${deletedFindings.length} deleted. ${failedDeletes.length} could not be deleted.`
+            : failedDeletes[0].reason instanceof Error
+              ? failedDeletes[0].reason.message
+              : 'Failed to delete finding.'
         );
-        setRepoFindingSummary((current) => decrementRepoFindingsSummaryForDeletedFinding(current, candidate));
-        if (selectedFindingKey === deletedKey) {
-          setSelectedFindingKey('');
-          setFindingDetailOpen(false);
-          findingDetailOpenerRef.current = null;
+        if (deletedFindings.length > 0) {
+          await loadRepoFindings(scope, 'refresh');
+          await loadTrendSignals(scope, 'refresh');
         }
+        return;
+      }
+      const repoScanFilterSelected = normalizeValue(repoScanFilter);
+      const shouldReloadFindings =
+        deletedFindings.some((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'fixed') ||
+        repoScanFilterSelected === '';
+      if (shouldReloadFindings) {
+        await loadRepoFindings(scope, 'refresh');
       }
       await loadTrendSignals(scope, 'refresh');
       closeFindingDeleteDialog({ allowDuringLoading: true });
@@ -27746,7 +27859,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   }, [findingDetailOpen, selectedFindingKey]);
 
   useEffect(() => {
-    if (!deleteCandidate || typeof document === 'undefined') {
+    if (activeDeleteCandidates.length === 0 || typeof document === 'undefined') {
       return undefined;
     }
     const root = document.documentElement;
@@ -27759,17 +27872,17 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       root.style.overflow = previousRootOverflow;
       body.style.overflow = previousBodyOverflow;
     };
-  }, [deleteCandidate]);
+  }, [activeDeleteCandidates.length]);
 
   useEffect(() => {
-    if (!deleteCandidate || typeof window === 'undefined') {
+    if (activeDeleteCandidates.length === 0 || typeof window === 'undefined') {
       return undefined;
     }
     const frame = window.requestAnimationFrame(() => {
       findingDeleteCloseRef.current?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [deleteCandidate]);
+  }, [activeDeleteCandidates.length]);
 
   const closeFindingDetail = () => {
     setFindingDetailOpen(false);
@@ -27963,9 +28076,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
           <h2>GitHub findings</h2>
         </div>
         <div className="idt-inline-actions">
-          <Link className="idt-btn idt-btn-primary" to={remediationPath}>
-            Open remediation
-          </Link>
           <button
             className="idt-btn idt-btn-ghost"
             type="button"
@@ -27974,6 +28084,20 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
           >
             {refreshing || signalsRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
+          {canDeleteRepoFindings && filteredFindings.length > 0 ? (
+            <button
+              className="idt-btn idt-btn-danger idt-repo-clear-all-btn"
+              type="button"
+              onClick={(event) => requestDeleteAllVisibleFindings(event.currentTarget)}
+              disabled={deleteActionsDisabled}
+            >
+              <Trash2 size={15} strokeWidth={2} aria-hidden="true" />
+              Clear all
+            </button>
+          ) : null}
+          <Link className="idt-btn idt-btn-primary" to={remediationPath}>
+            Open remediation
+          </Link>
         </div>
       </div>
 
@@ -28237,7 +28361,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                         role="listitem"
                                         tabIndex={0}
                                         aria-haspopup="dialog"
-                                        className={`idt-repo-finding-row${isSelected ? ' is-selected' : ''}`}
+                                        className={`idt-repo-finding-row idt-repo-finding-action-row${isSelected ? ' is-selected' : ''}`}
                                         onClick={(event) => selectRepoFinding(selectionKey, true, event.currentTarget)}
                                         onKeyDown={(event) => {
                                           if (event.target !== event.currentTarget) {
@@ -28253,9 +28377,6 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                         <div className="idt-repo-finding-row-copy">
                                           <div className="idt-repo-finding-row-top">
                                             <strong>{finding.title}</strong>
-                                            <span className={repoFindingSeverityClass(finding.severity)}>
-                                              {formatTokenLabel(finding.severity)}
-                                            </span>
                                           </div>
                                           <div className="idt-repo-finding-row-meta">
                                             <span>{repositoryLabel}</span>
@@ -28265,6 +28386,9 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                             <span>{finding.owner || finding.triage?.assignee || 'Unassigned'}</span>
                                           </div>
                                         </div>
+                                        <span className={repoFindingSeverityClass(finding.severity)}>
+                                          {formatTokenLabel(finding.severity)}
+                                        </span>
                                         {canDeleteRepoFindings ? (
                                           <div
                                             className="idt-repo-finding-row-actions"
@@ -28277,7 +28401,15 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                               aria-label={`Open actions for ${finding.title}`}
                                               aria-haspopup="menu"
                                               aria-expanded={findingMenuKey === selectionKey}
-                                              onClick={() => {
+                                              disabled={deleteActionsDisabled}
+                                              onClick={(event) => {
+                                                const nextOpen = findingMenuKey !== selectionKey;
+                                                if (nextOpen && typeof window !== 'undefined') {
+                                                  const rect = event.currentTarget.getBoundingClientRect();
+                                                  const spaceBelow = window.innerHeight - rect.bottom;
+                                                  const spaceAbove = rect.top;
+                                                  setFindingMenuPlacement(spaceBelow < 120 && spaceAbove > spaceBelow ? 'up' : 'down');
+                                                }
                                                 setFindingMenuKey((current) => (current === selectionKey ? '' : selectionKey));
                                                 setDeleteError('');
                                               }}
@@ -28285,8 +28417,11 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                             >
                                               <MoreHorizontal size={16} strokeWidth={2} aria-hidden="true" />
                                             </button>
-                                            {findingMenuKey === selectionKey ? (
-                                              <div className="idt-repo-finding-menu" role="menu">
+                                            {findingMenuKey === selectionKey && !deleteActionsDisabled ? (
+                                              <div
+                                                className={`idt-repo-finding-menu${findingMenuPlacement === 'up' ? ' is-up' : ''}`}
+                                                role="menu"
+                                              >
                                                 <button
                                                   type="button"
                                                   role="menuitem"
@@ -28300,7 +28435,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                                                   }}
                                                 >
                                                   <Trash2 size={15} strokeWidth={2} aria-hidden="true" />
-                                                  Delete permanently
+                                                  Delete
                                                 </button>
                                               </div>
                                             ) : null}
@@ -28590,7 +28725,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         </div>
       ) : null}
 
-      {deleteCandidate ? (
+      {activeDeleteCandidates.length > 0 ? (
         <div
           className="idt-modal-backdrop idt-repo-finding-delete-backdrop"
           role="presentation"
@@ -28612,16 +28747,19 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
           >
             <header>
               <div>
-                <p className="idt-app-kicker">Permanent delete</p>
-                <h3 id="repo-finding-delete-title">Delete this finding?</h3>
+                <h3 id="repo-finding-delete-title">{bulkDeleteActive ? 'Clear findings?' : 'Delete finding?'}</h3>
               </div>
             </header>
             <div className="idt-danger-modal-body">
-              <p>
-                This permanently removes <strong>{deleteCandidate.title}</strong> from this repository scan.
-              </p>
+              {bulkDeleteActive ? (
+                <p>Delete {formatCountLabel(activeDeleteCandidates.length, 'visible finding')}.</p>
+              ) : (
+                <p>
+                  Remove <strong>{activeDeleteCandidates[0]?.title}</strong>.
+                </p>
+              )}
               <p className="idt-danger-modal-help">
-                The finding can appear again if a future scan rediscovers the same risk.
+                Future scans can rediscover the same risk.
               </p>
               {deleteError ? <div className="idt-danger-modal-error">{deleteError}</div> : null}
               <div className="idt-danger-modal-actions">
@@ -28640,7 +28778,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
                   onClick={() => void handleConfirmDeleteFinding()}
                   disabled={deleteLoading}
                 >
-                  {deleteLoading ? 'Deleting...' : 'Delete permanently'}
+                  {deleteLoading ? 'Deleting...' : bulkDeleteActive ? 'Delete all' : 'Delete'}
                 </button>
               </div>
             </div>
