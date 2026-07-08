@@ -18,6 +18,7 @@ import type {
   AWSPlatformBaselineResult,
   AWSPlatformDependencyIndexResult,
   AWSPlatformValidationHarnessResult,
+  AWSRemediationCenterResult,
   AWSRuntimeEventResult,
   AWSServiceCollectorContractResult,
   AWSUnusedDormantAccessResult,
@@ -2686,6 +2687,7 @@ describe('Domain-first app routes', () => {
       '/app/:tenantID/:workspaceID/aws/graph',
       '/app/:tenantID/:workspaceID/aws/findings',
       '/app/:tenantID/:workspaceID/aws/remediation',
+      '/app/:tenantID/:workspaceID/aws/remediation/center',
       '/app/:tenantID/:workspaceID/aws/governance',
       '/app/:tenantID/:workspaceID/github',
       '/app/:tenantID/:workspaceID/github/connect',
@@ -2713,6 +2715,42 @@ describe('Domain-first app routes', () => {
     ]);
     expect(DOMAIN_APP_ROUTE_MANIFEST).not.toContain('/app/:tenantID/:workspaceID/projects');
     expect(DOMAIN_APP_ROUTE_MANIFEST).not.toContain('/app/:tenantID/:workspaceID/findings');
+  });
+
+  it('links the AWS remediation page to the remediation center', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+
+    const { ProductAWSRemediationPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/remediation?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/remediation" element={<ProductAWSRemediationPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Remediation' })).toBeInTheDocument();
+    expect(await screen.findByRole('table', { name: 'AWS remediation plan surfaces' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open center' })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/remediation/center?environment=production'
+    );
   });
 
   it('renders premium domain route shells with provider marks and environment scope', async () => {
@@ -3278,6 +3316,516 @@ describe('Domain-first app routes', () => {
         workspaceID: 'workspace-a'
       }
     );
+  });
+
+  it('renders the AWS remediation center scoped to the selected tab', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const remediationCenter = {
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: 'production',
+      connector_id: 'aws-connector-1',
+      account_id: '123456789012',
+      region: 'us-east-1',
+      parent_issue_number: 1472,
+      parent_issue_ref: '#1472',
+      current_issue_number: 1552,
+      current_issue_ref: '#1552',
+      version: 'aws-remediation-center-v1',
+      status: 'ready',
+      fixture_state: 'success',
+      confidence: 0.9,
+      policy_version: 'aws-remediation-center-policy-v1',
+      applied_filters: {},
+      summary: {
+        total_cases: 1,
+        filtered_cases: 1,
+        stage_counts: { dry_run: 1 },
+        severity_counts: { high: 1 },
+        status_counts: { proposed: 1 },
+        action_type_counts: { iam_policy_diff: 1 },
+        identity_type_counts: { iam_role: 1 },
+        approval_pending_count: 1,
+        dry_run_count: 1,
+        live_action_count: 0,
+        verification_count: 0,
+        rollback_count: 0,
+        ready_for_apply_count: 0,
+        kill_switch_engaged_count: 0,
+        blocked_safety_gate_count: 0,
+        audit_entry_count: 0,
+        highest_score: 80,
+        average_confidence_pct: 90
+      },
+      tabs: [
+        { id: 'overview', label: 'Overview', status: 'ready', count: 1 },
+        { id: 'cases', label: 'Cases', status: 'ready', count: 1 },
+        { id: 'approvals', label: 'Approvals', status: 'ready', count: 1 },
+        { id: 'dry_runs', label: 'Dry-runs', status: 'ready', count: 1 },
+        { id: 'live_actions', label: 'Live actions', status: 'ready', count: 0 },
+        { id: 'verification', label: 'Verification', status: 'ready', count: 0 },
+        { id: 'audit', label: 'Audit', status: 'ready', count: 0 }
+      ],
+      cases: [
+        {
+          case_id: 'aws-remediation-case:least-privilege-orders',
+          title: 'Reduce orders-deployer policy',
+          summary: 'Remove unused IAM actions from orders-deployer.',
+          source_type: 'least_privilege',
+          action_type: 'iam_policy_diff',
+          lifecycle: 'proposed',
+          stage: 'dry_run',
+          severity: 'high',
+          score: 80,
+          confidence: 0.9,
+          account_id: '123456789012',
+          region: 'us-east-1',
+          identity_node_id: 'aws:identity:orders-deployer',
+          identity_type: 'iam_role',
+          owner: 'iam-platform',
+          owner_assigned: true,
+          approval_required: true,
+          approval_state: 'pending_approver',
+          approval_id: 'aws-remediation-approval:orders',
+          dry_run_id: 'aws-remediation-dry-run:orders',
+          dry_run_outcome: 'would_succeed',
+          ready_for_apply: false,
+          kill_switch_engaged: false,
+          tradeoffs: [],
+          safety_gates: [
+            { source: 'dry_run_prerequisite', name: 'approval_state_approved', status: 'blocked', rationale: 'Approval required.' }
+          ],
+          next_action: 'Advance the approval workflow before scheduling a live action.',
+          evidence_boundary: 'metadata_only_no_rendered_policy_bodies_no_secret_values_no_workload_payloads_tenant_workspace_project_connector_account_region_scoped',
+          audit_entry_count: 0
+        }
+      ],
+      remediation_cases: { cases: [{}] },
+      approval_queue: { entries: [] },
+      dry_runs: { entries: [] },
+      live_actions: { entries: [] },
+      verification: { entries: [] },
+      failure_reasons: [],
+      remediation_hints: [],
+      evidence_links: ['/docs/aws-remediation-center'],
+      coverage_gaps: [],
+      diagnostics: [],
+      generated_at: '2026-07-04T10:00:00Z',
+      updated_at: '2026-07-04T10:00:00Z'
+    } as unknown as AWSRemediationCenterResult;
+    const getRemediationCenter = vi
+      .spyOn(api.apiClient, 'getAWSProjectRemediationCenter')
+      .mockResolvedValue({ remediation_center: remediationCenter });
+
+    const { ProductAWSRemediationCenterPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/remediation/center?environment=production']}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/aws/remediation/center"
+            element={<ProductAWSRemediationCenterPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Reduce orders-deployer policy')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Remediation Center' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'Remediation center safety review' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Overview\s+1/i })).toHaveAttribute('aria-selected', 'true');
+    expect(getRemediationCenter).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      {
+        connectorID: 'aws-connector-1',
+        tab: 'overview'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a'
+      }
+    );
+  });
+
+  it('loads the AWS remediation center without a connector identifier', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+    const remediationCenter = {
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: 'production',
+      status: 'permission_denied',
+      fixture_state: 'permission_denied',
+      confidence: 0,
+      policy_version: 'aws-remediation-center-policy-v1',
+      parent_issue_number: 1472,
+      parent_issue_ref: '#1472',
+      current_issue_number: 1552,
+      current_issue_ref: '#1552',
+      version: 'aws-remediation-center-v1',
+      applied_filters: {},
+      summary: {
+        total_cases: 0,
+        filtered_cases: 0,
+        stage_counts: {},
+        severity_counts: {},
+        status_counts: {},
+        action_type_counts: {},
+        identity_type_counts: {},
+        approval_pending_count: 0,
+        dry_run_count: 0,
+        live_action_count: 0,
+        verification_count: 0,
+        rollback_count: 0,
+        ready_for_apply_count: 0,
+        kill_switch_engaged_count: 0,
+        blocked_safety_gate_count: 0,
+        audit_entry_count: 0,
+        highest_score: 0,
+        average_confidence_pct: 0
+      },
+      tabs: [
+        { id: 'overview', label: 'Overview', status: 'permission_denied', count: 0 },
+        { id: 'cases', label: 'Cases', status: 'permission_denied', count: 0 },
+        { id: 'approvals', label: 'Approvals', status: 'permission_denied', count: 0 },
+        { id: 'dry_runs', label: 'Dry-runs', status: 'permission_denied', count: 0 },
+        { id: 'live_actions', label: 'Live actions', status: 'permission_denied', count: 0 },
+        { id: 'verification', label: 'Verification', status: 'permission_denied', count: 0 },
+        { id: 'audit', label: 'Audit', status: 'permission_denied', count: 0 }
+      ],
+      cases: [],
+      remediation_cases: { cases: [] },
+      approval_queue: { entries: [] },
+      dry_runs: { entries: [] },
+      live_actions: { entries: [] },
+      verification: { entries: [] },
+      audit_trail: [],
+      failure_reasons: ['Connect an AWS connector before viewing remediation lifecycle evidence.'],
+      remediation_hints: ['Finish AWS connector setup or choose another environment.'],
+      evidence_links: [],
+      coverage_gaps: [],
+      diagnostics: [],
+      generated_at: '2026-07-04T10:00:00Z',
+      updated_at: '2026-07-04T10:00:00Z'
+    } as unknown as AWSRemediationCenterResult;
+    const getRemediationCenter = vi
+      .spyOn(api.apiClient, 'getAWSProjectRemediationCenter')
+      .mockResolvedValue({ remediation_center: remediationCenter });
+
+    const { ProductAWSRemediationCenterPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/remediation/center?environment=production']}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/aws/remediation/center"
+            element={<ProductAWSRemediationCenterPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Connect an AWS connector before viewing remediation lifecycle evidence.')).toBeInTheDocument();
+    expect(screen.getByText('Finish AWS connector setup or choose another environment.')).toBeInTheDocument();
+    expect(screen.queryByText('AWS connector is unavailable')).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Overview\s+0/i })).toHaveAttribute('aria-selected', 'true');
+    expect(getRemediationCenter).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      {
+        tab: 'overview'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a'
+      }
+    );
+  });
+
+  it('renders the consolidated remediation center audit trail across lifecycle stages', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const remediationCenter = {
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: 'production',
+      connector_id: 'aws-connector-1',
+      status: 'ready',
+      fixture_state: 'success',
+      confidence: 0.9,
+      policy_version: 'aws-remediation-center-policy-v1',
+      current_issue_ref: '#1552',
+      applied_filters: {},
+      summary: {
+        filtered_cases: 1,
+        approval_pending_count: 0,
+        dry_run_count: 0,
+        live_action_count: 0,
+        verification_count: 0,
+        rollback_count: 0,
+        ready_for_apply_count: 0,
+        kill_switch_engaged_count: 0,
+        blocked_safety_gate_count: 0,
+        audit_entry_count: 2,
+        stage_counts: {},
+        severity_counts: {},
+        status_counts: {},
+        action_type_counts: {},
+        identity_type_counts: {},
+        total_cases: 1,
+        highest_score: 80,
+        average_confidence_pct: 90
+      },
+      tabs: [
+        { id: 'overview', label: 'Overview', status: 'ready', count: 1 },
+        { id: 'cases', label: 'Cases', status: 'ready', count: 1 },
+        { id: 'approvals', label: 'Approvals', status: 'ready', count: 0 },
+        { id: 'dry_runs', label: 'Dry-runs', status: 'ready', count: 0 },
+        { id: 'live_actions', label: 'Live actions', status: 'ready', count: 0 },
+        { id: 'verification', label: 'Verification', status: 'ready', count: 0 },
+        { id: 'audit', label: 'Audit', status: 'ready', count: 2 }
+      ],
+      cases: [],
+      remediation_cases: { cases: [{}] },
+      approval_queue: { entries: [] },
+      dry_runs: { entries: [] },
+      live_actions: { entries: [] },
+      verification: { entries: [] },
+      audit_trail: [
+        {
+          case_id: 'aws-remediation-case:orders',
+          stage: 'approval',
+          event_id: 'evt-approval-1',
+          event_type: 'approval_requested',
+          actor: 'iam-platform',
+          occurred_at: '2026-07-04T09:00:00Z',
+          notes: 'Approval requested.'
+        },
+        {
+          case_id: 'aws-remediation-case:orders',
+          stage: 'verification',
+          event_id: 'evt-verify-1',
+          event_type: 'verification_completed',
+          actor: 'identrail',
+          occurred_at: '2026-07-04T10:00:00Z',
+          notes: 'Verification completed.'
+        }
+      ],
+      failure_reasons: [],
+      remediation_hints: [],
+      evidence_links: [],
+      coverage_gaps: [],
+      diagnostics: [],
+      generated_at: '2026-07-04T10:00:00Z',
+      updated_at: '2026-07-04T10:00:00Z'
+    } as unknown as AWSRemediationCenterResult;
+    vi.spyOn(api.apiClient, 'getAWSProjectRemediationCenter').mockResolvedValue({ remediation_center: remediationCenter });
+
+    const { ProductAWSRemediationCenterPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/remediation/center?environment=production&tab=audit']}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/aws/remediation/center"
+            element={<ProductAWSRemediationCenterPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('table', { name: 'Remediation center audit trail' })).toBeInTheDocument();
+    // The audit tab consolidates every lifecycle stage, not just verification.
+    expect(screen.getByText('Approval requested.')).toBeInTheDocument();
+    expect(screen.getByText('Verification completed.')).toBeInTheDocument();
+  });
+
+  it('forwards remediation center filters to the API and preserves them across tabs', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const remediationCenter = {
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: 'production',
+      connector_id: 'aws-connector-1',
+      account_id: '123456789012',
+      region: 'us-east-1',
+      current_issue_number: 1552,
+      current_issue_ref: '#1552',
+      version: 'aws-remediation-center-v1',
+      status: 'ready',
+      fixture_state: 'success',
+      confidence: 0.9,
+      policy_version: 'aws-remediation-center-policy-v1',
+      applied_filters: { severity: 'high', account_id: '123456789012' },
+      summary: {
+        total_cases: 1,
+        filtered_cases: 1,
+        stage_counts: {},
+        severity_counts: {},
+        status_counts: {},
+        action_type_counts: {},
+        identity_type_counts: {},
+        approval_pending_count: 0,
+        dry_run_count: 1,
+        live_action_count: 0,
+        verification_count: 0,
+        rollback_count: 0,
+        ready_for_apply_count: 0,
+        kill_switch_engaged_count: 0,
+        blocked_safety_gate_count: 0,
+        audit_entry_count: 0,
+        highest_score: 80,
+        average_confidence_pct: 90
+      },
+      tabs: [
+        { id: 'overview', label: 'Overview', status: 'ready', count: 1 },
+        { id: 'cases', label: 'Cases', status: 'ready', count: 1 },
+        { id: 'approvals', label: 'Approvals', status: 'ready', count: 0 },
+        { id: 'dry_runs', label: 'Dry-runs', status: 'ready', count: 1 },
+        { id: 'live_actions', label: 'Live actions', status: 'ready', count: 0 },
+        { id: 'verification', label: 'Verification', status: 'ready', count: 0 },
+        { id: 'audit', label: 'Audit', status: 'ready', count: 0 }
+      ],
+      cases: [
+        {
+          case_id: 'aws-remediation-case:least-privilege-orders',
+          title: 'Reduce orders-deployer policy',
+          summary: 'Remove unused IAM actions from orders-deployer.',
+          source_type: 'least_privilege',
+          action_type: 'iam_policy_diff',
+          lifecycle: 'proposed',
+          stage: 'dry_run',
+          severity: 'high',
+          score: 80,
+          confidence: 0.9,
+          account_id: '123456789012',
+          region: 'us-east-1',
+          identity_type: 'iam_role',
+          owner_assigned: true,
+          approval_required: true,
+          ready_for_apply: false,
+          kill_switch_engaged: false,
+          tradeoffs: [],
+          safety_gates: [],
+          next_action: 'Advance the approval workflow before scheduling a live action.',
+          evidence_boundary: 'metadata_only',
+          audit_entry_count: 0
+        }
+      ],
+      remediation_cases: { cases: [{}] },
+      approval_queue: { entries: [] },
+      dry_runs: { entries: [] },
+      live_actions: { entries: [] },
+      verification: { entries: [] },
+      failure_reasons: [],
+      remediation_hints: [],
+      evidence_links: [],
+      coverage_gaps: [],
+      diagnostics: [],
+      generated_at: '2026-07-04T10:00:00Z',
+      updated_at: '2026-07-04T10:00:00Z'
+    } as unknown as AWSRemediationCenterResult;
+    const getRemediationCenter = vi
+      .spyOn(api.apiClient, 'getAWSProjectRemediationCenter')
+      .mockResolvedValue({ remediation_center: remediationCenter });
+
+    const { ProductAWSRemediationCenterPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter
+        initialEntries={[
+          '/app/tenant-a/workspace-a/aws/remediation/center?environment=production&tab=cases&severity=high&account_id=123456789012'
+        ]}
+      >
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/aws/remediation/center"
+            element={<ProductAWSRemediationCenterPage />}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Reduce orders-deployer policy')).toBeInTheDocument();
+    expect(getRemediationCenter).toHaveBeenCalledWith(
+      'workspace-a',
+      'production',
+      {
+        connectorID: 'aws-connector-1',
+        tab: 'cases',
+        severity: 'high',
+        accountID: '123456789012'
+      },
+      {
+        tenantID: 'tenant-a',
+        workspaceID: 'workspace-a'
+      }
+    );
+    // Tab links preserve the active filter params so deep links survive navigation.
+    const dryRunsTab = screen.getByRole('tab', { name: /Dry-runs\s+1/i });
+    const href = dryRunsTab.getAttribute('href') ?? '';
+    expect(href).toContain('severity=high');
+    expect(href).toContain('account_id=123456789012');
+    expect(href).toContain('tab=dry_runs');
   });
 
   it('renders AWS agent identity detail scoped to the selected agent and tab', async () => {
