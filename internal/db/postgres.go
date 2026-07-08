@@ -1752,7 +1752,7 @@ func (p *PostgresStore) ListFindingTrendCounts(ctx context.Context, scanIDs []st
 }
 
 // ListRepoFindingTrendCounts aggregates repository finding totals by repo scan and severity.
-func (p *PostgresStore) ListRepoFindingTrendCounts(ctx context.Context, repoScanIDs []string, severity string, findingType string) ([]FindingTrendCount, error) {
+func (p *PostgresStore) ListRepoFindingTrendCounts(ctx context.Context, repoScanIDs []string, severity string, findingType string, minConfidence float64) ([]FindingTrendCount, error) {
 	scope, err := RequireScope(ctx)
 	if err != nil {
 		return nil, err
@@ -1775,13 +1775,14 @@ func (p *PostgresStore) ListRepoFindingTrendCounts(ctx context.Context, repoScan
 	}
 
 	placeholders := make([]string, 0, len(unique))
-	args := make([]any, 0, len(unique)+4)
-	args = append(args, scope.TenantID, scope.WorkspaceID, strings.ToLower(strings.TrimSpace(severity)), strings.ToLower(strings.TrimSpace(findingType)))
+	args := make([]any, 0, len(unique)+5)
+	args = append(args, scope.TenantID, scope.WorkspaceID, strings.ToLower(strings.TrimSpace(severity)), strings.ToLower(strings.TrimSpace(findingType)), minConfidence)
 	for i, repoScanID := range unique {
-		placeholders = append(placeholders, fmt.Sprintf("$%d", i+5))
+		placeholders = append(placeholders, fmt.Sprintf("$%d", i+6))
 		args = append(args, repoScanID)
 	}
 
+	confidenceExpr := repoFindingConfidenceScoreExpression("rf")
 	rows, err := p.queryContext(
 		ctx,
 		fmt.Sprintf(`SELECT rs.id, rs.started_at, rf.severity, COUNT(rf.finding_id)
@@ -1790,10 +1791,11 @@ func (p *PostgresStore) ListRepoFindingTrendCounts(ctx context.Context, repoScan
 		   ON rf.repo_scan_id = rs.id
 		  AND ($3 = '' OR LOWER(rf.severity) = $3)
 		  AND ($4 = '' OR LOWER(rf.type) = $4)
+		  AND ($5 <= 0 OR %s >= $5)
 		 WHERE rs.tenant_id = $1
 		   AND rs.workspace_id = $2
 		   AND rs.id IN (%s)
-		 GROUP BY rs.id, rs.started_at, rf.severity`, strings.Join(placeholders, ",")),
+		 GROUP BY rs.id, rs.started_at, rf.severity`, confidenceExpr, strings.Join(placeholders, ",")),
 		args...,
 	)
 	if err != nil {
@@ -1817,6 +1819,17 @@ func (p *PostgresStore) ListRepoFindingTrendCounts(ctx context.Context, repoScan
 		return nil, fmt.Errorf("repo finding trend rows: %w", err)
 	}
 	return result, nil
+}
+
+func repoFindingConfidenceScoreExpression(alias string) string {
+	normalizedAlias := strings.TrimSpace(alias)
+	if normalizedAlias == "" {
+		normalizedAlias = "rf"
+	}
+	return fmt.Sprintf(`CASE
+		WHEN COALESCE(%s.evidence->>'confidence_score', '') ~ '^[0-9]+(\.[0-9]+)?$' THEN (%s.evidence->>'confidence_score')::double precision
+		ELSE 0
+	END`, normalizedAlias, normalizedAlias)
 }
 
 // UpsertAuthzEntityAttributes creates or updates trusted authorization attributes.
@@ -3809,6 +3822,83 @@ func (p *PostgresStore) DeleteRepoFinding(ctx context.Context, repoScanID string
 	return nil
 }
 
+// DeleteRepoFindingTargets removes selected repository findings in one scoped operation.
+func (p *PostgresStore) DeleteRepoFindingTargets(ctx context.Context, targets []RepoFindingDeleteTarget) ([]RepoFindingDeleteTarget, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	type repoFindingDeleteTargetPayload struct {
+		RepoScanID string `json:"repo_scan_id"`
+		FindingID  string `json:"finding_id"`
+	}
+	payloadTargets := make([]repoFindingDeleteTargetPayload, 0, len(targets))
+	for _, target := range targets {
+		payloadTargets = append(payloadTargets, repoFindingDeleteTargetPayload{
+			RepoScanID: target.RepoScanID,
+			FindingID:  target.FindingID,
+		})
+	}
+	payload, err := json.Marshal(payloadTargets)
+	if err != nil {
+		return nil, fmt.Errorf("marshal repo finding delete targets: %w", err)
+	}
+	rows, err := p.queryContext(
+		ctx,
+		`WITH targets AS (
+			SELECT DISTINCT
+			       NULLIF(TRIM(repo_scan_id), '')::uuid AS repo_scan_id,
+			       NULLIF(TRIM(finding_id), '') AS finding_id
+			  FROM jsonb_to_recordset($1::jsonb) AS t(repo_scan_id text, finding_id text)
+			 WHERE NULLIF(TRIM(repo_scan_id), '') IS NOT NULL
+			   AND NULLIF(TRIM(finding_id), '') IS NOT NULL
+		), deleted AS (
+			DELETE FROM repo_findings rf
+			USING repo_scans rs, targets t
+			WHERE rf.repo_scan_id = rs.id
+			  AND rf.repo_scan_id = t.repo_scan_id
+			  AND rf.finding_id = t.finding_id
+			  AND rs.tenant_id = $2
+			  AND rs.workspace_id = $3
+			RETURNING rf.repo_scan_id::text, rf.finding_id
+		), updated AS (
+			UPDATE repo_scans rs
+			SET finding_count = GREATEST(0, rs.finding_count - counts.deleted_count)
+			FROM (
+				SELECT repo_scan_id, COUNT(*)::int AS deleted_count
+				FROM deleted
+				GROUP BY repo_scan_id
+			) counts
+			WHERE rs.id = counts.repo_scan_id
+			  AND rs.tenant_id = $2
+			  AND rs.workspace_id = $3
+			RETURNING rs.id
+		)
+		SELECT repo_scan_id, finding_id
+		  FROM deleted
+		 ORDER BY repo_scan_id, finding_id`,
+		string(payload),
+		scope.TenantID,
+		scope.WorkspaceID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("delete repo finding targets: %w", err)
+	}
+	defer rows.Close()
+	deleted := []RepoFindingDeleteTarget{}
+	for rows.Next() {
+		var target RepoFindingDeleteTarget
+		if err := rows.Scan(&target.RepoScanID, &target.FindingID); err != nil {
+			return nil, fmt.Errorf("scan deleted repo finding target: %w", err)
+		}
+		deleted = append(deleted, target)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate deleted repo finding targets: %w", err)
+	}
+	return deleted, nil
+}
+
 // ListRepoScans returns latest repository scans first.
 func (p *PostgresStore) ListRepoScans(ctx context.Context, limit int) ([]RepoScanRecord, error) {
 	if limit <= 0 {
@@ -3865,10 +3955,7 @@ func (p *PostgresStore) ListRepoFindings(ctx context.Context, filter RepoFinding
 	detectorExpr := `COALESCE(NULLIF(rf.evidence->>'detector', ''), '')`
 	ownerExpr := `COALESCE(NULLIF(rf.owner, ''), NULLIF(rf.evidence->>'owner', ''), NULLIF(rf.evidence->>'owner_hint', ''), NULLIF(rf.evidence->>'owner_team', ''), NULLIF(rf.evidence->>'codeowners', ''), NULLIF(rf.evidence->>'assignee', ''), '')`
 	statusExpr := `COALESCE(NULLIF(rf.lifecycle_status, ''), 'open')`
-	confidenceExpr := `CASE
-		WHEN COALESCE(rf.evidence->>'confidence_score', '') ~ '^[0-9]+(\.[0-9]+)?$' THEN (rf.evidence->>'confidence_score')::double precision
-		ELSE 0
-	END`
+	confidenceExpr := repoFindingConfidenceScoreExpression("rf")
 	lifecycleKeyExpr := fmt.Sprintf(
 		`COALESCE(NULLIF(rf.lifecycle_key, ''), CONCAT_WS(E'\x1f', 'repo_finding', LOWER(%s), rf.type, LOWER(%s), LOWER(COALESCE(NULLIF(rf.evidence->>'file_path', ''), '')), COALESCE(NULLIF(rf.evidence->>'line_number', ''), ''), rf.finding_id))`,
 		repositoryExpr,

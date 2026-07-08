@@ -1612,22 +1612,18 @@ function repoFindingDeleteTargetFromFinding(finding: ApiFinding): RepoFindingDel
   };
 }
 
-function repoFindingDeleteTargetKey(target: RepoFindingDeleteTarget): string {
-  return `${target.repo_scan_id}::${target.finding_id}`;
-}
+export const REPO_FINDING_BULK_DELETE_BATCH_SIZE = 5000;
 
-function repoFindingDeleteTargetKeyFromFinding(finding: ApiFinding): string {
-  return repoFindingDeleteTargetKey(repoFindingDeleteTargetFromFinding(finding));
-}
-
-const REPO_FINDING_BULK_DELETE_BATCH_SIZE = 500;
-
-function chunkRepoFindingDeleteTargets(targets: RepoFindingDeleteTarget[]): RepoFindingDeleteTarget[][] {
-  const chunks: RepoFindingDeleteTarget[][] = [];
-  for (let index = 0; index < targets.length; index += REPO_FINDING_BULK_DELETE_BATCH_SIZE) {
-    chunks.push(targets.slice(index, index + REPO_FINDING_BULK_DELETE_BATCH_SIZE));
+export function chunkRepoFindingDeleteTargets(
+  targets: RepoFindingDeleteTarget[],
+  batchSize = REPO_FINDING_BULK_DELETE_BATCH_SIZE
+): RepoFindingDeleteTarget[][] {
+  const normalizedBatchSize = Math.max(1, Math.floor(batchSize));
+  const batches: RepoFindingDeleteTarget[][] = [];
+  for (let index = 0; index < targets.length; index += normalizedBatchSize) {
+    batches.push(targets.slice(index, index + normalizedBatchSize));
   }
-  return chunks;
+  return batches;
 }
 
 function mergeRepoFindingsBulkDeleteResponses(
@@ -1642,31 +1638,41 @@ function mergeRepoFindingsBulkDeleteResponses(
   );
 }
 
-async function deleteRepoFindingsBatchWithFallback(
-  targets: RepoFindingDeleteTarget[],
-  auth: RequestAuthContext
-): Promise<RepoFindingsBulkDeleteResponse> {
-  try {
-    return await apiClient.deleteRepoFindings(targets, auth);
-  } catch (error) {
-    if (!(error instanceof ApiError) || error.status !== 404) {
-      throw error;
-    }
-  }
+type RepoFindingBulkDeleteBatchResult = {
+  response: RepoFindingsBulkDeleteResponse;
+  errorMessage?: string;
+};
 
-  const response: RepoFindingsBulkDeleteResponse = { deleted: [], failed: [] };
-  for (const target of targets) {
+function repoFindingDeleteBatchErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Failed to delete finding.';
+}
+
+export async function deleteRepoFindingTargetsInBatches(
+  targets: RepoFindingDeleteTarget[],
+  deleteTargets: (batch: RepoFindingDeleteTarget[]) => Promise<RepoFindingsBulkDeleteResponse>,
+  batchSize = REPO_FINDING_BULK_DELETE_BATCH_SIZE
+): Promise<RepoFindingBulkDeleteBatchResult> {
+  const responses: RepoFindingsBulkDeleteResponse[] = [];
+  for (const batch of chunkRepoFindingDeleteTargets(targets, batchSize)) {
     try {
-      await apiClient.deleteRepoFinding(target.finding_id, target.repo_scan_id, auth);
-      response.deleted.push(target);
-    } catch (deleteError) {
-      response.failed?.push({
-        ...target,
-        error: deleteError instanceof Error ? deleteError.message : 'Failed to delete finding.'
-      });
+      responses.push(await deleteTargets(batch));
+    } catch (requestError) {
+      const response = mergeRepoFindingsBulkDeleteResponses(responses);
+      if (response.deleted.length === 0 && (response.failed ?? []).length === 0) {
+        throw requestError;
+      }
+      return { response, errorMessage: repoFindingDeleteBatchErrorMessage(requestError) };
     }
   }
-  return response;
+  return { response: mergeRepoFindingsBulkDeleteResponses(responses) };
+}
+
+function repoFindingDeleteTargetKey(target: RepoFindingDeleteTarget): string {
+  return `${target.repo_scan_id}::${target.finding_id}`;
+}
+
+function repoFindingDeleteTargetKeyFromFinding(finding: ApiFinding): string {
+  return repoFindingDeleteTargetKey(repoFindingDeleteTargetFromFinding(finding));
 }
 
 const DISMISSED_REPO_FAILED_SCAN_STORAGE_KEY = 'idt:repo-failed-scan-dismissals:v1';
@@ -27912,6 +27918,11 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
     });
   }, [scopedRepoFindings, statusFilter, assigneeFilter]);
 
+  const riskGraphFiltersUnsupported =
+    statusFilter !== 'all' ||
+    normalizeValue(assigneeFilter) !== '' ||
+    normalizeValue(sourceFilter) !== '';
+
   const findingHierarchy = useMemo(
     () =>
       groupRepoFindingsByRepositoryDateSeverity(filteredFindings, {
@@ -27953,7 +27964,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
 
   const topRiskGraphScores = useMemo(
     () => {
-      if (filteredFindings.length === 0) {
+      if (filteredFindings.length === 0 || riskGraphFiltersUnsupported) {
         return [];
       }
       const visibleFindingIDs = new Set(filteredFindings.map((finding) => finding.id));
@@ -27961,7 +27972,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         .filter((score) => visibleFindingIDs.has(score.finding_id))
         .slice(0, 3);
     },
-    [filteredFindings, repoRiskGraph]
+    [filteredFindings, repoRiskGraph, riskGraphFiltersUnsupported]
   );
 
   const criticalFindingCount = useMemo(
@@ -28077,12 +28088,15 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       const severity = severityFilter !== 'all' ? severityFilter : undefined;
       const type = typeFilter !== 'all' ? typeFilter : undefined;
       const repoScanID = normalizeValue(repoScanFilter) || undefined;
+      const normalizedMinConfidence = Number.parseFloat(normalizeValue(minConfidenceFilter));
+      const minConfidence = Number.isFinite(normalizedMinConfidence) ? normalizedMinConfidence : undefined;
       const [trendResult, riskGraphResult] = await Promise.allSettled([
         apiClient.getRepoFindingsTrends(
           {
             points: TREND_POINTS,
             severity,
-            type
+            type,
+            min_confidence: minConfidence
           },
           auth
         ),
@@ -28090,7 +28104,8 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
           {
             repo_scan_id: repoScanID,
             severity,
-            type
+            type,
+            min_confidence: minConfidence
           },
           auth
         )
@@ -28220,17 +28235,10 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       let failedCandidates: ApiFinding[] = [];
       let failureMessage = 'Failed to delete finding.';
       if (bulkDeleteActive) {
-        const responses: RepoFindingsBulkDeleteResponse[] = [];
-        let batchError: unknown = null;
-        for (const batch of chunkRepoFindingDeleteTargets(candidates.map(repoFindingDeleteTargetFromFinding))) {
-          try {
-            responses.push(await deleteRepoFindingsBatchWithFallback(batch, auth));
-          } catch (requestError) {
-            batchError = requestError;
-            break;
-          }
-        }
-        const response = mergeRepoFindingsBulkDeleteResponses(responses);
+        const { response, errorMessage } = await deleteRepoFindingTargetsInBatches(
+          candidates.map(repoFindingDeleteTargetFromFinding),
+          (batch) => apiClient.deleteRepoFindings(batch, auth)
+        );
         const deletedKeys = new Set(response.deleted.map(repoFindingDeleteTargetKey));
         const failedKeys = new Set((response.failed ?? []).map(repoFindingDeleteTargetKey));
         deletedFindings = candidates.filter((candidate) =>
@@ -28240,10 +28248,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
           const key = repoFindingDeleteTargetKeyFromFinding(candidate);
           return failedKeys.has(key) || !deletedKeys.has(key);
         });
-        failureMessage =
-          batchError instanceof Error
-            ? batchError.message
-            : response.failed?.[0]?.error || failureMessage;
+        failureMessage = response.failed?.[0]?.error || errorMessage || failureMessage;
       } else {
         const candidate = candidates[0];
         if (candidate) {
@@ -28261,19 +28266,12 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
       if (failedCandidates.length > 0) {
         applyFailedRepoFindingDeletes(failedCandidates, deletedFindings.length, failureMessage, bulkDeleteActive);
         if (deletedFindings.length > 0) {
+          await loadRepoFindings(scope, 'refresh');
           await loadTrendSignals(scope, 'refresh');
         }
         return;
       }
-      const repoScanFilterSelected = normalizeValue(repoScanFilter);
-      const shouldReloadFindings =
-        bulkDeleteActive
-          ? !agenticOnly
-          : deletedFindings.some((finding) => normalizeRepoFindingLifecycleStatus(finding.lifecycle_status) === 'fixed') ||
-            repoScanFilterSelected === '';
-      if (shouldReloadFindings) {
-        await loadRepoFindings(scope, 'refresh');
-      }
+      await loadRepoFindings(scope, 'refresh');
       await loadTrendSignals(scope, 'refresh');
       closeFindingDeleteDialog({ allowDuringLoading: true });
     } catch (requestError) {
@@ -28751,7 +28749,12 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
   });
 
   const trendDisplayLoading = signalsLoading;
-  const riskGraphSummary = repoRiskGraph?.summary;
+  const visibleRepoRiskGraph = filteredFindings.length > 0 && !riskGraphFiltersUnsupported ? repoRiskGraph : null;
+  const riskGraphSummary = visibleRepoRiskGraph?.summary;
+  const riskGraphHiddenByFilters = filteredFindings.length > 0 && riskGraphFiltersUnsupported;
+  const riskGraphUnavailableBody = riskGraphHiddenByFilters
+    ? 'Clear source, assignee, or lifecycle filters to view the graph.'
+    : 'Run a repository exposure scan so machine-identity paths and finding risk scores can appear here.';
   const riskGraphUnknownEvidenceCount =
     (riskGraphSummary?.unknown_node_count ?? 0) + (riskGraphSummary?.unknown_edge_count ?? 0);
   const selectedFindingPreviewKey = selectedFinding ? buildRepoFindingSelectionKey(selectedFinding) : '';
@@ -29489,8 +29492,10 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
           <h3>Risk graph</h3>
           {trendDisplayLoading ? <span className="idt-app-alert idt-app-alert-success">Loading graph</span> : null}
           <span className="idt-repo-finding-trend-subtitle">
-            {repoRiskGraph
-              ? `${repoRiskGraph.nodes.length} nodes · ${repoRiskGraph.edges.length} paths · ${canonicalGitHubRepositoryDisplay(repoRiskGraph.repository) || repoRiskGraph.repository || 'repository scope'}`
+            {visibleRepoRiskGraph
+              ? `${visibleRepoRiskGraph.nodes.length} nodes · ${visibleRepoRiskGraph.edges.length} paths · ${canonicalGitHubRepositoryDisplay(visibleRepoRiskGraph.repository) || visibleRepoRiskGraph.repository || 'repository scope'}`
+              : riskGraphHiddenByFilters
+                ? 'Hidden for current filters'
               : 'No graph loaded yet'}
           </span>
         </summary>
@@ -29533,7 +29538,7 @@ export function ProductFindingsPage({ agenticOnly = false }: { agenticOnly?: boo
         ) : (
           <AppShellEmptyState
             title="Risk graph unavailable"
-            body="Run a repository exposure scan so machine-identity paths and finding risk scores can appear here."
+            body={riskGraphUnavailableBody}
           />
         )}
       </details>
