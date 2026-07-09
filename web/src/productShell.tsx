@@ -441,6 +441,7 @@ type ProductDomainRouteID =
   | 'overview'
   | 'connect'
   | 'accounts'
+  | 'coverage'
   | 'identities'
   | 'agents'
   | 'resources'
@@ -538,6 +539,7 @@ const PRODUCT_DOMAIN_CONFIGS: Record<SourceProvider, ProductDomainConfig> = {
       productDomainRoute('overview', 'Overview', '', 'AWS', '', 'AWS for this workspace.'),
       productDomainRoute('connect', 'Connect AWS', 'connect', 'Connect AWS', '', 'Connect an AWS account so Identrail can scan it.'),
       productDomainRoute('accounts', 'Accounts', 'accounts', 'Accounts', '', "Which AWS account and region you're connected to."),
+      productDomainRoute('coverage', 'Coverage', 'coverage', 'Coverage', '', 'Account, region, service, and collector coverage states.'),
       productDomainRoute('identities', 'Identities', 'identities', 'Identities', '', 'IAM roles, workload identities, and what they can reach.'),
       productDomainRoute('agents', 'Agents', 'agents', 'Agents', '', 'Bedrock and MCP agents Identrail can see.'),
       productDomainRoute('resources', 'Resources', 'resources', 'Resources', '', 'Secrets, KMS keys, and S3 buckets your AWS roles can reach.'),
@@ -3147,6 +3149,14 @@ const AWS_CONTROL_CARDS: AWSControlCard[] = [
     detail: "Which AWS account and region you're connected to."
   },
   {
+    id: 'coverage',
+    label: 'Coverage',
+    routeID: 'coverage',
+    stage: 'wired',
+    metric: '',
+    detail: 'Track account, region, service, and collector coverage states.'
+  },
+  {
     id: 'identities',
     label: 'Identities',
     routeID: 'identities',
@@ -3902,7 +3912,8 @@ function AWSServiceCollectorContractSummary({
   );
 }
 
-type AWSInventoryRouteID = Extract<ProductDomainRouteID, 'accounts' | 'identities' | 'agents' | 'resources'>;
+type AWSInventoryRouteID = Extract<ProductDomainRouteID, 'accounts' | 'coverage' | 'identities' | 'agents' | 'resources'>;
+type AWSCoverageInventoryRouteID = Extract<AWSInventoryRouteID, 'accounts' | 'coverage'>;
 
 type AWSInventoryPageCopy = {
   routeID: AWSInventoryRouteID;
@@ -3923,6 +3934,16 @@ const AWS_INVENTORY_PAGE_COPY: Record<AWSInventoryRouteID, AWSInventoryPageCopy>
     description: "Which AWS account and region you're connected to.",
     statusLabel: '',
     primaryKpi: 'Account scope',
+    currentCapability: '',
+    plannedCapability: ''
+  },
+  coverage: {
+    routeID: 'coverage',
+    title: 'Coverage',
+    eyebrow: '',
+    description: 'Account, region, service, and collector coverage for this AWS environment.',
+    statusLabel: '',
+    primaryKpi: 'Target coverage',
     currentCapability: '',
     plannedCapability: ''
   },
@@ -4166,6 +4187,7 @@ type AWSInventoryCoverageRow = AWSInventoryFilterable & {
 
 const AWS_INVENTORY_FILTER_DEFAULTS: Record<AWSInventoryRouteID, AWSInventoryFilterState> = {
   accounts: { account: 'all', region: 'all', coverage: 'all', search: '' },
+  coverage: { account: 'all', region: 'all', coverage: 'all', search: '' },
   identities: { identityType: 'all', service: 'all', risk: 'all', status: 'all', search: '' },
   agents: { surface: 'all', relationship: 'all', provider: 'all', runtime: 'all', risk: 'all', confidence: 'all', status: 'all', search: '' },
   resources: { category: 'all', sensitivity: 'all', readPosture: 'all', search: '' }
@@ -4173,6 +4195,27 @@ const AWS_INVENTORY_FILTER_DEFAULTS: Record<AWSInventoryRouteID, AWSInventoryFil
 
 const AWS_INVENTORY_FILTERS: AWSInventoryFilterConfigMap = {
   accounts: [
+    { id: 'account', label: 'Account', options: [{ label: 'All accounts', value: 'all' }, { label: 'Connected account', value: 'connected' }, { label: 'Planned accounts', value: 'planned' }] },
+    { id: 'region', label: 'Region', options: [{ label: 'All regions', value: 'all' }, { label: 'Current region', value: 'current' }, { label: 'Uncovered regions', value: 'uncovered' }] },
+    {
+      id: 'coverage',
+      label: 'Coverage',
+      options: [
+        { label: 'All coverage', value: 'all' },
+        { label: 'Covered', value: 'covered' },
+        { label: 'Planned', value: 'planned' },
+        { label: 'Missing', value: 'missing' },
+        { label: 'Blocked', value: 'blocked' },
+        { label: 'Unsupported', value: 'unsupported' },
+        { label: 'Disabled', value: 'disabled' },
+        { label: 'Degraded', value: 'degraded' },
+        { label: 'Failed', value: 'failed' },
+        { label: 'Permission denied', value: 'permission_denied' },
+        { label: 'Not yet available', value: 'not-yet-available' }
+      ]
+    }
+  ],
+  coverage: [
     { id: 'account', label: 'Account', options: [{ label: 'All accounts', value: 'all' }, { label: 'Connected account', value: 'connected' }, { label: 'Planned accounts', value: 'planned' }] },
     { id: 'region', label: 'Region', options: [{ label: 'All regions', value: 'all' }, { label: 'Current region', value: 'current' }, { label: 'Uncovered regions', value: 'uncovered' }] },
     {
@@ -5003,6 +5046,7 @@ function AWSInventoryFilterSet({
 }) {
   const searchPlaceholder: Record<AWSInventoryRouteID, string> = {
     accounts: 'Search account or region',
+    coverage: 'Search coverage scope',
     identities: 'Search identity ARN',
     agents: 'Search agent surface',
     resources: 'Search resource metadata'
@@ -5055,6 +5099,10 @@ function buildAWSInventoryKpis(routeID: AWSInventoryRouteID, connection: AWSConn
       ? connection?.account_id
         ? '1 account'
         : 'Pending'
+      : routeID === 'coverage'
+        ? connection?.connected
+          ? 'Tracking'
+          : 'Pending'
       : routeID === 'identities'
         ? connection?.role_arn
           ? '1 role'
@@ -5164,6 +5212,7 @@ function AWSInventoryPrerequisites({
 }
 
 function AWSAccountsInventoryContent({
+  routeID,
   connection,
   connectPath,
   coveragePlanState,
@@ -5174,6 +5223,7 @@ function AWSAccountsInventoryContent({
   filters,
   onFiltersChange
 }: {
+  routeID: AWSCoverageInventoryRouteID;
   connection: AWSConnectionStatus | null;
   connectPath: string;
   coveragePlanState: AWSInventoryCoveragePlanState;
@@ -5217,7 +5267,7 @@ function AWSAccountsInventoryContent({
 
   return (
     <>
-      <AWSInventoryFilterSet routeID="accounts" filters={filters} onChange={onFiltersChange} />
+      <AWSInventoryFilterSet routeID={routeID} filters={filters} onChange={onFiltersChange} />
       {coveragePlanState.loading ? <DomainLoadingState label="Loading account and region coverage plan" /> : null}
       {accountRegionCoverageState.loading ? <DomainLoadingState label="Loading account and region coverage API" /> : null}
       {fanOutExecutionState.loading ? <DomainLoadingState label="Loading fan-out execution state" /> : null}
@@ -8709,6 +8759,10 @@ function awsSQSSNSReachabilityRow(record: AWSSQSSNSReachabilityRecord): AWSInven
   };
 }
 
+function isAWSCoverageInventoryRoute(routeID: AWSInventoryRouteID): routeID is AWSCoverageInventoryRouteID {
+  return routeID === 'accounts' || routeID === 'coverage';
+}
+
 function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) {
   const data = useAWSInventoryData();
   const { scope, environmentScope, selectedEnvironmentID, connection, connectionLoading, connectionError } = data;
@@ -9511,7 +9565,7 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     const requestID = ++coveragePlanRequestRef.current;
     setCoveragePlan(null);
     setCoveragePlanError('');
-    if (routeID !== 'accounts' || !scope || !selectedEnvironmentID || !connection?.connector_id) {
+    if (!isAWSCoverageInventoryRoute(routeID) || !scope || !selectedEnvironmentID || !connection?.connector_id) {
       setCoveragePlanLoading(false);
       return;
     }
@@ -9563,7 +9617,7 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     const requestID = ++accountRegionCoverageRequestRef.current;
     setAccountRegionCoverage(null);
     setAccountRegionCoverageError('');
-    if (routeID !== 'accounts' || !scope || !selectedEnvironmentID || !connection?.connector_id) {
+    if (!isAWSCoverageInventoryRoute(routeID) || !scope || !selectedEnvironmentID || !connection?.connector_id) {
       setAccountRegionCoverageLoading(false);
       return;
     }
@@ -9615,7 +9669,7 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     const requestID = ++fanOutExecutionRequestRef.current;
     setFanOutExecution(null);
     setFanOutExecutionError('');
-    if (routeID !== 'accounts' || !scope || !selectedEnvironmentID || !connection?.connector_id) {
+    if (!isAWSCoverageInventoryRoute(routeID) || !scope || !selectedEnvironmentID || !connection?.connector_id) {
       setFanOutExecutionLoading(false);
       return;
     }
@@ -9667,7 +9721,7 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     const requestID = ++organizationsTopologyRequestRef.current;
     setOrganizationsTopology(null);
     setOrganizationsTopologyError('');
-    if (routeID !== 'accounts' || !scope || !selectedEnvironmentID || !connection?.connector_id) {
+    if (!isAWSCoverageInventoryRoute(routeID) || !scope || !selectedEnvironmentID || !connection?.connector_id) {
       setOrganizationsTopologyLoading(false);
       return;
     }
@@ -9719,7 +9773,7 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     const requestID = ++stackSetOnboardingRequestRef.current;
     setStackSetOnboarding(null);
     setStackSetOnboardingError('');
-    if (routeID !== 'accounts' || !scope || !selectedEnvironmentID || !connection?.connector_id) {
+    if (!isAWSCoverageInventoryRoute(routeID) || !scope || !selectedEnvironmentID || !connection?.connector_id) {
       setStackSetOnboardingLoading(false);
       return;
     }
@@ -9833,8 +9887,9 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
         />
       ) : null}
 
-      {routeID === 'accounts' ? (
+      {isAWSCoverageInventoryRoute(routeID) ? (
         <AWSAccountsInventoryContent
+          routeID={routeID}
           connection={connection}
           connectPath={connectPath}
           coveragePlanState={{
@@ -10004,6 +10059,10 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
 
 export function ProductAWSAccountsPage() {
   return <ProductAWSInventoryPage routeID="accounts" />;
+}
+
+export function ProductAWSCoveragePage() {
+  return <ProductAWSInventoryPage routeID="coverage" />;
 }
 
 export function ProductAWSIdentitiesPage() {
@@ -24066,6 +24125,8 @@ export function ProductShellLayout() {
     if (!scope) {
       return [];
     }
+    const currentEnvironmentID = environmentIDFromSearch(location.search);
+    const domainCommandPath = (path: string) => appendEnvironmentQuery(path, currentEnvironmentID);
     const items: CommandPaletteItem[] = [
       {
         id: 'overview',
@@ -24082,14 +24143,21 @@ export function ProductShellLayout() {
         label: 'AWS',
         description: 'AWS machine identity control center',
         keywords: ['aws', 'cloud', 'iam', 'identity'],
-        path: `${basePath}/aws`
+        path: domainCommandPath(`${basePath}/aws`)
+      });
+      items.push({
+        id: 'aws-coverage',
+        label: 'AWS coverage',
+        description: 'Account, region, service, and collector coverage dashboard',
+        keywords: ['aws', 'coverage', 'account', 'region', 'collector'],
+        path: domainCommandPath(`${basePath}/aws/coverage`)
       });
       items.push({
         id: 'aws-findings',
         label: 'AWS findings',
         description: 'Domain-scoped AWS risk queue',
         keywords: ['aws', 'findings', 'risk', 'iam'],
-        path: `${basePath}/aws/findings`
+        path: domainCommandPath(`${basePath}/aws/findings`)
       });
       if (sourceAvailability.aws.available) {
         items.push({
@@ -24097,7 +24165,7 @@ export function ProductShellLayout() {
           label: 'Connect AWS',
           description: 'Start AWS account and identity onboarding',
           keywords: ['aws', 'connect', 'account', 'role'],
-          path: `${basePath}/aws/connect`
+          path: domainCommandPath(`${basePath}/aws/connect`)
         });
       }
     }
@@ -24108,21 +24176,21 @@ export function ProductShellLayout() {
         label: 'GitHub',
         description: 'Repositories, Actions/OIDC, and agentic risk',
         keywords: ['github', 'repositories', 'actions', 'oidc'],
-        path: `${basePath}/github`
+        path: domainCommandPath(`${basePath}/github`)
       });
       items.push({
         id: 'github-findings',
         label: 'GitHub findings',
         description: 'Repository risk inside the GitHub section',
         keywords: ['github', 'findings', 'repository', 'triage'],
-        path: `${basePath}/github/findings`
+        path: domainCommandPath(`${basePath}/github/findings`)
       });
       items.push({
         id: 'github-agentic-risk',
         label: 'GitHub AI / Agentic Risk',
         description: 'Agent identities, MCP tools, prompts, secrets, and workflow trust paths',
         keywords: ['github', 'agentic', 'ai', 'mcp', 'tools', 'prompts', 'secrets', 'workflow'],
-        path: `${basePath}/github/agentic-risk`
+        path: domainCommandPath(`${basePath}/github/agentic-risk`)
       });
       if (sourceAvailability.github.available) {
         items.push({
@@ -24130,7 +24198,7 @@ export function ProductShellLayout() {
           label: 'Connect GitHub',
           description: 'Start GitHub App onboarding',
           keywords: ['github', 'connect', 'app', 'install'],
-          path: `${basePath}/github/connect`
+          path: domainCommandPath(`${basePath}/github/connect`)
         });
       }
     }
@@ -24141,14 +24209,14 @@ export function ProductShellLayout() {
         label: 'Kubernetes',
         description: 'Clusters, workloads, service accounts, and RBAC',
         keywords: ['kubernetes', 'k8s', 'clusters', 'rbac'],
-        path: `${basePath}/kubernetes`
+        path: domainCommandPath(`${basePath}/kubernetes`)
       });
       items.push({
         id: 'kubernetes-findings',
         label: 'Kubernetes findings',
         description: 'Cluster and service-account risk queue',
         keywords: ['kubernetes', 'k8s', 'findings', 'rbac'],
-        path: `${basePath}/kubernetes/findings`
+        path: domainCommandPath(`${basePath}/kubernetes/findings`)
       });
       if (sourceAvailability.kubernetes.available) {
         items.push({
@@ -24156,7 +24224,7 @@ export function ProductShellLayout() {
           label: 'Connect Kubernetes',
           description: 'Start cluster onboarding',
           keywords: ['kubernetes', 'k8s', 'connect', 'cluster'],
-          path: `${basePath}/kubernetes/connect`
+          path: domainCommandPath(`${basePath}/kubernetes/connect`)
         });
       }
     }
@@ -24192,7 +24260,7 @@ export function ProductShellLayout() {
       }
     );
     return items;
-  }, [basePath, navigate, scope, sourceAvailability]);
+  }, [basePath, location.search, navigate, scope, sourceAvailability]);
 
   useEffect(() => {
     setOpenDomainFlyout(null);
