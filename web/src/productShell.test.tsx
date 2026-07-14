@@ -8192,7 +8192,7 @@ describe('Domain-first app routes', () => {
     );
   });
 
-  it('starts AWS connect with the single-account wizard instead of the raw role form', async () => {
+  it('starts AWS connect with the single-account CloudFormation wizard', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
     const api = await import('./api/client');
@@ -8253,14 +8253,14 @@ describe('Domain-first app routes', () => {
     );
 
     expect(await screen.findByRole('heading', { level: 3, name: /Choose what Identrail should cover/i })).toBeInTheDocument();
-    expect(screen.getByRole('list', { name: 'AWS setup scope options' })).toHaveTextContent('Single account');
-    expect(screen.getByText('All accounts')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'AWS setup scope options' })).toHaveTextContent('This AWS account');
     expect(screen.queryByLabelText('Stack role ARN')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production AWS' } });
     fireEvent.change(screen.getByLabelText('Home region'), { target: { value: 'ap-south-1' } });
-    fireEvent.click(screen.getByRole('button', { name: /Connect AWS account/i }));
+    fireEvent.click(screen.getAllByRole('button', { name: /Connect AWS account/i })[0]);
 
     await waitFor(() =>
       expect(api.apiClient.startAWSConnector).toHaveBeenCalledWith(
@@ -8273,14 +8273,11 @@ describe('Domain-first app routes', () => {
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
-    expect(await screen.findByRole('link', { name: /Open AWS stack/i })).toHaveAttribute(
-      'href',
-      'https://console.aws.amazon.com/cloudformation'
-    );
+    expect(await screen.findAllByRole('link', { name: /Open AWS stack/i })).toHaveLength(2);
     expect(screen.getByLabelText('Stack role ARN')).toHaveValue('');
   });
 
-  it('keeps the AWS manual role fallback usable when connector setup is feature-off', async () => {
+  it('shows a clear AWS connector setup error instead of falling back to manual role fields', async () => {
     mockBackendFeatures({ github: true, kubernetes: true });
     mockConnectorFeatureFlags({ aws: false, github: true, kubernetes: true });
     const api = await import('./api/client');
@@ -8300,10 +8297,10 @@ describe('Domain-first app routes', () => {
       ]
     });
     vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
-    vi.spyOn(api.apiClient, 'upsertAWSProjectConnection').mockResolvedValue({
-      connection: { ...connectedAWS, region: 'eu-west-2', role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly' }
-    });
-    const startAWSConnector = vi.spyOn(api.apiClient, 'startAWSConnector');
+    vi.spyOn(api.apiClient, 'startAWSConnector').mockRejectedValue(
+      new api.ApiError('Request failed (404)', 404)
+    );
+    const upsertAWSProjectConnection = vi.spyOn(api.apiClient, 'upsertAWSProjectConnection');
 
     const { ProductAWSConnectPage } = await import('./productShell');
 
@@ -8315,31 +8312,231 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('heading', { level: 4, name: /Validate an existing role/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Connect AWS account/i })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Production AWS' } });
-    fireEvent.change(screen.getByLabelText('Home region'), { target: { value: 'eu-west-2' } });
-    fireEvent.change(screen.getByLabelText('Role ARN'), {
-      target: { value: 'arn:aws:iam::123456789012:role/IdentrailReadOnly' }
-    });
-    fireEvent.change(screen.getByLabelText('External ID'), { target: { value: 'external-guard' } });
-    fireEvent.click(screen.getByRole('button', { name: /Validate and save AWS/i }));
+    expect(await screen.findByRole('heading', { level: 4, name: /Connect with CloudFormation/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
 
-    await waitFor(() =>
-      expect(api.apiClient.upsertAWSProjectConnection).toHaveBeenCalledWith(
-        'workspace-a',
-        'production',
-        expect.objectContaining({
-          role_arn: 'arn:aws:iam::123456789012:role/IdentrailReadOnly',
-          external_id: 'external-guard',
-          region: 'eu-west-2',
-          display_name: 'Production AWS'
-        }),
-        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
-      )
+    fireEvent.click(screen.getAllByRole('button', { name: /Connect AWS account/i })[0]);
+
+    expect(await screen.findAllByText(/AWS account connection is not enabled for this deployment/i)).toHaveLength(1);
+    expect(upsertAWSProjectConnection).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
+  });
+
+  it('preserves AWS connector 404 details for stale environments', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+    vi.spyOn(api.apiClient, 'startAWSConnector').mockRejectedValue(
+      new api.ApiError('project not found', 404)
     );
-    expect(startAWSConnector).not.toHaveBeenCalled();
-    expect(await screen.findByText('AWS connector is active.')).toBeInTheDocument();
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click((await screen.findAllByRole('button', { name: /Connect AWS account/i }))[0]);
+
+    expect(await screen.findAllByText('project not found')).toHaveLength(1);
+    expect(screen.queryByText(/AWS account connection is not enabled for this deployment/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
+  });
+
+  it('explains missing AWS CloudFormation connector configuration', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+    vi.spyOn(api.apiClient, 'startAWSConnector').mockRejectedValue(
+      new api.ApiError('aws connector cloudformation flow is not configured', 503)
+    );
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click((await screen.findAllByRole('button', { name: /Connect AWS account/i }))[0]);
+
+    expect(await screen.findAllByText(/AWS CloudFormation setup is not configured for this deployment/i)).toHaveLength(1);
+    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
+  });
+
+  it('shows AWS operational panels when connector health is warning', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-connector-1',
+        health_status: 'warning',
+        diagnostics: [{ code: 'permission_warning', message: 'Permission checks need attention.' }]
+      }
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 3, name: /Permission health/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: /Platform readiness/i })).toBeInTheDocument();
+  });
+
+  it('keeps edited AWS role drafts when polling status returns older connection data', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'pollAWSConnector').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        role_arn: 'arn:aws:iam::123456789012:role/OlderConnectorRole'
+      }
+    });
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const roleInput = await screen.findByLabelText('Stack role ARN');
+    fireEvent.change(roleInput, { target: { value: 'arn:aws:iam::123456789012:role/CorrectedConnectorRole' } });
+    fireEvent.click(within(screen.getByLabelText('AWS account setup')).getByRole('button', { name: /Refresh status/i }));
+
+    await waitFor(() => expect(api.apiClient.pollAWSConnector).toHaveBeenCalled());
+    expect(screen.getByLabelText('Stack role ARN')).toHaveValue('arn:aws:iam::123456789012:role/CorrectedConnectorRole');
+  });
+
+  it('keeps legacy role-only AWS connections out of connector validation', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    mockAWSBaseline(api);
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...connectedAWS,
+        connector_id: undefined,
+        deployment_method: 'manual',
+        onboarding_status: 'connected',
+        setup_summary: 'Existing IAM role connection.'
+      }
+    });
+    const validateAWSConnector = vi.spyOn(api.apiClient, 'validateAWSConnector');
+
+    const { ProductAWSConnectPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/connect?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/connect" element={<ProductAWSConnectPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 3, name: /Choose what Identrail should cover/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Stack role ARN')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Validate connection/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Start CloudFormation setup to move it onto the connector flow/i)).toBeInTheDocument();
+    expect(validateAWSConnector).not.toHaveBeenCalled();
   });
 
   it('renders the Kubernetes Control Center with connected cluster coverage', async () => {
@@ -8913,6 +9110,7 @@ describe('Domain-first app routes', () => {
     });
 
     expect(await screen.findByRole('heading', { level: 3, name: /Choose what Identrail should cover/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Role ARN')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Stack role ARN')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Display name')).toHaveValue('');
     expect(screen.getByLabelText('Home region')).toHaveValue('us-east-1');
@@ -8967,7 +9165,7 @@ describe('Domain-first app routes', () => {
       </MemoryRouter>
     );
 
-    const launchButton = await screen.findByRole('button', { name: /Connect AWS account/i });
+    const launchButton = (await screen.findAllByRole('button', { name: /Connect AWS account/i }))[0];
     fireEvent.click(launchButton);
     await waitFor(() =>
       expect(api.apiClient.startAWSConnector).toHaveBeenCalledWith(
@@ -9006,6 +9204,7 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('combobox', { name: 'Environment' })).toHaveValue('staging');
     expect(screen.queryByLabelText('External ID')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Open AWS stack/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/AWS CloudFormation launch is ready/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Preview permissions/i })).not.toBeInTheDocument();
   });

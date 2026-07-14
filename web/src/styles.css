@@ -24016,7 +24016,7 @@ html[data-theme='light'] .idt-app-shell-screen select {
 
 .idt-aws-scope-option.is-planned {
   cursor: not-allowed;
-  opacity: 0.7;
+  opacity: 0.72;
 }
 
 .idt-aws-wizard-step {
@@ -24092,6 +24092,18 @@ html[data-theme='light'] .idt-app-shell-screen select {
   font-weight: 760;
 }
 
+.idt-aws-setup-note {
+  border: 1px solid rgba(255, 153, 0, 0.38);
+  border-radius: 8px;
+  margin: 0;
+  padding: 0.68rem 0.76rem;
+  background: rgba(255, 153, 0, 0.08);
+  color: #ffd08a;
+  font-size: 0.86rem;
+  font-weight: 760;
+  line-height: 1.45;
+}
+
 .idt-aws-connect-summary {
   display: grid;
   gap: 0.75rem;
@@ -24105,6 +24117,14 @@ html[data-theme='light'] .idt-app-shell-screen select {
   display: grid;
   gap: 1rem;
   min-width: 0;
+}
+
+.idt-aws-summary-actions {
+  align-items: stretch;
+}
+
+.idt-aws-summary-actions .idt-btn {
+  justify-content: center;
 }
 
 .idt-aws-mini-roadmap {
