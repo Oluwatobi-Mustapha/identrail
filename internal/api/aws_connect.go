@@ -166,6 +166,7 @@ type AWSConnectorStartResponse struct {
 	ExternalID             string                                  `json:"external_id"`
 	LaunchURL              string                                  `json:"launch_url"`
 	TemplateURL            string                                  `json:"template_url"`
+	IdentrailAccountID     string                                  `json:"identrail_account_id,omitempty"`
 	RoleName               string                                  `json:"role_name"`
 	StackName              string                                  `json:"stack_name"`
 	PolicyHash             string                                  `json:"policy_hash"`
@@ -328,6 +329,9 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	if err != nil {
 		return AWSConnectorStartResponse{}, err
 	}
+	if setup.ScopeType == AWSConnectorScopeManualRole && setup.DeploymentMethod == AWSConnectorDeploymentManual {
+		return s.startAWSManualConnector(ctx, project, scope, request, setup)
+	}
 	if setup.ScopeType != AWSConnectorScopeSingleAccount || setup.DeploymentMethod != AWSConnectorDeploymentCloudFormation {
 		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
 	}
@@ -436,7 +440,181 @@ func (s *Service) StartAWSConnector(ctx context.Context, request AWSConnectorSta
 	}
 	status := s.awsConnectionStatusFromStored(ctx, stored)
 	status.ExternalID = externalID
-	return awsConnectorStartResponse(status, externalID, launchURL, templateURL, roleName, stackName, policyHash), nil
+	return awsConnectorStartResponse(status, externalID, launchURL, templateURL, accountID, roleName, stackName, policyHash), nil
+}
+
+func (s *Service) startAWSManualConnector(
+	ctx context.Context,
+	project db.TenancyProject,
+	scope db.Scope,
+	request AWSConnectorStartRequest,
+	setup awsConnectorSetupContract,
+) (AWSConnectorStartResponse, error) {
+	connectorID := strings.TrimSpace(request.ConnectorID)
+	if connectorID == "" {
+		connectorID = "aws-" + uuid.NewString()
+	} else {
+		stored, err := s.Store.GetTenancyConnector(ctx, project.WorkspaceID, project.ProjectID, connectorID)
+		if err == nil {
+			return s.resumeAWSManualConnectorStart(ctx, stored)
+		}
+		if !errors.Is(err, db.ErrNotFound) {
+			return AWSConnectorStartResponse{}, err
+		}
+	}
+	displayName := strings.TrimSpace(request.DisplayName)
+	if displayName == "" {
+		displayName = "AWS account"
+	}
+	if err := validateAWSConnectorStartIdentity(connectorID, displayName); err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	externalID, err := generateAWSExternalID()
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	accountID := strings.TrimSpace(s.AWSAccountID)
+	if accountID == "" {
+		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
+	}
+	now := s.Now().UTC()
+	region := firstAWSRegion(setup.TargetRegions)
+	if region == "" {
+		region = "us-east-1"
+	}
+	capabilities, _, err := s.resolveAWSConnectorCapabilities(domain.DefaultConnectorCapabilities())
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	onboardingStatus := AWSConnectorOnboardingDraft
+	metadata := map[string]any{
+		"external_id_configured": true,
+		"region":                 region,
+		"permission_checks":      []AWSConnectionPermissionCheck{},
+		"diagnostics":            []AWSConnectionDiagnostic{},
+		"capabilities":           capabilities,
+		"last_started_at":        now.Format(time.RFC3339Nano),
+	}
+	applyAWSConnectorSetupMetadata(metadata, setup, onboardingStatus)
+	connector := db.TenancyConnector{
+		TenantID:            scope.TenantID,
+		WorkspaceID:         project.WorkspaceID,
+		ProjectID:           project.ProjectID,
+		ConnectorID:         connectorID,
+		Type:                domain.ConnectorTypeAWS,
+		DisplayName:         displayName,
+		Status:              domain.ConnectorStatusPending,
+		SecretProvider:      "secret-envelope",
+		SecretRefID:         awsExternalIDSecretRef(connectorID),
+		SecretRefVersion:    s.connectorSecretManager().ActiveKeyVersion(),
+		SecretLastRotatedAt: &now,
+		UpdatedAt:           now,
+	}
+	state := db.TenancyConnectorState{
+		TenantID:     scope.TenantID,
+		WorkspaceID:  project.WorkspaceID,
+		ProjectID:    project.ProjectID,
+		ConnectorID:  connectorID,
+		HealthStatus: "unknown",
+		Metadata:     metadata,
+		ObservedAt:   now,
+		UpdatedAt:    now,
+	}
+	envelope, err := s.newAWSExternalIDSecretEnvelope(scope.TenantID, project.WorkspaceID, project.ProjectID, connectorID, externalID, now)
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	stored, created, err := s.Store.CreateTenancyConnectorWithSecretEnvelopeIfAbsent(ctx, connector, state, envelope)
+	if err != nil {
+		return AWSConnectorStartResponse{}, fmt.Errorf("create manual aws connector: %w", err)
+	}
+	if !created {
+		return s.resumeAWSManualConnectorStart(ctx, stored)
+	}
+	status := s.awsConnectionStatusFromStored(ctx, stored)
+	status.ExternalID = externalID
+	status.Region = firstNonEmptyAWSValue(status.Region, region)
+	return awsConnectorStartResponse(status, externalID, "", "", accountID, "", "", ""), nil
+}
+
+func (s *Service) resumeAWSManualConnectorStart(ctx context.Context, stored db.TenancyConnectorWithState) (AWSConnectorStartResponse, error) {
+	if stored.Connector.Type != domain.ConnectorTypeAWS {
+		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+	}
+	defaultScope, defaultDeployment := awsMetadataSetupFallback(stored.State.Metadata)
+	setup := awsMetadataSetupContract(stored.State.Metadata, defaultScope, defaultDeployment)
+	if setup.ScopeType != AWSConnectorScopeManualRole || setup.DeploymentMethod != AWSConnectorDeploymentManual {
+		return AWSConnectorStartResponse{}, ErrInvalidAWSConnectionRequest
+	}
+	externalID, externalIDConfigured, err := s.awsExternalIDFromStoredStrict(ctx, stored)
+	if err != nil {
+		return AWSConnectorStartResponse{}, err
+	}
+	if !externalIDConfigured || externalID == "" {
+		var recoverErr error
+		stored, externalID, recoverErr = s.recoverAWSManualConnectorExternalID(ctx, stored)
+		if recoverErr != nil {
+			return AWSConnectorStartResponse{}, recoverErr
+		}
+	}
+	accountID := strings.TrimSpace(s.AWSAccountID)
+	if accountID == "" {
+		return AWSConnectorStartResponse{}, ErrAWSConnectorConfigUnavailable
+	}
+	status := s.awsConnectionStatusFromStored(ctx, stored)
+	status.ExternalID = externalID
+	status.ExternalIDConfigured = true
+	return awsConnectorStartResponse(status, externalID, "", "", accountID, "", "", ""), nil
+}
+
+func (s *Service) recoverAWSManualConnectorExternalID(ctx context.Context, stored db.TenancyConnectorWithState) (db.TenancyConnectorWithState, string, error) {
+	externalID, err := generateAWSExternalID()
+	if err != nil {
+		return db.TenancyConnectorWithState{}, "", err
+	}
+	rotatedAt := s.Now().UTC()
+	secret, err := s.newAWSExternalIDSecretEnvelope(
+		stored.Connector.TenantID,
+		stored.Connector.WorkspaceID,
+		stored.Connector.ProjectID,
+		stored.Connector.ConnectorID,
+		externalID,
+		rotatedAt,
+	)
+	if err != nil {
+		return db.TenancyConnectorWithState{}, "", err
+	}
+	secret, created, err := s.Store.CreateTenancyConnectorSecretEnvelopeIfAbsent(
+		db.WithScope(ctx, db.Scope{TenantID: stored.Connector.TenantID, WorkspaceID: stored.Connector.WorkspaceID}),
+		secret,
+	)
+	if err != nil {
+		return db.TenancyConnectorWithState{}, "", fmt.Errorf("recover manual aws connector external id envelope: %w", err)
+	}
+	if !created {
+		recoveredExternalID, err := s.decryptAWSExternalIDEnvelope(stored.Connector, secret)
+		if err != nil {
+			return db.TenancyConnectorWithState{}, "", err
+		}
+		externalID = recoveredExternalID
+	}
+
+	metadata := copyAWSMetadata(stored.State.Metadata)
+	delete(metadata, "external_id")
+	metadata["external_id_configured"] = strings.TrimSpace(externalID) != ""
+	metadata["last_started_at"] = rotatedAt.Format(time.RFC3339Nano)
+	stored.State.Metadata = metadata
+	stored.State.ObservedAt = rotatedAt
+	stored.State.UpdatedAt = rotatedAt
+	stored.Connector.SecretProvider = "secret-envelope"
+	stored.Connector.SecretRefID = awsExternalIDSecretRef(stored.Connector.ConnectorID)
+	stored.Connector.SecretRefVersion = s.connectorSecretManager().ActiveKeyVersion()
+	stored.Connector.SecretLastRotatedAt = &rotatedAt
+	stored.Connector.UpdatedAt = rotatedAt
+	if err := s.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
+		return db.TenancyConnectorWithState{}, "", fmt.Errorf("persist recovered manual aws connector external id: %w", err)
+	}
+	return stored, externalID, nil
 }
 
 func (s *Service) resumeAWSConnectorStart(
@@ -535,7 +713,7 @@ func (s *Service) resumeAWSConnectorStart(
 	status.LaunchURL = firstNonEmptyAWSValue(launchURL, status.LaunchURL)
 	status.TemplateURL = firstNonEmptyAWSValue(status.TemplateURL, templateURL)
 	status.PolicyHash = firstNonEmptyAWSValue(status.PolicyHash, policyHash)
-	return awsConnectorStartResponse(status, externalID, launchURL, status.TemplateURL, roleName, stackName, policyHash), nil
+	return awsConnectorStartResponse(status, externalID, launchURL, status.TemplateURL, accountID, roleName, stackName, policyHash), nil
 }
 
 func persistRecoveredAWSConnectorLaunchState(
@@ -640,13 +818,20 @@ func publicAWSConnectionStatus(status AWSConnectionStatus) AWSConnectionStatus {
 	return status
 }
 
-func awsConnectorStartResponse(status AWSConnectionStatus, externalID string, launchURL string, templateURL string, roleName string, stackName string, policyHash string) AWSConnectorStartResponse {
+func awsConnectorSetupPublicConnectionStatus(status AWSConnectionStatus) AWSConnectionStatus {
+	status = publicAWSConnectionStatus(status)
+	status.ExternalID = ""
+	return status
+}
+
+func awsConnectorStartResponse(status AWSConnectionStatus, externalID string, launchURL string, templateURL string, identrailAccountID string, roleName string, stackName string, policyHash string) AWSConnectorStartResponse {
 	return AWSConnectorStartResponse{
-		Connection:             publicAWSConnectionStatus(status),
+		Connection:             awsConnectorSetupPublicConnectionStatus(status),
 		ConnectorID:            status.ConnectorID,
 		ExternalID:             externalID,
 		LaunchURL:              launchURL,
 		TemplateURL:            templateURL,
+		IdentrailAccountID:     identrailAccountID,
 		RoleName:               roleName,
 		StackName:              stackName,
 		PolicyHash:             policyHash,
@@ -719,7 +904,7 @@ func (s *Service) ValidateAWSConnector(ctx context.Context, connectorID string, 
 	if awsConnectorValidateRequestHasSetupOverride(request) {
 		return AWSConnectionStatus{}, ErrInvalidAWSConnectionRequest
 	}
-	return s.UpsertAWSConnection(ctx, project.WorkspaceID, project.ProjectID, AWSConnectionUpsertRequest{
+	status, err := s.UpsertAWSConnection(ctx, project.WorkspaceID, project.ProjectID, AWSConnectionUpsertRequest{
 		ConnectorID:            connectorID,
 		DisplayName:            stored.Connector.DisplayName,
 		RoleARN:                request.RoleARN,
@@ -737,6 +922,10 @@ func (s *Service) ValidateAWSConnector(ctx context.Context, connectorID string, 
 		allowSetupContract:     true,
 		preserveLaunchMetadata: awsConnectorLaunchMetadataForExternalID(stored.State.Metadata, externalID),
 	})
+	if err != nil {
+		return AWSConnectionStatus{}, err
+	}
+	return awsConnectorSetupPublicConnectionStatus(status), nil
 }
 
 func (s *Service) PollAWSConnector(ctx context.Context, connectorID string, request AWSConnectorPollRequest) (AWSConnectionStatus, error) {
@@ -751,7 +940,7 @@ func (s *Service) PollAWSConnector(ctx context.Context, connectorID string, requ
 	if err != nil {
 		return AWSConnectionStatus{}, err
 	}
-	return publicAWSConnectionStatus(s.awsConnectionStatusFromStored(ctx, stored)), nil
+	return awsConnectorSetupPublicConnectionStatus(s.awsConnectionStatusFromStored(ctx, stored)), nil
 }
 
 func (s *Service) AWSConnectorPolicy(ctx context.Context, connectorID string, request AWSConnectorPollRequest) (AWSConnectorPolicyResponse, error) {
@@ -1241,6 +1430,9 @@ func awsConnectorNextActions(setup awsConnectorSetupContract, onboardingStatus A
 	}
 	if awsConnectorDeploymentIsStackSet(setup.DeploymentMethod) {
 		return []AWSConnectorNextAction{AWSConnectorNextActionOpenStackSet, AWSConnectorNextActionRefreshStatus}
+	}
+	if setup.ScopeType == AWSConnectorScopeManualRole || setup.DeploymentMethod == AWSConnectorDeploymentManual {
+		return []AWSConnectorNextAction{AWSConnectorNextActionValidateRole, AWSConnectorNextActionRefreshStatus}
 	}
 	return []AWSConnectorNextAction{AWSConnectorNextActionLaunchStack, AWSConnectorNextActionValidateRole, AWSConnectorNextActionRefreshStatus}
 }

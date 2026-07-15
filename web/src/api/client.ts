@@ -9652,6 +9652,7 @@ export type AWSConnectorStartResponse = {
   external_id: string;
   launch_url: string;
   template_url: string;
+  identrail_account_id?: string;
   role_name: string;
   stack_name: string;
   policy_hash: string;

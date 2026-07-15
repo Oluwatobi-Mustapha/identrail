@@ -11513,6 +11513,9 @@ components:
         template_url:
           type: string
           format: uri
+        identrail_account_id:
+          type: string
+          description: AWS account ID that should be trusted by manually managed IAM roles.
         role_name:
           type: string
         stack_name:
