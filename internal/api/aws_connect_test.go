@@ -618,6 +618,95 @@ func TestRouterAWSConnectionOnboardingReturnsTrustRemediation(t *testing.T) {
 	}
 }
 
+func TestRouterAWSConnectionDiagnosticsRedactExternalID(t *testing.T) {
+	validator := &fakeAWSConnectorValidator{
+		result: AWSConnectionValidationResult{
+			PermissionChecks: []AWSConnectionPermissionCheck{{
+				Name:        "sts:AssumeRole",
+				Passed:      false,
+				Message:     "AWS rejected External ID secret-external-id-value.",
+				Remediation: "Replace secret-external-id-value in the trust policy.",
+			}},
+			Diagnostics: []AWSConnectionDiagnostic{{
+				Code:        "external_id_mismatch",
+				Message:     "Trust policy expected a different External ID than secret-external-id-value.",
+				Remediation: "Copy secret-external-id-value from setup context only.",
+				EvidenceRef: "aws-connector:secret-external-id-value",
+			}},
+		},
+	}
+	r := newAWSConnectionTestRouter(t, validator)
+
+	resp := doAWSConnectionAPI(t, r, http.MethodPost, "/v1/workspaces/workspace-a/projects/project-1/aws/connection", `{
+		"role_arn":"arn:aws:iam::123456789012:role/BadTrustRole",
+		"external_id":"secret-external-id-value"
+	}`)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected diagnostic response 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	if strings.Contains(resp.Body.String(), "secret-external-id-value") {
+		t.Fatalf("diagnostics must redact external id, got %s", resp.Body.String())
+	}
+
+	var body struct {
+		Connection AWSConnectionStatus `json:"connection"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	var externalIDDiagnostic *AWSConnectionDiagnostic
+	for index := range body.Connection.Diagnostics {
+		if body.Connection.Diagnostics[index].Code == "external_id_mismatch" {
+			externalIDDiagnostic = &body.Connection.Diagnostics[index]
+			break
+		}
+	}
+	if externalIDDiagnostic == nil {
+		t.Fatalf("expected external-id diagnostic, got %+v", body.Connection.Diagnostics)
+	}
+	if !strings.Contains(externalIDDiagnostic.Message, "[redacted]") {
+		t.Fatalf("expected redacted diagnostic text, got %+v", *externalIDDiagnostic)
+	}
+	if !strings.Contains(externalIDDiagnostic.EvidenceRef, "[redacted]") {
+		t.Fatalf("expected redacted diagnostic evidence ref, got %+v", *externalIDDiagnostic)
+	}
+}
+
+func TestAWSSetupDiagnosticCodePrefersExplicitCodes(t *testing.T) {
+	cases := []struct {
+		name string
+		code string
+		text string
+		want string
+	}{
+		{
+			name: "access denied maps before external id prose",
+			code: "aws_access_denied",
+			text: "AWS denied AssumeRole; update the trust policy External ID condition if your organization requires one.",
+			want: "assume_role_failed",
+		},
+		{
+			name: "known assume role code wins over prose",
+			code: "assume_role_failed",
+			text: "The remediation mentions external ID, but the API code is already normalized.",
+			want: "assume_role_failed",
+		},
+		{
+			name: "known external id code is preserved",
+			code: "external_id_mismatch",
+			text: "AssumeRole failed while validating the role.",
+			want: "external_id_mismatch",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := normalizeAWSSetupDiagnosticCode(tc.code, tc.text); got != tc.want {
+				t.Fatalf("normalizeAWSSetupDiagnosticCode(%q, %q) = %q, want %q", tc.code, tc.text, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRouterAWSConnectionRejectsInvalidRoleARN(t *testing.T) {
 	r := newAWSConnectionTestRouter(t, &fakeAWSConnectorValidator{})
 
