@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- Add **organization and selected-scope onboarding UI** to the Connect AWS
+  wizard (#1753). Operators can now pick `AWS Organization`, `Selected OUs`,
+  or `Selected accounts` alongside the existing single-account and manual
+  paths. Target region, OU, account, and exclusion inputs feed the
+  service-managed StackSet backend from #1752, and an auto-onboard toggle is
+  exposed for organization and selected-OU deployments. Client-side validation
+  blocks empty or malformed targets before the API call is made. A new
+  StackSet progress panel renders pending / active / degraded / failed /
+  permission-denied / resumable counts, per-instance state, coverage
+  expectation, and recovery actions returned by the backend. Blocking
+  prerequisites disable the launch button, and stale in-flight starts are
+  dropped after an environment switch.
 - Add a **GitHub repository intelligence drilldown** at
   `/github/repositories/detail?repository=<owner/name>` (#1712). The new page
   brings together the latest scan state with an explicit complete / partial

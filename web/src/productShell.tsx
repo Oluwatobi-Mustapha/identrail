@@ -35,6 +35,8 @@ import {
   type AuthConfigResponse,
   type AWSCapabilityPermissionTier,
   type AWSConnectorStartResponse,
+  type AWSConnectorScopeType,
+  type AWSConnectorDeploymentMethod,
   type AWSConnectionStatus,
   type AWSCodeBuildServiceRoleInventoryResult,
   type AWSCodeBuildServiceRoleRecord,
@@ -166,6 +168,10 @@ import {
   type AWSOrganizationsTopologyResult,
   type AWSStackSetOnboardingResult,
   type AWSStackSetOnboardingInstance,
+  type AWSStackSetOnboardingPrerequisite,
+  type AWSStackSetOnboardingSummary,
+  type AWSStackSetOnboardingCoverageExpectation,
+  type AWSStackSetOnboardingRecoveryAction,
   type AWSSecretsManagerMetadataInventoryResult,
   type AWSSecretsManagerMetadataRecord,
   type AWSSQSSNSReachabilityInventoryResult,
@@ -420,8 +426,252 @@ const GITHUB_REPOSITORY_SPLIT_PATTERN = /[\n,]+/;
 const AWS_ROLE_ARN_PATTERN = /^arn:(aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_/-]{1,512}$/;
 const AWS_REGION_PATTERN = /^[a-z]{2}(-gov)?-[a-z]+-[0-9]$/;
 
-type AWSSetupMode = 'cloudformation' | 'manual';
+type AWSSetupMode = 'cloudformation' | 'organization' | 'selected_ous' | 'selected_accounts' | 'manual';
 type AWSPartition = 'aws' | 'aws-us-gov' | 'aws-cn';
+
+const AWS_OU_ID_PATTERN = /^ou-[a-z0-9]{4,32}-[a-z0-9]{8,32}$/;
+const AWS_ORG_ROOT_ID_PATTERN = /^r-[a-z0-9]{4,32}$/;
+const AWS_ACCOUNT_ID_PATTERN = /^[0-9]{12}$/;
+
+function splitScopeTokens(value: string): string[] {
+  return value
+    .split(/[\s,]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function uniqueTokens(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    if (!seen.has(value)) {
+      seen.add(value);
+      out.push(value);
+    }
+  }
+  return out;
+}
+
+function awsSetupModeFromResponse(scopeType: AWSConnectorScopeType): AWSSetupMode {
+  switch (scopeType) {
+    case 'organization':
+      return 'organization';
+    case 'selected_ous':
+      return 'selected_ous';
+    case 'selected_accounts':
+      return 'selected_accounts';
+    case 'manual_role':
+      return 'manual';
+    case 'single_account':
+    default:
+      return 'cloudformation';
+  }
+}
+
+function awsScopeTypeFromMode(mode: AWSSetupMode): AWSConnectorScopeType {
+  switch (mode) {
+    case 'organization':
+      return 'organization';
+    case 'selected_ous':
+      return 'selected_ous';
+    case 'selected_accounts':
+      return 'selected_accounts';
+    case 'manual':
+      return 'manual_role';
+    case 'cloudformation':
+    default:
+      return 'single_account';
+  }
+}
+
+type AWSStackSetContractSnapshot = {
+  scopeType: AWSConnectorScopeType;
+  deploymentMethod: AWSConnectorDeploymentMethod;
+  targetRegions: string[];
+  targetOUIDs: string[];
+  targetAccountIDs: string[];
+  excludedAccountIDs: string[];
+  autoOnboardNewAccounts: boolean;
+  stackSetName: string;
+};
+
+function buildStackSetContractSnapshot(
+  mode: AWSSetupMode,
+  values: {
+    organizationRootID: string;
+    targetRegions: string[];
+    targetOUIDs: string[];
+    targetAccountIDs: string[];
+    excludedAccountIDs: string[];
+    autoOnboardNewAccounts: boolean;
+    stackSetName: string;
+  }
+): AWSStackSetContractSnapshot {
+  const targetOUIDs = (() => {
+    if (mode === 'selected_ous') {
+      return values.targetOUIDs;
+    }
+    if (mode === 'organization' || mode === 'selected_accounts') {
+      return values.organizationRootID ? [values.organizationRootID] : [];
+    }
+    return [];
+  })();
+  const targetAccountIDs = mode === 'selected_accounts' ? values.targetAccountIDs : [];
+  const excludedAccountIDs = mode !== 'selected_accounts' ? values.excludedAccountIDs : [];
+  const autoOnboard = mode === 'organization' || mode === 'selected_ous' ? values.autoOnboardNewAccounts : false;
+  return {
+    scopeType: awsScopeTypeFromMode(mode),
+    // The wizard only issues service-managed StackSet starts today.
+    deploymentMethod: 'stackset_service_managed',
+    targetRegions: [...values.targetRegions],
+    targetOUIDs: [...targetOUIDs],
+    targetAccountIDs: [...targetAccountIDs],
+    excludedAccountIDs: [...excludedAccountIDs],
+    autoOnboardNewAccounts: autoOnboard,
+    stackSetName: values.stackSetName
+  };
+}
+
+function normalizeContractForScope(
+  scopeType: AWSConnectorScopeType,
+  deploymentMethod: AWSConnectorDeploymentMethod,
+  raw: {
+    targetRegions?: string[];
+    targetOUIDs?: string[];
+    targetAccountIDs?: string[];
+    excludedAccountIDs?: string[];
+    autoOnboardNewAccounts?: boolean;
+    stackSetName?: string;
+  }
+): AWSStackSetContractSnapshot {
+  const mode = awsSetupModeFromResponse(scopeType);
+  const rootIDs = (raw.targetOUIDs ?? []).filter((id) => AWS_ORG_ROOT_ID_PATTERN.test(id));
+  const ouIDs = (raw.targetOUIDs ?? []).filter((id) => AWS_OU_ID_PATTERN.test(id));
+  const targetOUIDs = (() => {
+    if (mode === 'selected_ous') {
+      return ouIDs;
+    }
+    if (mode === 'organization' || mode === 'selected_accounts') {
+      return rootIDs.length > 0 ? [rootIDs[0]] : [];
+    }
+    return [];
+  })();
+  const targetAccountIDs = mode === 'selected_accounts' ? [...(raw.targetAccountIDs ?? [])] : [];
+  const excludedAccountIDs = mode !== 'selected_accounts' ? [...(raw.excludedAccountIDs ?? [])] : [];
+  const autoOnboard =
+    mode === 'organization' || mode === 'selected_ous' ? Boolean(raw.autoOnboardNewAccounts) : false;
+  return {
+    scopeType,
+    deploymentMethod,
+    targetRegions: [...(raw.targetRegions ?? [])],
+    targetOUIDs,
+    targetAccountIDs,
+    excludedAccountIDs,
+    autoOnboardNewAccounts: autoOnboard,
+    stackSetName: raw.stackSetName ?? ''
+  };
+}
+
+function contractFromStartResponse(start: AWSConnectorStartResponse): AWSStackSetContractSnapshot {
+  return normalizeContractForScope(start.scope_type, start.deployment_method, {
+    targetRegions: start.target_regions,
+    targetOUIDs: start.target_ou_ids,
+    targetAccountIDs: start.target_account_ids,
+    excludedAccountIDs: start.excluded_account_ids,
+    autoOnboardNewAccounts: start.auto_onboard_new_accounts,
+    stackSetName: start.stack_set_name
+  });
+}
+
+function contractFromConnection(connection: AWSConnectionStatus): AWSStackSetContractSnapshot {
+  return normalizeContractForScope(
+    connection.scope_type ?? 'single_account',
+    connection.deployment_method ?? 'cloudformation',
+    {
+      targetRegions: connection.target_regions,
+      targetOUIDs: connection.target_ou_ids,
+      targetAccountIDs: connection.target_account_ids,
+      excludedAccountIDs: connection.excluded_account_ids,
+      autoOnboardNewAccounts: connection.auto_onboard_new_accounts,
+      stackSetName: connection.stack_set_name
+    }
+  );
+}
+
+function stackSetContractsMatch(a: AWSStackSetContractSnapshot, b: AWSStackSetContractSnapshot): boolean {
+  if (a.scopeType !== b.scopeType) {
+    return false;
+  }
+  if (a.deploymentMethod !== b.deploymentMethod) {
+    // resumeAWSStackSetConnectorStart compares deployment_method exactly, so
+    // a self-managed persisted connector is not resumable from a
+    // service-managed wizard start (or vice versa).
+    return false;
+  }
+  if (a.autoOnboardNewAccounts !== b.autoOnboardNewAccounts) {
+    return false;
+  }
+  if (a.stackSetName && b.stackSetName && a.stackSetName !== b.stackSetName) {
+    return false;
+  }
+  const positionalListsEqual = (left: string[], right: string[]) => {
+    if (left.length !== right.length) {
+      return false;
+    }
+    return left.every((value, index) => value === right[index]);
+  };
+  const unorderedListsEqual = (left: string[], right: string[]) => {
+    if (left.length !== right.length) {
+      return false;
+    }
+    const l = [...left].sort();
+    const r = [...right].sort();
+    return l.every((value, index) => value === r[index]);
+  };
+  return (
+    // target_regions is order-sensitive: the first entry is the StackSet home
+    // region, matching the backend's derivation.
+    positionalListsEqual(a.targetRegions, b.targetRegions) &&
+    // Backend normalizeAWSOUIDs/normalizeAWSAccountIDs sort these lists before
+    // awsConnectorSetupContractsMatch, so ordering doesn't count as drift.
+    unorderedListsEqual(a.targetOUIDs, b.targetOUIDs) &&
+    unorderedListsEqual(a.targetAccountIDs, b.targetAccountIDs) &&
+    unorderedListsEqual(a.excludedAccountIDs, b.excludedAccountIDs)
+  );
+}
+
+const AWS_SCOPE_OPTION_LABELS: Record<AWSSetupMode, { title: string; kicker: string; blurb: string }> = {
+  cloudformation: {
+    kicker: 'Single account',
+    title: 'This AWS account',
+    blurb: 'One-click CloudFormation'
+  },
+  organization: {
+    kicker: 'AWS Organization',
+    title: 'All accounts',
+    blurb: 'Recommended for teams'
+  },
+  selected_ous: {
+    kicker: 'Selected OUs',
+    title: 'Chosen OUs',
+    blurb: 'Pick OUs to onboard'
+  },
+  selected_accounts: {
+    kicker: 'Selected accounts',
+    title: 'Chosen accounts',
+    blurb: 'Pick accounts to onboard'
+  },
+  manual: {
+    kicker: 'Advanced',
+    title: 'Existing IAM role',
+    blurb: 'Use your change process'
+  }
+};
+
+function awsRoleNameFromARN(roleARN: string): string {
+  const match = normalizeValue(roleARN).match(/^arn:(?:aws|aws-us-gov|aws-cn):iam::[0-9]{12}:role\/(.+)$/);
+  return match ? match[1] : '';
+}
 
 function awsPartitionForManualTrustPolicy(roleARN: string, region: string): AWSPartition {
   const arnPartition = normalizeValue(roleARN).match(/^arn:(aws|aws-us-gov|aws-cn):iam::/)?.[1] as AWSPartition | undefined;
@@ -9962,7 +10212,24 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     const requestID = ++stackSetOnboardingRequestRef.current;
     setStackSetOnboarding(null);
     setStackSetOnboardingError('');
-    if (!isAWSCoverageInventoryRoute(routeID) || !scope || !selectedEnvironmentID || !connection?.connector_id) {
+    // Only fetch when the connector is actually a StackSet setup. Otherwise
+    // the backend defaults to a synthetic service-managed success fixture
+    // with fabricated OUs and accounts, which would render as fake
+    // organization progress under a plain single_account/cloudformation
+    // connector on the AWS Accounts and Coverage routes.
+    const isStackSetConnector =
+      connection?.scope_type === 'organization' ||
+      connection?.scope_type === 'selected_ous' ||
+      connection?.scope_type === 'selected_accounts' ||
+      connection?.deployment_method === 'stackset_service_managed' ||
+      connection?.deployment_method === 'stackset_self_managed';
+    if (
+      !isAWSCoverageInventoryRoute(routeID) ||
+      !scope ||
+      !selectedEnvironmentID ||
+      !connection?.connector_id ||
+      !isStackSetConnector
+    ) {
       setStackSetOnboardingLoading(false);
       return;
     }
@@ -10001,6 +10268,8 @@ function ProductAWSInventoryPage({ routeID }: { routeID: AWSInventoryRouteID }) 
     connection?.region,
     connection?.status,
     connection?.health_status,
+    connection?.scope_type,
+    connection?.deployment_method,
   ]);
 
   useEffect(() => {
@@ -20444,6 +20713,551 @@ function ProductConnectorConnectPage({ provider, providerLabel }: ConnectorConne
   );
 }
 
+function awsScopeSummaryLabel(mode: AWSSetupMode, start: AWSConnectorStartResponse | null): string {
+  if (start?.target_summary) {
+    const summary = start.target_summary;
+    if (start.scope_type === 'organization') {
+      const accountCount = summary.account_count_known
+        ? `${summary.account_count} account${summary.account_count === 1 ? '' : 's'}`
+        : 'organization accounts';
+      return `Organization · ${accountCount}`;
+    }
+    if (start.scope_type === 'selected_ous') {
+      return `Selected OUs · ${summary.ou_count} OU${summary.ou_count === 1 ? '' : 's'}`;
+    }
+    if (start.scope_type === 'selected_accounts') {
+      return `Selected accounts · ${summary.account_count} account${summary.account_count === 1 ? '' : 's'}`;
+    }
+  }
+  switch (mode) {
+    case 'organization':
+      return 'AWS Organization';
+    case 'selected_ous':
+      return 'Selected OUs';
+    case 'selected_accounts':
+      return 'Selected accounts';
+    case 'manual':
+      return 'Existing IAM role';
+    case 'cloudformation':
+    default:
+      return 'Single account';
+  }
+}
+
+type AWSStackSetScopeStepProps = {
+  mode: AWSSetupMode;
+  onChooseMode: (mode: AWSSetupMode) => void;
+  organizationRootID: string;
+  targetRegions: string;
+  targetOUIDs: string;
+  targetAccountIDs: string;
+  excludedAccountIDs: string;
+  autoOnboardNewAccounts: boolean;
+  onChangeOrganizationRootID: (value: string) => void;
+  onChangeRegions: (value: string) => void;
+  onChangeOUIDs: (value: string) => void;
+  onChangeAccountIDs: (value: string) => void;
+  onChangeExcludedAccountIDs: (value: string) => void;
+  onToggleAutoOnboard: (value: boolean) => void;
+  onLaunch: () => void;
+  onPreviewPermissions?: () => void;
+  submitting: boolean;
+  canSubmit: boolean;
+  start: AWSConnectorStartResponse | null;
+  parsedRegions: string[];
+  parsedOUs: string[];
+  parsedAccounts: string[];
+  parsedExcludedAccounts: string[];
+  setupMessage: string;
+  persistedSelfManagedUnsupported: boolean;
+};
+
+function AWSStackSetScopeStep(props: AWSStackSetScopeStepProps) {
+  const {
+    mode,
+    onChooseMode,
+    organizationRootID,
+    targetRegions,
+    targetOUIDs,
+    targetAccountIDs,
+    excludedAccountIDs,
+    autoOnboardNewAccounts,
+    onChangeOrganizationRootID,
+    onChangeRegions,
+    onChangeOUIDs,
+    onChangeAccountIDs,
+    onChangeExcludedAccountIDs,
+    onToggleAutoOnboard,
+    onLaunch,
+    onPreviewPermissions,
+    submitting,
+    canSubmit,
+    start,
+    parsedRegions,
+    parsedOUs,
+    parsedAccounts,
+    parsedExcludedAccounts,
+    setupMessage,
+    persistedSelfManagedUnsupported
+  } = props;
+  const isOrganization = mode === 'organization';
+  const isSelectedOUs = mode === 'selected_ous';
+  const isSelectedAccounts = mode === 'selected_accounts';
+  const summaryLine = (() => {
+    if (isOrganization) {
+      return 'Read-only coverage across every active account in this AWS Organization.';
+    }
+    if (isSelectedOUs) {
+      return 'Read-only coverage across the OUs you pick. Auto-onboard covers accounts moved into those OUs later.';
+    }
+    return 'Read-only coverage across the AWS account IDs you pick. Excluded IDs are skipped.';
+  })();
+  const targetCountLabel = (() => {
+    if (isOrganization) {
+      return parsedExcludedAccounts.length > 0
+        ? `All active accounts, minus ${parsedExcludedAccounts.length} excluded`
+        : 'All active accounts';
+    }
+    if (isSelectedOUs) {
+      return `${parsedOUs.length} OU${parsedOUs.length === 1 ? '' : 's'} · ${parsedRegions.length} region${parsedRegions.length === 1 ? '' : 's'}`;
+    }
+    return `${parsedAccounts.length} account${parsedAccounts.length === 1 ? '' : 's'} · ${parsedRegions.length} region${parsedRegions.length === 1 ? '' : 's'}`;
+  })();
+  const prerequisites = start?.prerequisites ?? [];
+  const blockingCount = prerequisites.filter((prereq) => !prereq.satisfied && prereq.severity === 'blocking').length;
+  const launchLabel = (() => {
+    if (submitting) {
+      return 'Preparing StackSet...';
+    }
+    if (start?.launch_url) {
+      return 'Prepare StackSet again';
+    }
+    return 'Launch StackSet setup';
+  })();
+  return (
+    <div className="idt-aws-wizard-step">
+      <div className="idt-aws-step-index" aria-hidden="true">2</div>
+      <div className="idt-aws-step-body">
+        <div className="idt-aws-step-heading">
+          <div>
+            <h4>Set the coverage scope</h4>
+            <p>{summaryLine}</p>
+          </div>
+          <span>{targetCountLabel}</span>
+        </div>
+
+        {(isSelectedOUs || isSelectedAccounts) ? (
+          <div className="idt-aws-scope-subtoggle" role="tablist" aria-label="Selected scope type">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={isSelectedOUs}
+              className={`idt-aws-scope-subtoggle-option ${isSelectedOUs ? 'is-selected' : ''}`}
+              onClick={() => onChooseMode('selected_ous')}
+            >
+              OU IDs
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={isSelectedAccounts}
+              className={`idt-aws-scope-subtoggle-option ${isSelectedAccounts ? 'is-selected' : ''}`}
+              onClick={() => onChooseMode('selected_accounts')}
+            >
+              Account IDs
+            </button>
+          </div>
+        ) : null}
+
+        <div className="idt-aws-scope-fields">
+          <label>
+            Target regions
+            <input
+              value={targetRegions}
+              onChange={(event) => onChangeRegions(event.target.value)}
+              placeholder="us-east-1, us-west-2"
+              aria-describedby="idt-aws-scope-regions-hint"
+            />
+            <small id="idt-aws-scope-regions-hint" className="idt-aws-scope-hint">
+              Comma or space separated AWS region codes.
+            </small>
+          </label>
+
+          {(isOrganization || isSelectedAccounts) ? (
+            <label>
+              Organization root ID
+              <input
+                value={organizationRootID}
+                onChange={(event) => onChangeOrganizationRootID(event.target.value)}
+                placeholder="r-abcd"
+                aria-describedby="idt-aws-scope-root-hint"
+              />
+              <small id="idt-aws-scope-root-hint" className="idt-aws-scope-hint">
+                Starts with r-. Find it in the AWS Organizations console. Required by
+                service-managed StackSet even when picking specific accounts.
+              </small>
+            </label>
+          ) : null}
+
+          {isSelectedOUs ? (
+            <label>
+              Target OU IDs
+              <textarea
+                value={targetOUIDs}
+                onChange={(event) => onChangeOUIDs(event.target.value)}
+                placeholder="ou-1234-abcd5678, ou-1234-efgh9012"
+                rows={2}
+                aria-describedby="idt-aws-scope-ous-hint"
+              />
+              <small id="idt-aws-scope-ous-hint" className="idt-aws-scope-hint">
+                Organizations OU IDs (ou-...). Root IDs (r-...) are not accepted here —
+                use the AWS Organization path for whole-organization coverage.
+              </small>
+            </label>
+          ) : null}
+
+          {isSelectedAccounts ? (
+            <label>
+              Target account IDs
+              <textarea
+                value={targetAccountIDs}
+                onChange={(event) => onChangeAccountIDs(event.target.value)}
+                placeholder="111111111111, 222222222222"
+                rows={2}
+                aria-describedby="idt-aws-scope-accounts-hint"
+              />
+              <small id="idt-aws-scope-accounts-hint" className="idt-aws-scope-hint">
+                12-digit AWS account IDs to onboard.
+              </small>
+            </label>
+          ) : null}
+
+          {(isOrganization || isSelectedOUs) ? (
+            <label>
+              Excluded account IDs
+              <textarea
+                value={excludedAccountIDs}
+                onChange={(event) => onChangeExcludedAccountIDs(event.target.value)}
+                placeholder="Optional. 333333333333"
+                rows={2}
+                aria-describedby="idt-aws-scope-exclusions-hint"
+              />
+              <small id="idt-aws-scope-exclusions-hint" className="idt-aws-scope-hint">
+                Accounts to skip. Coverage claims never include excluded accounts.
+              </small>
+            </label>
+          ) : null}
+        </div>
+
+        {(isOrganization || isSelectedOUs) ? (
+          <label className="idt-aws-scope-toggle">
+            <input
+              type="checkbox"
+              checked={autoOnboardNewAccounts}
+              onChange={(event) => onToggleAutoOnboard(event.target.checked)}
+            />
+            <span>
+              <strong>Auto-onboard new accounts</strong>
+              <small>Service-managed StackSet enrolls accounts added to the covered OUs later.</small>
+            </span>
+          </label>
+        ) : null}
+
+        {parsedRegions.length > 0 || parsedOUs.length > 0 || parsedAccounts.length > 0 ? (
+          <div className="idt-aws-scope-chips" aria-label="Selected target summary">
+            {parsedOUs.map((ou) => (
+              <span key={`ou-${ou}`} className="idt-aws-scope-chip">{ou}</span>
+            ))}
+            {parsedAccounts.map((account) => (
+              <span key={`account-${account}`} className="idt-aws-scope-chip">{account}</span>
+            ))}
+            {parsedExcludedAccounts.map((account) => (
+              <span key={`excluded-${account}`} className="idt-aws-scope-chip is-excluded">
+                Exclude {account}
+              </span>
+            ))}
+            {parsedRegions.map((region) => (
+              <span key={`region-${region}`} className="idt-aws-scope-chip is-region">{region}</span>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="idt-aws-permission-summary" aria-label="AWS StackSet permission summary">
+          <span>Service-managed StackSet with a read-only role in every target account.</span>
+          <span>No write, delete, or remediation permissions.</span>
+          <span>Coverage is only claimed once AWS reports each StackSet instance active.</span>
+        </div>
+
+        {prerequisites.length > 0 ? (
+          <ul className="idt-aws-prereq-list" aria-label="StackSet prerequisites">
+            {prerequisites.map((prereq) => (
+              <li
+                key={prereq.id}
+                className={`idt-aws-prereq ${prereq.satisfied ? 'is-ok' : `is-${prereq.severity}`}`}
+              >
+                <strong>{prereq.title}</strong>
+                <span>{prereq.satisfied ? 'Satisfied' : formatTokenLabel(prereq.severity)}</span>
+                <p>{prereq.reason}</p>
+                {prereq.remediation && !prereq.satisfied ? <p>{prereq.remediation}</p> : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        {setupMessage ? (
+          <p role="status" className="idt-aws-setup-note">
+            {setupMessage}
+          </p>
+        ) : null}
+
+        {persistedSelfManagedUnsupported ? (
+          <p role="alert" className="idt-aws-setup-note">
+            This connector uses a self-managed StackSet, which the wizard does
+            not currently support relaunching. Update it through the API,
+            Terraform, or the AWS CloudFormation console. The wizard would
+            otherwise resubmit as service-managed and the backend would reject
+            the resume.
+          </p>
+        ) : null}
+
+        <div className="idt-source-actions">
+          <button
+            className="idt-btn idt-btn-primary"
+            type="button"
+            onClick={onLaunch}
+            disabled={!canSubmit || blockingCount > 0 || persistedSelfManagedUnsupported}
+          >
+            {launchLabel}
+          </button>
+          {start?.launch_url && blockingCount === 0 && !persistedSelfManagedUnsupported ? (
+            <a className="idt-btn idt-btn-dark" href={start.launch_url} target="_blank" rel="noreferrer">
+              <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
+              <span>Open StackSet in AWS</span>
+            </a>
+          ) : null}
+          {onPreviewPermissions ? (
+            <button className="idt-btn idt-btn-ghost" type="button" onClick={onPreviewPermissions}>
+              Preview permissions
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function stackSetOnboardingStatusLabel(status: string): string {
+  switch (status) {
+    case 'ready':
+      return 'Ready';
+    case 'degraded':
+      return 'Degraded';
+    case 'blocked':
+      return 'Blocked';
+    case 'permission_denied':
+      return 'Permission denied';
+    case 'partial_failure':
+      return 'Partial failure';
+    default:
+      return formatTokenLabel(status);
+  }
+}
+
+function stackSetOnboardingStatusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral' {
+  switch (status) {
+    case 'ready':
+      return 'success';
+    case 'degraded':
+    case 'partial_failure':
+      return 'warning';
+    case 'blocked':
+    case 'permission_denied':
+      return 'danger';
+    default:
+      return 'neutral';
+  }
+}
+
+type AWSStackSetProgressPanelProps = {
+  start: AWSConnectorStartResponse | null;
+  persistedOnboarding: AWSStackSetOnboardingResult | null;
+  refreshError?: string;
+  onRefresh?: () => void;
+  refreshing: boolean;
+};
+
+function AWSStackSetProgressPanel({
+  start,
+  persistedOnboarding,
+  refreshError,
+  onRefresh,
+  refreshing
+}: AWSStackSetProgressPanelProps) {
+  // Prefer the start-response snapshot: it is derived from the connector's
+  // own targets and checkpoints. getAWSProjectStackSetOnboarding today uses
+  // a synthetic fixture that does not reflect this connector's OUs, accounts,
+  // or instances, so we only fall back to it when no start is available (an
+  // existing persisted connector on page load).
+  const onboarding: AWSStackSetOnboardingResult | undefined | null =
+    start?.stackset_onboarding ?? persistedOnboarding ?? null;
+  const summary: AWSStackSetOnboardingSummary | undefined = onboarding?.summary;
+  const coverage: AWSStackSetOnboardingCoverageExpectation | undefined = onboarding?.coverage_expectation;
+  const recoveryActions: AWSStackSetOnboardingRecoveryAction[] = onboarding?.recovery_actions ?? [];
+  const instances: AWSStackSetOnboardingInstance[] = onboarding?.instances ?? [];
+  const prereqs: AWSStackSetOnboardingPrerequisite[] =
+    onboarding?.validation?.prerequisites ?? start?.prerequisites ?? [];
+  const status = onboarding?.status ?? 'blocked';
+  const tone = stackSetOnboardingStatusTone(status);
+  const statusLabel = stackSetOnboardingStatusLabel(status);
+  const resumableCount = summary?.resumable_instances ?? 0;
+  const pendingCount = summary?.pending_instances ?? 0;
+  const activeCount = summary?.active_instances ?? 0;
+  const failedCount = summary?.failed_instances ?? 0;
+  const degradedCount = summary?.degraded_instances ?? 0;
+  const permissionDeniedCount = summary?.permission_denied_instances ?? 0;
+  const totalInstances = summary?.total_instances ?? instances.length;
+  return (
+    <section className="idt-aws-stackset-progress" aria-label="StackSet onboarding progress">
+      <header className="idt-aws-stackset-progress-header">
+        <div>
+          <p className="idt-app-kicker">StackSet progress</p>
+          <h3>{stackSetOnboardingStatusLabel(status)} · {totalInstances} instance{totalInstances === 1 ? '' : 's'}</h3>
+          <p>
+            {summary?.deployed_percent_known
+              ? `${summary.deployed_percent}% of StackSet instances are active.`
+              : 'Waiting for AWS to report StackSet instance status.'}
+          </p>
+        </div>
+        <span className={`idt-domain-status-badge is-${tone}`}>{statusLabel}</span>
+      </header>
+      <dl className="idt-aws-stackset-progress-grid">
+        <div>
+          <dt>Pending</dt>
+          <dd>{pendingCount}</dd>
+        </div>
+        <div>
+          <dt>Active</dt>
+          <dd>{activeCount}</dd>
+        </div>
+        <div>
+          <dt>Degraded</dt>
+          <dd>{degradedCount}</dd>
+        </div>
+        <div>
+          <dt>Failed</dt>
+          <dd>{failedCount}</dd>
+        </div>
+        <div>
+          <dt>Permission denied</dt>
+          <dd>{permissionDeniedCount}</dd>
+        </div>
+        <div>
+          <dt>Resumable</dt>
+          <dd>{resumableCount}</dd>
+        </div>
+      </dl>
+      {coverage ? (
+        <p className="idt-aws-stackset-coverage-line">
+          Planned coverage:
+          {' '}
+          {coverage.expected_accounts_known
+            ? `${coverage.expected_accounts} account${coverage.expected_accounts === 1 ? '' : 's'}`
+            : 'account count unknown until validation'}
+          {' · '}
+          {coverage.expected_regions_known
+            ? `${coverage.expected_regions} region${coverage.expected_regions === 1 ? '' : 's'}`
+            : 'region count unknown'}
+          .
+          {' '}
+          Identrail will not claim coverage until AWS reports instances active.
+        </p>
+      ) : null}
+      {prereqs.length > 0 ? (
+        <ul className="idt-aws-prereq-list" aria-label="StackSet onboarding prerequisites">
+          {prereqs.map((prereq) => (
+            <li
+              key={`prereq-${prereq.id}`}
+              className={`idt-aws-prereq ${prereq.satisfied ? 'is-ok' : `is-${prereq.severity}`}`}
+            >
+              <strong>{prereq.title}</strong>
+              <span>{prereq.satisfied ? 'Satisfied' : formatTokenLabel(prereq.severity)}</span>
+              <p>{prereq.reason}</p>
+              {prereq.remediation && !prereq.satisfied ? <p>{prereq.remediation}</p> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {instances.length > 0 ? (
+        <div className="idt-aws-stackset-instances-wrap">
+          <table className="idt-aws-stackset-instances" aria-label="StackSet instance status">
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Region</th>
+                <th>State</th>
+                <th>Next action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {instances.map((instance) => (
+                <tr key={instance.key}>
+                  <td>
+                    <strong>{instance.account_id}</strong>
+                    {instance.account_name ? <small>{instance.account_name}</small> : null}
+                  </td>
+                  <td>{instance.region}</td>
+                  <td>
+                    <span className={`idt-source-status-pill is-${stackSetOnboardingStatusTone(instance.state)}`}>
+                      {formatTokenLabel(instance.state)}
+                    </span>
+                  </td>
+                  <td>
+                    <p>{instance.next_action || 'No action required.'}</p>
+                    {instance.failure_reason ? <p className="idt-aws-stackset-failure">{instance.failure_reason}</p> : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="idt-aws-stackset-empty">
+          No StackSet instances yet. AWS reports instances once the StackSet deploys.
+        </p>
+      )}
+      {recoveryActions.length > 0 ? (
+        <ul className="idt-domain-charter-list" aria-label="StackSet recovery actions">
+          {recoveryActions.map((action) => (
+            <li key={action.id}>
+              <strong>{action.title}</strong>
+              <p>{action.description}</p>
+              {action.targets.length > 0 ? (
+                <p className="idt-aws-stackset-recovery-targets">Targets: {action.targets.join(', ')}</p>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {refreshError ? (
+        <p role="alert" className="idt-aws-setup-note">
+          {refreshError}
+        </p>
+      ) : null}
+      {onRefresh ? (
+        <div className="idt-source-actions">
+          <button className="idt-btn idt-btn-secondary" type="button" onClick={onRefresh} disabled={refreshing}>
+            {refreshing
+              ? 'Refreshing...'
+              : refreshError
+              ? 'Retry StackSet status'
+              : 'Refresh StackSet status'}
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export function ProductAWSConnectPage() {
   const params = useParams<ScopeRouteParams>();
   const location = useLocation();
@@ -20471,19 +21285,41 @@ export function ProductAWSConnectPage() {
     displayName: '',
     sessionName: 'identrail-connector-validation',
     roleName: 'IdentrailReadOnly',
-    stackName: 'identrail-readonly-connector'
+    stackName: 'identrail-readonly-connector',
+    stackSetName: 'identrail-readonly-stackset',
+    organizationRootID: '',
+    targetRegions: 'us-east-1',
+    targetOUIDs: '',
+    targetAccountIDs: '',
+    excludedAccountIDs: '',
+    autoOnboardNewAccounts: true
+  });
+  const awsScopeDirtyRef = useRef({
+    organizationRootID: false,
+    targetRegions: false,
+    targetOUIDs: false,
+    targetAccountIDs: false,
+    excludedAccountIDs: false,
+    autoOnboardNewAccounts: false,
+    stackSetName: false,
+    roleName: false
   });
   const [awsCloudFormationStart, setAWSCloudFormationStart] = useState<AWSConnectorStartResponse | null>(null);
   const [awsPermissionPreview, setAWSPermissionPreview] = useState<AWSPermissionPreviewItem[]>([]);
   const [awsPermissionTiers, setAWSPermissionTiers] = useState<AWSCapabilityPermissionTier[]>([]);
   const [awsPreviewOpen, setAWSPreviewOpen] = useState(false);
+  const [awsStackSetOnboarding, setAWSStackSetOnboarding] = useState<AWSStackSetOnboardingResult | null>(null);
+  const [awsStackSetOnboardingLoading, setAWSStackSetOnboardingLoading] = useState(false);
+  const [awsStackSetOnboardingError, setAWSStackSetOnboardingError] = useState('');
   const connectionRequestRef = useRef(0);
   const baselineRequestRef = useRef(0);
   const awsStartRequestRef = useRef(0);
   const awsPollRequestRef = useRef(0);
   const awsValidationRequestRef = useRef(0);
+  const awsStackSetOnboardingRequestRef = useRef(0);
   const awsSetupModeTouchedRef = useRef(false);
   const awsSetupModeRef = useRef<AWSSetupMode>('cloudformation');
+  const activeConnectorIDRef = useRef('');
   const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
   const scopeKey = scope ? `${scope.tenantID}::${scope.workspaceID}` : '';
   const scopeKeyRef = useRef(scopeKey);
@@ -20522,7 +21358,7 @@ export function ProductAWSConnectPage() {
           return;
         }
         setConnection(response.connection);
-        const responseSetupMode = response.connection.deployment_method === 'manual' ? 'manual' : 'cloudformation';
+        const responseSetupMode = awsSetupModeFromResponse(response.connection.scope_type);
         const preserveManualDraft = awsSetupModeTouchedRef.current
           ? awsSetupModeRef.current === 'manual'
           : responseSetupMode === 'manual';
@@ -20531,13 +21367,52 @@ export function ProductAWSConnectPage() {
           awsSetupModeRef.current = next;
           return next;
         });
+        const dirty = awsScopeDirtyRef.current;
+        const responseOUIDs = response.connection.target_ou_ids ?? [];
+        const rootFromOUIDs = responseOUIDs.find((id) => AWS_ORG_ROOT_ID_PATTERN.test(id));
+        const ouOnlyIDs = responseOUIDs.filter((id) => AWS_OU_ID_PATTERN.test(id));
         setAWSForm((current) => ({
           ...current,
           roleARN: response.connection.role_arn ?? (preserveManualDraft ? current.roleARN : ''),
           externalID: preserveManualDraft ? current.externalID : '',
           region: response.connection.region ?? 'us-east-1',
           displayName: response.connection.display_name ?? '',
-          sessionName: preserveManualDraft ? current.sessionName : 'identrail-connector-validation'
+          sessionName: preserveManualDraft ? current.sessionName : 'identrail-connector-validation',
+          organizationRootID: dirty.organizationRootID
+            ? current.organizationRootID
+            : rootFromOUIDs ?? current.organizationRootID,
+          targetRegions: dirty.targetRegions
+            ? current.targetRegions
+            : response.connection.target_regions && response.connection.target_regions.length > 0
+            ? response.connection.target_regions.join(', ')
+            : current.targetRegions,
+          targetOUIDs: dirty.targetOUIDs
+            ? current.targetOUIDs
+            : ouOnlyIDs.length > 0
+            ? ouOnlyIDs.join(', ')
+            : current.targetOUIDs,
+          targetAccountIDs: dirty.targetAccountIDs
+            ? current.targetAccountIDs
+            : response.connection.target_account_ids && response.connection.target_account_ids.length > 0
+            ? response.connection.target_account_ids.join(', ')
+            : current.targetAccountIDs,
+          excludedAccountIDs: dirty.excludedAccountIDs
+            ? current.excludedAccountIDs
+            : response.connection.excluded_account_ids && response.connection.excluded_account_ids.length > 0
+            ? response.connection.excluded_account_ids.join(', ')
+            : current.excludedAccountIDs,
+          autoOnboardNewAccounts: dirty.autoOnboardNewAccounts
+            ? current.autoOnboardNewAccounts
+            : response.connection.connector_id &&
+              typeof response.connection.auto_onboard_new_accounts === 'boolean'
+            ? response.connection.auto_onboard_new_accounts
+            : current.autoOnboardNewAccounts,
+          stackSetName: dirty.stackSetName
+            ? current.stackSetName
+            : response.connection.stack_set_name || current.stackSetName,
+          roleName: dirty.roleName
+            ? current.roleName
+            : awsRoleNameFromARN(response.connection.role_arn ?? '') || current.roleName
         }));
       } catch (error) {
         if (isStale()) {
@@ -20633,6 +21508,52 @@ export function ProductAWSConnectPage() {
     }
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, awsCloudFormationStart?.connector_id, connection?.connector_id]);
 
+  const refreshStackSetOnboarding = useCallback(
+    async (connectorIDOverride?: string) => {
+      const requestID = ++awsStackSetOnboardingRequestRef.current;
+      const requestEnvironmentID = selectedEnvironmentID;
+      const requestScopeKey = scopeKeyRef.current;
+      if (!scope || !requestEnvironmentID) {
+        setAWSStackSetOnboarding(null);
+        setAWSStackSetOnboardingLoading(false);
+        return;
+      }
+      const isStale = () =>
+        requestID !== awsStackSetOnboardingRequestRef.current ||
+        selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+        scopeKeyRef.current !== requestScopeKey;
+      const connectorID = normalizeValue(connectorIDOverride ?? activeConnectorIDRef.current);
+      setAWSStackSetOnboardingLoading(true);
+      setAWSStackSetOnboardingError('');
+      try {
+        const response = await apiClient.getAWSProjectStackSetOnboarding(
+          scope.workspaceID,
+          requestEnvironmentID,
+          connectorID || undefined,
+          undefined,
+          undefined,
+          buildProductAuthContext(scope)
+        );
+        if (isStale()) {
+          return;
+        }
+        setAWSStackSetOnboarding(response.onboarding);
+      } catch (error) {
+        if (isStale()) {
+          return;
+        }
+        // Preserve the last good payload so the panel keeps rendering; surface
+        // the failure inline so the operator can retry.
+        setAWSStackSetOnboardingError(formatAPIError(error, 'Unable to refresh StackSet onboarding.'));
+      } finally {
+        if (!isStale()) {
+          setAWSStackSetOnboardingLoading(false);
+        }
+      }
+    },
+    [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]
+  );
+
 
   useEffect(() => {
     connectionRequestRef.current += 1;
@@ -20640,6 +21561,7 @@ export function ProductAWSConnectPage() {
     awsStartRequestRef.current += 1;
     awsPollRequestRef.current += 1;
     awsValidationRequestRef.current += 1;
+    awsStackSetOnboardingRequestRef.current += 1;
     setSuccessMessage('');
     setErrorMessage('');
     setAWSSetupMessage('');
@@ -20654,14 +21576,35 @@ export function ProductAWSConnectPage() {
     setAWSPermissionPreview([]);
     setAWSPermissionTiers([]);
     setAWSPreviewOpen(false);
+    setAWSStackSetOnboarding(null);
+    setAWSStackSetOnboardingLoading(false);
+    setAWSStackSetOnboardingError('');
     setAWSForm((current) => ({
       ...current,
       roleARN: '',
       externalID: '',
       region: 'us-east-1',
       displayName: '',
-      sessionName: 'identrail-connector-validation'
+      sessionName: 'identrail-connector-validation',
+      roleName: 'IdentrailReadOnly',
+      stackSetName: 'identrail-readonly-stackset',
+      organizationRootID: '',
+      targetRegions: 'us-east-1',
+      targetOUIDs: '',
+      targetAccountIDs: '',
+      excludedAccountIDs: '',
+      autoOnboardNewAccounts: true
     }));
+    awsScopeDirtyRef.current = {
+      organizationRootID: false,
+      targetRegions: false,
+      targetOUIDs: false,
+      targetAccountIDs: false,
+      excludedAccountIDs: false,
+      autoOnboardNewAccounts: false,
+      stackSetName: false,
+      roleName: false
+    };
     void refreshConnection('initial');
     void refreshBaseline();
     return () => {
@@ -20670,8 +21613,33 @@ export function ProductAWSConnectPage() {
       awsStartRequestRef.current += 1;
       awsPollRequestRef.current += 1;
       awsValidationRequestRef.current += 1;
+      awsStackSetOnboardingRequestRef.current += 1;
     };
   }, [refreshConnection, refreshBaseline]);
+
+  useEffect(() => {
+    const connectorScope = connection?.scope_type;
+    const isStackSetConnector =
+      connectorScope === 'organization' ||
+      connectorScope === 'selected_ous' ||
+      connectorScope === 'selected_accounts';
+    if (!isStackSetConnector || !connection?.connector_id) {
+      return;
+    }
+    // Only refetch when the currently-selected wizard mode matches the
+    // persisted connector's scope. That way switching away and back restores
+    // the panel instead of leaving it blank until a page reload.
+    const connectorMode = awsSetupModeFromResponse(connectorScope);
+    if (connectorMode !== awsSetupMode) {
+      return;
+    }
+    void refreshStackSetOnboarding(connection.connector_id);
+  }, [
+    connection?.connector_id,
+    connection?.scope_type,
+    awsSetupMode,
+    refreshStackSetOnboarding
+  ]);
 
   if (!scope) {
     return (
@@ -20709,13 +21677,80 @@ export function ProductAWSConnectPage() {
   const canSubmit = !submitting && !loadingConnection && Boolean(selectedEnvironmentID);
   const manualAWSStart = awsCloudFormationStart?.deployment_method === 'manual' ? awsCloudFormationStart : null;
   const cloudFormationAWSStart =
-    awsCloudFormationStart && awsCloudFormationStart.deployment_method !== 'manual' ? awsCloudFormationStart : null;
+    awsCloudFormationStart && awsCloudFormationStart.deployment_method === 'cloudformation' ? awsCloudFormationStart : null;
+  const stackSetAWSStart =
+    awsCloudFormationStart &&
+    (awsCloudFormationStart.deployment_method === 'stackset_service_managed' ||
+      awsCloudFormationStart.deployment_method === 'stackset_self_managed')
+      ? awsCloudFormationStart
+      : null;
   const isManualSetup =
     awsSetupMode === 'manual' ||
     Boolean(manualAWSStart);
-  const activeConnectorID = isManualSetup
-    ? manualAWSStart?.connector_id ?? (connection?.deployment_method === 'manual' ? connection.connector_id : '') ?? ''
-    : cloudFormationAWSStart?.connector_id ?? (connection?.deployment_method !== 'manual' ? connection?.connector_id : '') ?? '';
+  const isStackSetSetup =
+    awsSetupMode === 'organization' ||
+    awsSetupMode === 'selected_ous' ||
+    awsSetupMode === 'selected_accounts' ||
+    Boolean(stackSetAWSStart);
+  const connectionScopeMode = connection?.scope_type
+    ? awsSetupModeFromResponse(connection.scope_type)
+    : null;
+  const parsedOrganizationRootID = normalizeValue(awsForm.organizationRootID);
+  const parsedTargetRegions = uniqueTokens(splitScopeTokens(awsForm.targetRegions));
+  const parsedTargetOUIDs = uniqueTokens(splitScopeTokens(awsForm.targetOUIDs));
+  const parsedTargetAccountIDs = uniqueTokens(splitScopeTokens(awsForm.targetAccountIDs));
+  const parsedExcludedAccountIDs = uniqueTokens(splitScopeTokens(awsForm.excludedAccountIDs));
+  const parsedStackSetName = normalizeValue(awsForm.stackSetName);
+  const desiredContract = isStackSetSetup
+    ? buildStackSetContractSnapshot(awsSetupMode, {
+        organizationRootID: parsedOrganizationRootID,
+        targetRegions: parsedTargetRegions,
+        targetOUIDs: parsedTargetOUIDs,
+        targetAccountIDs: parsedTargetAccountIDs,
+        excludedAccountIDs: parsedExcludedAccountIDs,
+        autoOnboardNewAccounts: awsForm.autoOnboardNewAccounts,
+        stackSetName: parsedStackSetName
+      })
+    : null;
+  const activeConnectorID = (() => {
+    if (isManualSetup) {
+      return (
+        manualAWSStart?.connector_id ??
+        (connection?.deployment_method === 'manual' ? connection.connector_id : '') ??
+        ''
+      );
+    }
+    if (isStackSetSetup && desiredContract) {
+      if (
+        stackSetAWSStart?.connector_id &&
+        awsSetupModeFromResponse(stackSetAWSStart.scope_type) === awsSetupMode &&
+        stackSetContractsMatch(desiredContract, contractFromStartResponse(stackSetAWSStart))
+      ) {
+        return stackSetAWSStart.connector_id;
+      }
+      if (
+        connection?.deployment_method?.startsWith('stackset_') &&
+        connectionScopeMode === awsSetupMode &&
+        connection.connector_id &&
+        stackSetContractsMatch(desiredContract, contractFromConnection(connection))
+      ) {
+        return connection.connector_id;
+      }
+      return '';
+    }
+    // Single-account mode covers CloudFormation and Terraform deployment
+    // methods (both map back to scope_type=single_account via
+    // awsSetupModeFromResponse). Restricting the fallback to
+    // deployment_method==='cloudformation' would hide the Refresh/Validate
+    // actions for a persisted Terraform connector.
+    const singleAccountConnectionID =
+      connection?.deployment_method === 'cloudformation' ||
+      connection?.deployment_method === 'terraform'
+        ? connection?.connector_id
+        : '';
+    return cloudFormationAWSStart?.connector_id ?? singleAccountConnectionID ?? '';
+  })();
+  activeConnectorIDRef.current = activeConnectorID;
   const canValidateRole = Boolean(normalizeValue(awsForm.roleARN)) && (!isManualSetup || Boolean(activeConnectorID));
   const selectedAWSRegion = normalizeValue(awsForm.region) || 'us-east-1';
   const manualExternalID = normalizeValue(awsForm.externalID);
@@ -20735,13 +21770,52 @@ export function ProductAWSConnectPage() {
     setAWSCopiedField(field);
   };
 
+  const invalidatePreparedStackSet = () => {
+    // Once the operator edits any scope-contract field, the prepared start
+    // response no longer describes what the wizard would launch. Drop it so
+    // neither the launch button nor the sidebar can send them to the AWS
+    // console with the old targets baked into the launch URL. Also bump the
+    // start request ref so an in-flight StackSet start (targets typed while
+    // Preparing StackSet... is still spinning) can no longer restore its
+    // previous targets, launch URL, or auto-open the AWS console for an
+    // account or OU the operator just removed.
+    setAWSCloudFormationStart((current) => {
+      if (
+        current &&
+        (current.deployment_method === 'stackset_service_managed' ||
+          current.deployment_method === 'stackset_self_managed')
+      ) {
+        return null;
+      }
+      return current;
+    });
+    setAWSStackSetOnboarding(null);
+    awsStartRequestRef.current += 1;
+    awsStackSetOnboardingRequestRef.current += 1;
+    setSubmitting(false);
+    setAWSStackSetOnboardingLoading(false);
+    setAWSStackSetOnboardingError('');
+  };
+
   const chooseAWSSetupMode = (mode: AWSSetupMode) => {
+    const previousMode = awsSetupModeRef.current;
     awsSetupModeTouchedRef.current = true;
     awsSetupModeRef.current = mode;
     setAWSSetupMode(mode);
-    const switchingAcrossPreparedSetup =
-      (mode === 'cloudformation' && Boolean(manualAWSStart)) ||
-      (mode === 'manual' && Boolean(cloudFormationAWSStart));
+    const preparedScopeType = awsCloudFormationStart?.scope_type;
+    const preparedMode: AWSSetupMode | null = preparedScopeType ? awsSetupModeFromResponse(preparedScopeType) : null;
+    const connectionMode: AWSSetupMode | null = connection?.scope_type
+      ? awsSetupModeFromResponse(connection.scope_type)
+      : null;
+    const switchingAcrossPreparedSetup = preparedMode !== null && preparedMode !== mode;
+    const switchingAcrossPersistedStackSet =
+      Boolean(connection?.deployment_method?.startsWith('stackset_')) &&
+      connectionMode !== null &&
+      connectionMode !== mode;
+    if (previousMode !== mode) {
+      awsStartRequestRef.current += 1;
+      setSubmitting(false);
+    }
     if (switchingAcrossPreparedSetup) {
       setAWSCloudFormationStart(null);
       setAWSPermissionPreview([]);
@@ -20753,6 +21827,12 @@ export function ProductAWSConnectPage() {
         externalID: '',
         sessionName: 'identrail-connector-validation'
       }));
+    }
+    if (switchingAcrossPreparedSetup || switchingAcrossPersistedStackSet) {
+      awsStackSetOnboardingRequestRef.current += 1;
+      setAWSStackSetOnboarding(null);
+      setAWSStackSetOnboardingLoading(false);
+      setAWSStackSetOnboardingError('');
     }
     setAWSSetupMessage('');
     setErrorMessage('');
@@ -20882,6 +21962,211 @@ export function ProductAWSConnectPage() {
       awsSetupModeRef.current = 'manual';
       setAWSSetupMode('manual');
       setSuccessMessage('Manual setup is ready. Add the trust policy in AWS, then validate the role.');
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      setAWSSetupMessage(formatAWSConnectorSetupError(error));
+    } finally {
+      if (!isStale()) {
+        setSubmitting(false);
+      }
+    }
+  };
+
+  const validateStackSetTargets = (mode: AWSSetupMode): string => {
+    if (parsedTargetRegions.length === 0) {
+      return 'Add at least one target region, for example us-east-1.';
+    }
+    for (const region of parsedTargetRegions) {
+      if (!AWS_REGION_PATTERN.test(region)) {
+        return `Region "${region}" is not a valid AWS region. Use lowercase codes like us-east-1.`;
+      }
+    }
+    if (mode === 'organization') {
+      if (!parsedOrganizationRootID) {
+        return 'Add your AWS Organizations root ID (starts with r-). Find it in the AWS Organizations console.';
+      }
+      if (!AWS_ORG_ROOT_ID_PATTERN.test(parsedOrganizationRootID)) {
+        return `Root ID "${parsedOrganizationRootID}" is not valid. It must start with r-, for example r-abcd.`;
+      }
+    }
+    if (mode === 'selected_ous') {
+      if (parsedTargetOUIDs.length === 0) {
+        return 'Add at least one target OU ID, for example ou-1234-abcd5678.';
+      }
+      for (const ou of parsedTargetOUIDs) {
+        if (!AWS_OU_ID_PATTERN.test(ou)) {
+          if (AWS_ORG_ROOT_ID_PATTERN.test(ou)) {
+            return `Root ID "${ou}" is not accepted for Selected OUs. Pick the AWS Organization path for whole-organization coverage.`;
+          }
+          return `OU "${ou}" is not a valid Organizations OU ID (expected ou-...).`;
+        }
+      }
+    }
+    if (mode === 'selected_accounts') {
+      if (parsedTargetAccountIDs.length === 0) {
+        return 'Add at least one 12-digit target AWS account ID.';
+      }
+      for (const account of parsedTargetAccountIDs) {
+        if (!AWS_ACCOUNT_ID_PATTERN.test(account)) {
+          return `Account ID "${account}" must be exactly 12 digits.`;
+        }
+      }
+      if (!parsedOrganizationRootID) {
+        return 'Add your AWS Organizations root ID (starts with r-). Service-managed StackSet needs it to scope the account filter.';
+      }
+      if (!AWS_ORG_ROOT_ID_PATTERN.test(parsedOrganizationRootID)) {
+        return `Root ID "${parsedOrganizationRootID}" is not valid. It must start with r-, for example r-abcd.`;
+      }
+    }
+    if (mode !== 'selected_accounts') {
+      for (const account of parsedExcludedAccountIDs) {
+        if (!AWS_ACCOUNT_ID_PATTERN.test(account)) {
+          return `Excluded account "${account}" must be exactly 12 digits.`;
+        }
+      }
+    }
+    return '';
+  };
+
+  const handleAWSStackSetStart = async () => {
+    if (!selectedEnvironmentID) {
+      setErrorMessage('Choose an environment before launching the StackSet.');
+      return;
+    }
+    const mode = awsSetupMode;
+    if (mode !== 'organization' && mode !== 'selected_ous' && mode !== 'selected_accounts') {
+      return;
+    }
+    const targetError = validateStackSetTargets(mode);
+    if (targetError) {
+      setAWSSetupMessage(targetError);
+      return;
+    }
+    setSubmitting(true);
+    setSuccessMessage('');
+    setErrorMessage('');
+    setAWSSetupMessage('');
+    const requestID = ++awsStartRequestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const requestScopeKey = scopeKeyRef.current;
+    // Backend derives the StackSet home region from the first target region
+    // (internal/api/aws_connect.go), so anchor `region` to that entry rather
+    // than the Home region field, which is only meaningful for CloudFormation
+    // single-account setup.
+    const region = parsedTargetRegions[0] || normalizeValue(awsForm.region) || 'us-east-1';
+    const isStale = () =>
+      requestID !== awsStartRequestRef.current ||
+      selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+      scopeKeyRef.current !== requestScopeKey;
+    try {
+      const scopeType = awsScopeTypeFromMode(mode);
+      const deploymentMethod: AWSConnectorDeploymentMethod = 'stackset_service_managed';
+      const targetOUIDs = (() => {
+        if (mode === 'selected_ous') {
+          return parsedTargetOUIDs;
+        }
+        if (mode === 'organization' || mode === 'selected_accounts') {
+          return parsedOrganizationRootID ? [parsedOrganizationRootID] : undefined;
+        }
+        return undefined;
+      })();
+      const resumingExisting = Boolean(activeConnectorID);
+      // On resume, omit role_name / stack_set_name when the operator hasn't
+      // touched them. AWSConnectionStatus doesn't currently expose the stored
+      // role_name (and role_arn is empty for a not-yet-deployed connector),
+      // so we can't hydrate the form with the stored value in every case.
+      // Sending the hardcoded default would trip resumeAWSStackSetConnectorStart
+      // when the stored name differs. Omitting them lets the backend keep the
+      // stored values.
+      const shouldSendRoleName =
+        !resumingExisting || awsScopeDirtyRef.current.roleName;
+      const shouldSendStackSetName =
+        !resumingExisting || awsScopeDirtyRef.current.stackSetName;
+      const payload = {
+        workspace_id: scope.workspaceID,
+        project_id: requestEnvironmentID,
+        connector_id: activeConnectorID || undefined,
+        display_name: normalizeValue(awsForm.displayName) || undefined,
+        region,
+        role_name: shouldSendRoleName ? normalizeValue(awsForm.roleName) || undefined : undefined,
+        stack_set_name: shouldSendStackSetName ? normalizeValue(awsForm.stackSetName) || undefined : undefined,
+        scope_type: scopeType,
+        deployment_method: deploymentMethod,
+        target_regions: parsedTargetRegions,
+        target_ou_ids: targetOUIDs,
+        target_account_ids: mode === 'selected_accounts' ? parsedTargetAccountIDs : undefined,
+        excluded_account_ids:
+          mode !== 'selected_accounts' && parsedExcludedAccountIDs.length > 0
+            ? parsedExcludedAccountIDs
+            : undefined,
+        auto_onboard_new_accounts:
+          mode === 'organization' || mode === 'selected_ous' ? Boolean(awsForm.autoOnboardNewAccounts) : false
+      };
+      const response = await apiClient.startAWSConnector(payload, buildProductAuthContext(scope));
+      if (isStale()) {
+        return;
+      }
+      setAWSCloudFormationStart(response);
+      setAWSPermissionPreview(response.permission_preview);
+      setAWSPermissionTiers(response.permission_tiers ?? []);
+      const responseOUIDs = response.target_ou_ids ?? [];
+      const responseRoot = responseOUIDs.find((id) => AWS_ORG_ROOT_ID_PATTERN.test(id));
+      const responseOnlyOUs = responseOUIDs.filter((id) => AWS_OU_ID_PATTERN.test(id));
+      setAWSForm((current) => ({
+        ...current,
+        externalID: response.external_id,
+        region: current.region || response.connection.region || 'us-east-1',
+        displayName: current.displayName || response.connection.display_name || '',
+        stackSetName: response.stack_set_name || current.stackSetName,
+        roleName: response.role_name || current.roleName,
+        organizationRootID: responseRoot ?? current.organizationRootID,
+        targetRegions:
+          response.target_regions && response.target_regions.length > 0
+            ? response.target_regions.join(', ')
+            : current.targetRegions,
+        targetOUIDs:
+          responseOnlyOUs.length > 0 ? responseOnlyOUs.join(', ') : current.targetOUIDs,
+        targetAccountIDs:
+          response.target_account_ids && response.target_account_ids.length > 0
+            ? response.target_account_ids.join(', ')
+            : current.targetAccountIDs,
+        excludedAccountIDs:
+          response.excluded_account_ids && response.excluded_account_ids.length > 0
+            ? response.excluded_account_ids.join(', ')
+            : current.excludedAccountIDs,
+        autoOnboardNewAccounts:
+          typeof response.auto_onboard_new_accounts === 'boolean'
+            ? response.auto_onboard_new_accounts
+            : current.autoOnboardNewAccounts
+      }));
+      setConnection(response.connection);
+      awsSetupModeTouchedRef.current = true;
+      awsSetupModeRef.current = mode;
+      setAWSSetupMode(mode);
+      const responsePrereqs = response.prerequisites ?? [];
+      const responseBlockingCount = responsePrereqs.filter(
+        (prereq) => !prereq.satisfied && prereq.severity === 'blocking'
+      ).length;
+      if (responseBlockingCount > 0) {
+        setSuccessMessage('AWS StackSet setup is prepared. Resolve blocking prerequisites before launching the StackSet.');
+      } else {
+        setSuccessMessage('AWS StackSet setup is ready. Open the StackSet in AWS, then refresh status.');
+      }
+      if (response.stackset_onboarding) {
+        setAWSStackSetOnboarding(response.stackset_onboarding);
+      } else if (response.connector_id) {
+        void refreshStackSetOnboarding(response.connector_id);
+      }
+      if (
+        responseBlockingCount === 0 &&
+        response.launch_url &&
+        typeof window !== 'undefined' &&
+        !/jsdom/i.test(window.navigator.userAgent)
+      ) {
+        window.open(response.launch_url, '_blank', 'noopener,noreferrer');
+      }
     } catch (error) {
       if (isStale()) {
         return;
@@ -21052,7 +22337,44 @@ export function ProductAWSConnectPage() {
     }
     return bits.join(' · ');
   })();
-  const launchURL = cloudFormationAWSStart?.launch_url ?? connection?.launch_url ?? '';
+  const stackSetBlockingPrereqCount = (() => {
+    const preferred = stackSetAWSStart?.prerequisites ?? connection?.prerequisites ?? [];
+    return preferred.filter((prereq) => !prereq.satisfied && prereq.severity === 'blocking').length;
+  })();
+  // The wizard only issues service-managed StackSet starts. A persisted
+  // self-managed connector (created via API/Terraform) whose scope maps into
+  // the same wizard mode would otherwise be resumed as service-managed, which
+  // resumeAWSStackSetConnectorStart rejects (deployment_method must match
+  // exactly). Detect it and block the launch surface with a clear message.
+  const isPersistedSelfManagedStackSet =
+    isStackSetSetup &&
+    connectionScopeMode === awsSetupMode &&
+    connection?.deployment_method === 'stackset_self_managed' &&
+    !stackSetAWSStart;
+  // Only surface the persisted connection's launch URL when both the
+  // deployment method and the scope type match the currently selected setup
+  // mode. Otherwise a leftover StackSet console link can render under a
+  // different scope (Single account, Existing IAM role, or another StackSet
+  // scope) and send the operator back to the previous scope's targets.
+  const persistedLaunchURLMatchesMode = (() => {
+    const method = connection?.deployment_method;
+    if (!method || !connection?.launch_url) {
+      return false;
+    }
+    if (connectionScopeMode !== awsSetupMode) {
+      return false;
+    }
+    if (isStackSetSetup) {
+      return method.startsWith('stackset_');
+    }
+    if (isManualSetup) {
+      return method === 'manual';
+    }
+    return method === 'cloudformation';
+  })();
+  const launchURL =
+    cloudFormationAWSStart?.launch_url ??
+    (persistedLaunchURLMatchesMode ? connection?.launch_url ?? '' : '');
   const hasConnectorSetup = Boolean(awsCloudFormationStart || connection?.connector_id);
   const hasRoleOnlyConnection = Boolean(connection?.role_arn && !connection?.connector_id && !awsCloudFormationStart);
   const showOperationalPanels = Boolean(
@@ -21089,6 +22411,18 @@ export function ProductAWSConnectPage() {
     }
     if (isManualSetup && manualExternalID && !connectedNow) {
       return 'Add the trust policy in AWS, paste the role ARN, then validate the role.';
+    }
+    if (isPersistedSelfManagedStackSet) {
+      return 'This connector uses a self-managed StackSet. Manage it through the API, Terraform, or the AWS console — the wizard cannot relaunch self-managed setups.';
+    }
+    if (isStackSetSetup && stackSetAWSStart?.launch_url && stackSetBlockingPrereqCount === 0) {
+      return 'Open the StackSet in AWS to deploy the read-only role, then refresh status.';
+    }
+    if (isStackSetSetup && stackSetAWSStart?.launch_url && stackSetBlockingPrereqCount > 0) {
+      return 'Resolve the blocking StackSet prerequisites, then open the StackSet in AWS.';
+    }
+    if (isStackSetSetup && !stackSetAWSStart) {
+      return 'Pick target regions and accounts or OUs, then launch the StackSet setup.';
     }
     if ((connectedNow || hasConnectorSetup) && connection?.setup_summary) {
       return connection.setup_summary;
@@ -21156,38 +22490,60 @@ export function ProductAWSConnectPage() {
             </div>
 
             <div className="idt-aws-scope-options" role="list" aria-label="AWS setup scope options">
-              <div className="idt-aws-scope-option is-planned" role="listitem" aria-disabled="true">
-                <span>AWS Organization</span>
-                <strong>All accounts</strong>
-                <small>Coming later</small>
-              </div>
               <div className="idt-aws-scope-option-shell" role="listitem">
                 <button
-                  className={`idt-aws-scope-option ${!isManualSetup ? 'is-selected' : ''}`}
+                  className={`idt-aws-scope-option ${awsSetupMode === 'organization' ? 'is-selected' : ''}`}
                   type="button"
-                  aria-current={!isManualSetup ? 'true' : undefined}
-                  onClick={() => chooseAWSSetupMode('cloudformation')}
+                  aria-current={awsSetupMode === 'organization' ? 'true' : undefined}
+                  onClick={() => chooseAWSSetupMode('organization')}
                 >
-                  <span>Single account</span>
-                  <strong>This AWS account</strong>
-                  <small>Available now</small>
+                  <span>{AWS_SCOPE_OPTION_LABELS.organization.kicker}</span>
+                  <strong>{AWS_SCOPE_OPTION_LABELS.organization.title}</strong>
+                  <small>{AWS_SCOPE_OPTION_LABELS.organization.blurb}</small>
                 </button>
               </div>
-              <div className="idt-aws-scope-option is-planned" role="listitem" aria-disabled="true">
-                <span>Selected scope</span>
-                <strong>OUs or accounts</strong>
-                <small>Coming later</small>
+              <div className="idt-aws-scope-option-shell" role="listitem">
+                <button
+                  className={`idt-aws-scope-option ${awsSetupMode === 'cloudformation' ? 'is-selected' : ''}`}
+                  type="button"
+                  aria-current={awsSetupMode === 'cloudformation' ? 'true' : undefined}
+                  onClick={() => chooseAWSSetupMode('cloudformation')}
+                >
+                  <span>{AWS_SCOPE_OPTION_LABELS.cloudformation.kicker}</span>
+                  <strong>{AWS_SCOPE_OPTION_LABELS.cloudformation.title}</strong>
+                  <small>{AWS_SCOPE_OPTION_LABELS.cloudformation.blurb}</small>
+                </button>
               </div>
               <div className="idt-aws-scope-option-shell" role="listitem">
                 <button
-                  className={`idt-aws-scope-option ${isManualSetup ? 'is-selected' : ''}`}
+                  className={`idt-aws-scope-option ${
+                    awsSetupMode === 'selected_ous' || awsSetupMode === 'selected_accounts' ? 'is-selected' : ''
+                  }`}
                   type="button"
-                  aria-current={isManualSetup ? 'true' : undefined}
+                  aria-current={
+                    awsSetupMode === 'selected_ous' || awsSetupMode === 'selected_accounts' ? 'true' : undefined
+                  }
+                  onClick={() =>
+                    chooseAWSSetupMode(
+                      awsSetupMode === 'selected_accounts' ? 'selected_accounts' : 'selected_ous'
+                    )
+                  }
+                >
+                  <span>Selected scope</span>
+                  <strong>OUs or accounts</strong>
+                  <small>Pick a subset</small>
+                </button>
+              </div>
+              <div className="idt-aws-scope-option-shell" role="listitem">
+                <button
+                  className={`idt-aws-scope-option ${awsSetupMode === 'manual' ? 'is-selected' : ''}`}
+                  type="button"
+                  aria-current={awsSetupMode === 'manual' ? 'true' : undefined}
                   onClick={() => chooseAWSSetupMode('manual')}
                 >
-                  <span>Advanced</span>
-                  <strong>Existing IAM role</strong>
-                  <small>Use your change process</small>
+                  <span>{AWS_SCOPE_OPTION_LABELS.manual.kicker}</span>
+                  <strong>{AWS_SCOPE_OPTION_LABELS.manual.title}</strong>
+                  <small>{AWS_SCOPE_OPTION_LABELS.manual.blurb}</small>
                 </button>
               </div>
             </div>
@@ -21212,20 +22568,78 @@ export function ProductAWSConnectPage() {
                         placeholder="Production AWS"
                       />
                     </label>
-                    <label>
-                      Home region
-                      <input
-                        value={awsForm.region}
-                        onChange={(event) => setAWSForm((current) => ({ ...current, region: event.target.value }))}
-                        placeholder="us-east-1"
-                        pattern="[a-z]{2}(-gov)?-[a-z]+-[0-9]"
-                      />
-                    </label>
+                    {!isStackSetSetup ? (
+                      <label>
+                        Home region
+                        <input
+                          value={awsForm.region}
+                          onChange={(event) =>
+                            setAWSForm((current) => ({ ...current, region: event.target.value }))
+                          }
+                          placeholder="us-east-1"
+                          pattern="[a-z]{2}(-gov)?-[a-z]+-[0-9]"
+                        />
+                      </label>
+                    ) : null}
                   </div>
                 </div>
               </div>
 
-              {!isManualSetup ? (
+              {isStackSetSetup ? (
+                <AWSStackSetScopeStep
+                  mode={awsSetupMode}
+                  onChooseMode={chooseAWSSetupMode}
+                  organizationRootID={awsForm.organizationRootID}
+                  targetRegions={awsForm.targetRegions}
+                  targetOUIDs={awsForm.targetOUIDs}
+                  targetAccountIDs={awsForm.targetAccountIDs}
+                  excludedAccountIDs={awsForm.excludedAccountIDs}
+                  autoOnboardNewAccounts={awsForm.autoOnboardNewAccounts}
+                  onChangeOrganizationRootID={(value) => {
+                    awsScopeDirtyRef.current.organizationRootID = true;
+                    invalidatePreparedStackSet();
+                    setAWSForm((current) => ({ ...current, organizationRootID: value }));
+                  }}
+                  onChangeRegions={(value) => {
+                    awsScopeDirtyRef.current.targetRegions = true;
+                    invalidatePreparedStackSet();
+                    setAWSForm((current) => ({ ...current, targetRegions: value }));
+                  }}
+                  onChangeOUIDs={(value) => {
+                    awsScopeDirtyRef.current.targetOUIDs = true;
+                    invalidatePreparedStackSet();
+                    setAWSForm((current) => ({ ...current, targetOUIDs: value }));
+                  }}
+                  onChangeAccountIDs={(value) => {
+                    awsScopeDirtyRef.current.targetAccountIDs = true;
+                    invalidatePreparedStackSet();
+                    setAWSForm((current) => ({ ...current, targetAccountIDs: value }));
+                  }}
+                  onChangeExcludedAccountIDs={(value) => {
+                    awsScopeDirtyRef.current.excludedAccountIDs = true;
+                    invalidatePreparedStackSet();
+                    setAWSForm((current) => ({ ...current, excludedAccountIDs: value }));
+                  }}
+                  onToggleAutoOnboard={(value) => {
+                    awsScopeDirtyRef.current.autoOnboardNewAccounts = true;
+                    invalidatePreparedStackSet();
+                    setAWSForm((current) => ({ ...current, autoOnboardNewAccounts: value }));
+                  }}
+                  onLaunch={handleAWSStackSetStart}
+                  onPreviewPermissions={
+                    awsPermissionPreview.length > 0 ? () => setAWSPreviewOpen(true) : undefined
+                  }
+                  submitting={submitting}
+                  canSubmit={canSubmit}
+                  start={stackSetAWSStart}
+                  parsedRegions={parsedTargetRegions}
+                  parsedOUs={parsedTargetOUIDs}
+                  parsedAccounts={parsedTargetAccountIDs}
+                  parsedExcludedAccounts={parsedExcludedAccountIDs}
+                  setupMessage={awsSetupMessage}
+                  persistedSelfManagedUnsupported={isPersistedSelfManagedStackSet}
+                />
+              ) : !isManualSetup ? (
                 <div className="idt-aws-wizard-step">
                   <div className="idt-aws-step-index" aria-hidden="true">2</div>
                   <div className="idt-aws-step-body">
@@ -21340,7 +22754,7 @@ export function ProductAWSConnectPage() {
                 </div>
               )}
 
-              {hasConnectorSetup && !isManualSetup ? (
+              {hasConnectorSetup && !isManualSetup && !isStackSetSetup ? (
                 <div className="idt-aws-wizard-step">
                   <div className="idt-aws-step-index" aria-hidden="true">3</div>
                   <div className="idt-aws-step-body">
@@ -21419,6 +22833,22 @@ export function ProductAWSConnectPage() {
                 </div>
               ) : null}
             </form>
+            {isStackSetSetup && (stackSetAWSStart || awsStackSetOnboarding) ? (
+              <AWSStackSetProgressPanel
+                start={stackSetAWSStart}
+                persistedOnboarding={awsStackSetOnboarding}
+                refreshError={awsStackSetOnboardingError}
+                onRefresh={
+                  activeConnectorID
+                    ? () => {
+                        void handleAWSPoll();
+                        void refreshStackSetOnboarding();
+                      }
+                    : undefined
+                }
+                refreshing={submitting || awsStackSetOnboardingLoading}
+              />
+            ) : null}
           </section>
 
           <div className="idt-aws-connect-side">
@@ -21428,7 +22858,7 @@ export function ProductAWSConnectPage() {
               <dl className="idt-source-meta">
                 <div>
                   <dt>Scope</dt>
-                  <dd>{isManualSetup ? 'Existing IAM role' : 'Single account'}</dd>
+                  <dd>{awsScopeSummaryLabel(awsSetupMode, stackSetAWSStart ?? cloudFormationAWSStart ?? manualAWSStart)}</dd>
                 </div>
                 <div>
                   <dt>Health</dt>
@@ -21441,7 +22871,17 @@ export function ProductAWSConnectPage() {
               </dl>
               <p>{setupSummaryBody}</p>
               <div className="idt-source-actions idt-aws-summary-actions">
-                {launchURL ? (
+                {isStackSetSetup && stackSetAWSStart?.launch_url && stackSetBlockingPrereqCount === 0 ? (
+                  <a
+                    className="idt-btn idt-btn-primary"
+                    href={stackSetAWSStart.launch_url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
+                    <span>Open StackSet in AWS</span>
+                  </a>
+                ) : isStackSetSetup ? null : launchURL ? (
                   <a className="idt-btn idt-btn-primary" href={launchURL} target="_blank" rel="noreferrer">
                     <ExternalLink size={15} strokeWidth={1.8} aria-hidden="true" />
                     <span>Open AWS stack</span>
