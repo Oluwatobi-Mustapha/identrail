@@ -21777,6 +21777,8 @@ export function ProductAWSConnectPage() {
   const awsStackSetOnboardingRequestRef = useRef(0);
   const awsSetupModeTouchedRef = useRef(false);
   const awsSetupModeRef = useRef<AWSSetupMode>('cloudformation');
+  const awsCloudFormationStartRef = useRef<AWSConnectorStartResponse | null>(null);
+  awsCloudFormationStartRef.current = awsCloudFormationStart;
   const activeConnectorIDRef = useRef('');
   const selectedEnvironmentIDRef = useRef(selectedEnvironmentID);
   const scopeKey = scope ? `${scope.tenantID}::${scope.workspaceID}` : '';
@@ -21875,6 +21877,79 @@ export function ProductAWSConnectPage() {
             ? current.roleName
             : awsRoleNameFromARN(response.connection.role_arn ?? '') || current.roleName
         }));
+        // Trust-policy inputs (external_id + identrail_account_id) are
+        // deliberately excluded from the connection GET response, so a page
+        // reload leaves the guided repair copy_trust_policy button disabled
+        // even when a diagnostic asks the operator to paste the corrected
+        // trust policy. Resume them by silently calling the idempotent
+        // startAWSConnector endpoint for the existing connector — it returns
+        // the persisted external_id and Identrail account ID without ever
+        // regenerating anything. Only fire when the wizard state is empty
+        // (i.e., this is a resume rather than a fresh onboarding step) and
+        // the operator did not touch the setup mode, so we do not stomp
+        // in-flight edits.
+        // Only hydrate a degraded connector — a healthy one has no trust-policy
+        // repair to complete, so the extra network call is wasted work and
+        // would surprise tests that mock only the connection GET.
+        const connectorID = normalizeValue(response.connection.connector_id);
+        const canResumeCloudFormation =
+          response.connection.deployment_method === 'cloudformation' &&
+          response.connection.scope_type === 'single_account';
+        const needsTrustPolicyResume = !response.connection.connected;
+        // Fire whenever the current wizard mode is CloudFormation. Guarding
+        // on awsSetupModeTouchedRef would permanently block hydration after
+        // the operator switched setup mode even once — including switching
+        // away and back to CloudFormation, which clears
+        // awsCloudFormationStart and legitimately needs a fresh resume.
+        if (
+          connectorID &&
+          canResumeCloudFormation &&
+          needsTrustPolicyResume &&
+          !awsCloudFormationStartRef.current &&
+          awsSetupModeRef.current === 'cloudformation'
+        ) {
+          // Snapshot the wizard-start request id at dispatch so we can drop
+          // this resume if a real start (Manual, StackSet, or a fresh
+          // CloudFormation launch) fired while our call was in flight.
+          const resumeStartRequestID = awsStartRequestRef.current;
+          try {
+            const resumed = await apiClient.startAWSConnector(
+              {
+                workspace_id: scope.workspaceID,
+                project_id: requestEnvironmentID,
+                connector_id: connectorID,
+                scope_type: 'single_account',
+                deployment_method: 'cloudformation',
+                region: response.connection.region || 'us-east-1'
+              },
+              buildProductAuthContext(scope)
+            );
+            // Recheck the wizard's current shape before applying resumed
+            // secrets. If the operator switched to Manual or a StackSet mode
+            // while we awaited — or a competing start response already
+            // installed different values — installing the CloudFormation
+            // External ID here would hide "Generate External ID" in Manual
+            // mode while leaving activeConnectorID empty and validation
+            // disabled, stranding the wizard in a mismatched state.
+            if (
+              isStale() ||
+              awsSetupModeRef.current !== 'cloudformation' ||
+              awsCloudFormationStartRef.current ||
+              awsStartRequestRef.current !== resumeStartRequestID
+            ) {
+              return;
+            }
+            setAWSCloudFormationStart(resumed);
+            setAWSForm((current) => ({
+              ...current,
+              externalID: current.externalID || resumed.external_id
+            }));
+          } catch {
+            // Resume is a best-effort hydration; if it fails the operator
+            // can still restart the wizard manually. Do not surface an
+            // error banner for a silent background call.
+          }
+        }
       } catch (error) {
         if (isStale()) {
           return;
@@ -22223,6 +22298,10 @@ export function ProductAWSConnectPage() {
   // active start response — instead of only the manual variant — keeps the
   // guided repair "copy trust policy" button usable after a CloudFormation or
   // StackSet start, which is exactly when a trust misconfiguration surfaces.
+  // After a page reload the wizard start response is gone; refreshConnection
+  // silently resumes it by calling the idempotent startAWSConnector endpoint,
+  // which repopulates external_id and identrail_account_id without exposing
+  // them via the poll response.
   const wizardIdentrailAccountID = normalizeValue(awsCloudFormationStart?.identrail_account_id);
   const awsTrustPolicy = buildAWSManualTrustPolicy(
     wizardIdentrailAccountID,

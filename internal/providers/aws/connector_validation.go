@@ -134,10 +134,21 @@ func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request
 	}
 	identity, err := identityClient(assumedCfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	if err != nil {
+		// AssumeRole already succeeded, so any failure of the follow-up
+		// GetCallerIdentity call — AccessDenied, throttling, invalid token,
+		// expired token, or otherwise — must not route the operator to
+		// AssumeRole/trust-policy repair actions. AWS documents that
+		// sts:GetCallerIdentity requires no permissions (it returns caller
+		// info even under an explicit deny) and this validator supplies no
+		// session policy to AssumeRole, so trust, session, SCP, and
+		// permissions-boundary controls cannot be responsible for the outcome.
+		// Classify every failure here as an identity-metadata anomaly so
+		// guided repair points to credential/endpoint remediation regardless
+		// of the underlying error subtype.
 		result.Diagnostics = append(result.Diagnostics, api.AWSConnectionDiagnostic{
-			Code:        classifyAWSError(err, "aws_identity_metadata_failed"),
+			Code:        "aws_identity_metadata_unexpected",
 			Message:     "Unable to read caller identity metadata after assuming the connector role.",
-			Remediation: "Verify the assumed-role credentials are usable and not blocked by an organization SCP or session policy.",
+			Remediation: "Retry validation; if the failure persists, check STS endpoint reachability from this deployment and confirm the assumed session credentials are intact — sts:GetCallerIdentity requires no permissions, so trust and session policies are not the cause.",
 		})
 		return result, nil
 	}
