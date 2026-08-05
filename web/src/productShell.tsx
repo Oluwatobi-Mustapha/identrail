@@ -21758,11 +21758,8 @@ type AWSOrganizationRolloutPanelProps = {
   auth: ReturnType<typeof buildProductAuthContext>;
 };
 
-// AWSOrganizationRolloutPanel is the first-cut UI slice for identrail#1788.
-// It launches a scoped rollout envelope from the validated controlling
-// account and polls per-target state so operators can watch member accounts
-// arrive individually. Deeper drilldown, retry actions, and reconciliation
-// UI land in follow-up slices.
+// AWSOrganizationRolloutPanel launches a scoped rollout envelope, reconciles
+// member-role validation on demand, and keeps failed target repair explicit.
 function AWSOrganizationRolloutPanel({
   workspaceID,
   projectID,
@@ -21786,6 +21783,8 @@ function AWSOrganizationRolloutPanel({
   const [errorMessage, setErrorMessage] = useState('');
   const [pollExhausted, setPollExhausted] = useState(false);
   const [manualRefreshBusy, setManualRefreshBusy] = useState(false);
+  const [reconcileBusy, setReconcileBusy] = useState(false);
+  const [retryBusy, setRetryBusy] = useState(false);
   const [pollEpoch, setPollEpoch] = useState(0);
   const pollGeneration = useRef(0);
   // Derive the rollout target scope from the setup mode, mirroring
@@ -21885,24 +21884,61 @@ function AWSOrganizationRolloutPanel({
     };
   }, [rolloutID, workspaceID, projectID, pollEpoch]);
 
+  const runRolloutAction = useCallback(
+    async (
+      setBusyState: (busy: boolean) => void,
+      action: () => Promise<{ rollout: AWSOrganizationRolloutResult }>,
+      fallbackMessage: string
+    ) => {
+      setBusyState(true);
+      setErrorMessage('');
+      try {
+        const response = await action();
+        setRollout(response.rollout);
+        setPollExhausted(false);
+        setPollEpoch((epoch) => epoch + 1);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : fallbackMessage;
+        setErrorMessage(message);
+      } finally {
+        setBusyState(false);
+      }
+    },
+    []
+  );
+
   const handleManualRefresh = useCallback(async () => {
     if (!rollout || !workspaceID || !projectID || manualRefreshBusy) {
       return;
     }
-    setManualRefreshBusy(true);
-    setErrorMessage('');
-    try {
-      const response = await apiClient.getAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id, auth);
-      setRollout(response.rollout);
-      setPollExhausted(false);
-      setPollEpoch((epoch) => epoch + 1);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to refresh rollout';
-      setErrorMessage(message);
-    } finally {
-      setManualRefreshBusy(false);
+    await runRolloutAction(
+      setManualRefreshBusy,
+      () => apiClient.getAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id, auth),
+      'Failed to refresh rollout'
+    );
+  }, [rollout, workspaceID, projectID, manualRefreshBusy, auth, runRolloutAction]);
+
+  const handleReconcile = useCallback(async () => {
+    if (!rollout || !workspaceID || !projectID || reconcileBusy) {
+      return;
     }
-  }, [rollout, workspaceID, projectID, manualRefreshBusy]);
+    await runRolloutAction(
+      setReconcileBusy,
+      () => apiClient.reconcileAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id, auth),
+      'Failed to reconcile rollout'
+    );
+  }, [rollout, workspaceID, projectID, reconcileBusy, auth, runRolloutAction]);
+
+  const handleRetry = useCallback(async () => {
+    if (!rollout || !workspaceID || !projectID || retryBusy) {
+      return;
+    }
+    await runRolloutAction(
+      setRetryBusy,
+      () => apiClient.retryAWSOrganizationRollout(workspaceID, projectID, rollout.rollout_id, {}, auth),
+      'Failed to retry rollout targets'
+    );
+  }, [rollout, workspaceID, projectID, retryBusy, auth, runRolloutAction]);
 
   const handleStart = useCallback(async () => {
     if (!readyToLaunch || busy) {
@@ -21950,6 +21986,11 @@ function AWSOrganizationRolloutPanel({
   ]);
 
   const summary = rollout?.summary;
+  const hasRetryableTargets = Boolean(
+    rollout?.targets.some(
+      (target) => target.retryable && (target.state === 'failed' || target.state === 'partial')
+    )
+  );
   return (
     <section className="idt-aws-rollout-panel" aria-label="AWS organization rollout">
       <header className="idt-aws-stackset-progress-header">
@@ -21981,6 +22022,28 @@ function AWSOrganizationRolloutPanel({
             <span className={`idt-domain-status-badge is-${rollout.status === 'in_progress' ? 'ready' : 'blocked'}`}>
               {rollout.status.replace(/_/g, ' ')}
             </span>
+            <button
+              className="idt-btn idt-btn-secondary"
+              type="button"
+              onClick={() => {
+                void handleReconcile();
+              }}
+              disabled={reconcileBusy || rollout.status === 'completed' || rollout.status === 'canceled' || rollout.status === 'expired'}
+            >
+              {reconcileBusy ? 'Reconciling…' : 'Reconcile now'}
+            </button>
+            {hasRetryableTargets ? (
+              <button
+                className="idt-btn idt-btn-secondary"
+                type="button"
+                onClick={() => {
+                  void handleRetry();
+                }}
+                disabled={retryBusy || rollout.status === 'expired' || rollout.status === 'canceled' || rollout.status === 'completed'}
+              >
+                {retryBusy ? 'Retrying…' : 'Retry failed targets'}
+              </button>
+            ) : null}
             {pollExhausted ? (
               <button
                 className="idt-btn idt-btn-secondary"
@@ -22090,7 +22153,14 @@ function AWSOrganizationRolloutPanel({
                     <td>{target.region}</td>
                     <td>{target.state}</td>
                     <td>{target.last_transition_at ? new Date(target.last_transition_at).toLocaleString() : '—'}</td>
-                    <td>{target.last_validation_at ? new Date(target.last_validation_at).toLocaleString() : '—'}</td>
+                    <td>
+                      {target.last_validation_at ? new Date(target.last_validation_at).toLocaleString() : '—'}
+                      {target.failure_code ? (
+                        <span title={target.failure_message || target.failure_code}>
+                          {` · ${target.failure_code}${target.failure_message ? `: ${target.failure_message}` : ''}`}
+                        </span>
+                      ) : null}
+                    </td>
                   </tr>
                 ))
               )}

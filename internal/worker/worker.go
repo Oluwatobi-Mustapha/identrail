@@ -24,6 +24,7 @@ const (
 	defaultWorkerQueueMaxAttempts   = 1
 	defaultWorkerScanTimeout        = 10 * time.Minute
 	defaultWorkerRepoScanTimeout    = 30 * time.Minute
+	defaultWorkerAWSRolloutTimeout  = 10 * time.Minute
 )
 
 type queueProcessFunc func(context.Context) (bool, error)
@@ -418,6 +419,57 @@ func Run(ctx context.Context, cfg config.Config, signals <-chan os.Signal) error
 				OnError: func(_ context.Context, err error) {
 					metrics.WorkerRetriesTotal.WithLabelValues("aws_registration").Inc()
 					logger.Error("aws registration queue retry scheduled", telemetry.ZapError(err))
+				},
+			},
+		})
+	}
+	var awsRolloutTrigger scheduler.TriggerFunc
+	if cfg.FeatureConnectorAWS && cfg.WorkerAWSRolloutEnabled {
+		rolloutBatchSize := cfg.WorkerAWSRolloutBatchSize
+		if rolloutBatchSize <= 0 {
+			rolloutBatchSize = 25
+		}
+		rolloutInterval := cfg.WorkerAWSRolloutInterval
+		if rolloutInterval <= 0 {
+			rolloutInterval = 5 * time.Minute
+		}
+		rolloutRunnerKey := "aws-rollout-reconciliation"
+		if namespace := strings.TrimSpace(svc.LockNamespace); namespace != "" {
+			rolloutRunnerKey = namespace + ":" + rolloutRunnerKey
+		}
+		awsRolloutTrigger = func(runCtx context.Context) error {
+			writeHeartbeat()
+			rolloutCtx, cancel := withTimeoutIfNone(runCtx, defaultWorkerAWSRolloutTimeout)
+			defer cancel()
+			processed, reconcileErr := svc.ReconcileAWSOrganizationRollouts(rolloutCtx, rolloutBatchSize)
+			fields := telemetry.StandardLogFields(
+				"worker", "aws_rollout_reconciliation",
+				telemetry.String("processed", fmt.Sprint(processed)),
+			)
+			if reconcileErr != nil {
+				logger.Error("aws organization rollout reconciliation failed", append(fields, telemetry.ZapError(reconcileErr))...)
+				return reconcileErr
+			}
+			logger.Info("aws organization rollout reconciliation pass", fields...)
+			return reconcileErr
+		}
+		runners = append(runners, scheduledRunner{
+			name:   "aws-rollout-reconciliation",
+			runNow: false,
+			runner: scheduler.Runner{
+				Interval:     rolloutInterval,
+				Key:          rolloutRunnerKey,
+				Locker:       svc.Locker,
+				Trigger:      awsRolloutTrigger,
+				MaxAttempts:  2,
+				RetryBackoff: time.Second,
+				OnDeadLetter: func(_ context.Context, err error) {
+					metrics.WorkerDeadLettersTotal.WithLabelValues("aws_rollout_reconciliation").Inc()
+					logger.Error("aws rollout reconciliation exhausted retries", telemetry.ZapError(err))
+				},
+				OnError: func(_ context.Context, err error) {
+					metrics.WorkerRetriesTotal.WithLabelValues("aws_rollout_reconciliation").Inc()
+					logger.Error("aws rollout reconciliation retry scheduled", telemetry.ZapError(err))
 				},
 			},
 		})
