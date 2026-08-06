@@ -1594,11 +1594,108 @@ func (m *MemoryStore) UpsertTenancyConnector(ctx context.Context, connector Tena
 		return ErrNotFound
 	}
 	key := tenancyConnectorKey(normalizedConnector.TenantID, normalizedConnector.WorkspaceID, normalizedConnector.ProjectID, normalizedConnector.ConnectorID)
-	if existing, exists := m.connectors[key]; exists && createdAtWasZero {
-		normalizedConnector.CreatedAt = existing.CreatedAt
+	if existing, exists := m.connectors[key]; exists {
+		if existing.LifecycleGeneration != normalizedConnector.LifecycleGeneration {
+			m.mu.Unlock()
+			return ErrConflict
+		}
+		if createdAtWasZero {
+			normalizedConnector.CreatedAt = existing.CreatedAt
+		}
 	}
 	m.connectors[key] = normalizedConnector
 	m.connStates[key] = normalizedState
+	m.mu.Unlock()
+
+	audit.WriteAction(ctx, audit.AuditEvent{
+		Action:       "tenancy.connector.upsert",
+		TenantID:     normalizedConnector.TenantID,
+		WorkspaceID:  normalizedConnector.WorkspaceID,
+		ResourceType: "tenancy_connector",
+		ResourceID:   normalizedConnector.ConnectorID,
+		Outcome:      "success",
+	})
+	return nil
+}
+
+// UpsertTenancyConnectorAndSecretEnvelope persists connector state and its
+// optional secret under one in-memory lifecycle fence. The store lock models
+// the transaction and keeps metadata and credentials from diverging in tests
+// and local development.
+func (m *MemoryStore) UpsertTenancyConnectorAndSecretEnvelope(ctx context.Context, connector TenancyConnector, state TenancyConnectorState, secretName string, envelope *TenancyConnectorSecretEnvelope) error {
+	m.mu.Lock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	connector.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, connector.WorkspaceID)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	connector.WorkspaceID = resolvedWorkspaceID
+	secretName = strings.TrimSpace(secretName)
+	if secretName == "" {
+		m.mu.Unlock()
+		return fmt.Errorf("secret name is required")
+	}
+	state.TenantID = scope.TenantID
+	state.WorkspaceID = resolvedWorkspaceID
+	state.ProjectID = connector.ProjectID
+	state.ConnectorID = connector.ConnectorID
+	createdAtWasZero := connector.CreatedAt.IsZero()
+
+	normalizedConnector, err := NormalizeTenancyConnectorForWrite(connector)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	normalizedState, err := NormalizeTenancyConnectorStateForWrite(state)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	var normalizedEnvelope *TenancyConnectorSecretEnvelope
+	if envelope != nil {
+		normalized := *envelope
+		normalized.TenantID = scope.TenantID
+		normalized.WorkspaceID = resolvedWorkspaceID
+		normalized.ProjectID = connector.ProjectID
+		normalized.ConnectorID = connector.ConnectorID
+		normalized.SecretName = secretName
+		value, normalizeErr := NormalizeTenancyConnectorSecretEnvelopeForWrite(normalized)
+		if normalizeErr != nil {
+			m.mu.Unlock()
+			return normalizeErr
+		}
+		normalizedEnvelope = &value
+	}
+	if _, exists := m.projects[tenancyProjectKey(normalizedConnector.TenantID, normalizedConnector.WorkspaceID, normalizedConnector.ProjectID)]; !exists {
+		m.mu.Unlock()
+		return ErrNotFound
+	}
+
+	key := tenancyConnectorKey(normalizedConnector.TenantID, normalizedConnector.WorkspaceID, normalizedConnector.ProjectID, normalizedConnector.ConnectorID)
+	if existing, exists := m.connectors[key]; exists {
+		if existing.LifecycleGeneration != normalizedConnector.LifecycleGeneration {
+			m.mu.Unlock()
+			return ErrConflict
+		}
+		if createdAtWasZero {
+			normalizedConnector.CreatedAt = existing.CreatedAt
+		}
+	}
+	m.connectors[key] = normalizedConnector
+	m.connStates[key] = normalizedState
+	secretKey := tenancyConnectorSecretKey(normalizedConnector.TenantID, normalizedConnector.WorkspaceID, normalizedConnector.ProjectID, normalizedConnector.ConnectorID, secretName)
+	if normalizedEnvelope == nil {
+		delete(m.connSecrets, secretKey)
+	} else {
+		m.connSecrets[secretKey] = *normalizedEnvelope
+	}
 	m.mu.Unlock()
 
 	audit.WriteAction(ctx, audit.AuditEvent{
@@ -1681,6 +1778,13 @@ func (m *MemoryStore) ClaimKubernetesEnrollmentToken(ctx context.Context, worksp
 
 // ListTenancyConnectors returns scoped connectors ordered by most recent update.
 func (m *MemoryStore) ListTenancyConnectors(ctx context.Context, workspaceID string, projectID string, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	return m.listTenancyConnectors(ctx, workspaceID, projectID, connectorType, limit)
+}
+
+func (m *MemoryStore) listTenancyConnectors(ctx context.Context, workspaceID string, projectID string, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -1692,12 +1796,13 @@ func (m *MemoryStore) ListTenancyConnectors(ctx context.Context, workspaceID str
 	if err != nil {
 		return nil, err
 	}
-	if limit <= 0 {
-		limit = 100
-	}
 	normalizedProjectID := strings.TrimSpace(projectID)
 	normalizedType := domain.ConnectorType(strings.ToLower(strings.TrimSpace(string(connectorType))))
-	connectors := make([]TenancyConnectorWithState, 0, limit)
+	capacity := len(m.connectors)
+	if limit > 0 && limit < capacity {
+		capacity = limit
+	}
+	connectors := make([]TenancyConnectorWithState, 0, capacity)
 	for key, connector := range m.connectors {
 		if connector.TenantID != scope.TenantID || connector.WorkspaceID != resolvedWorkspaceID {
 			continue
@@ -1715,7 +1820,7 @@ func (m *MemoryStore) ListTenancyConnectors(ctx context.Context, workspaceID str
 	sort.Slice(connectors, func(i, j int) bool {
 		return connectors[i].Connector.UpdatedAt.After(connectors[j].Connector.UpdatedAt)
 	})
-	if len(connectors) > limit {
+	if limit > 0 && len(connectors) > limit {
 		connectors = connectors[:limit]
 	}
 	return connectors, nil
@@ -1723,6 +1828,13 @@ func (m *MemoryStore) ListTenancyConnectors(ctx context.Context, workspaceID str
 
 // ListTenancyConnectorsUnscoped returns connectors across all scopes for internal webhook dispatch.
 func (m *MemoryStore) ListTenancyConnectorsUnscoped(_ context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	return m.listTenancyConnectorsUnscoped(connectorType, limit)
+}
+
+func (m *MemoryStore) listTenancyConnectorsUnscoped(connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -1747,6 +1859,46 @@ func (m *MemoryStore) ListTenancyConnectorsUnscoped(_ context.Context, connector
 		connectors = connectors[:limit]
 	}
 	return connectors, nil
+}
+
+// ListEligibleTenancyConnectors applies the same lifecycle predicate as the
+// Postgres implementation before limiting the result set.
+func (m *MemoryStore) ListEligibleTenancyConnectors(ctx context.Context, workspaceID string, projectID string, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
+	items, err := m.listTenancyConnectors(ctx, workspaceID, projectID, connectorType, -1)
+	if err != nil {
+		return nil, err
+	}
+	eligible := make([]TenancyConnectorWithState, 0, len(items))
+	for _, item := range items {
+		if item.Connector.Disabled || item.Connector.Status == domain.ConnectorStatusDisconnected {
+			continue
+		}
+		eligible = append(eligible, item)
+		if limit > 0 && len(eligible) >= limit {
+			break
+		}
+	}
+	return eligible, nil
+}
+
+// ListEligibleTenancyConnectorsUnscoped applies the lifecycle predicate to
+// cross-scope runtime selection before limiting the result set.
+func (m *MemoryStore) ListEligibleTenancyConnectorsUnscoped(ctx context.Context, connectorType domain.ConnectorType, limit int) ([]TenancyConnectorWithState, error) {
+	items, err := m.listTenancyConnectorsUnscoped(connectorType, -1)
+	if err != nil {
+		return nil, err
+	}
+	eligible := make([]TenancyConnectorWithState, 0, len(items))
+	for _, item := range items {
+		if item.Connector.Disabled || item.Connector.Status == domain.ConnectorStatusDisconnected {
+			continue
+		}
+		eligible = append(eligible, item)
+		if limit > 0 && len(eligible) >= limit {
+			break
+		}
+	}
+	return eligible, nil
 }
 
 // ListAllTenancyConnectorsByType returns connectors across all scopes for internal runtime matching.
@@ -1991,6 +2143,100 @@ func (m *MemoryStore) CreateTenancyConnectorSecretEnvelopeIfAbsent(ctx context.C
 	}
 	m.connSecrets[secretKey] = normalized
 	return normalized, true, nil
+}
+
+// CreateTenancyConnectorSecretEnvelopeIfAbsentAtGeneration is the in-memory
+// equivalent of the database lifecycle fence.
+func (m *MemoryStore) CreateTenancyConnectorSecretEnvelopeIfAbsentAtGeneration(ctx context.Context, envelope TenancyConnectorSecretEnvelope, expectedGeneration int64) (TenancyConnectorSecretEnvelope, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, err
+	}
+	envelope.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, envelope.WorkspaceID)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, err
+	}
+	envelope.WorkspaceID = resolvedWorkspaceID
+	normalized, err := NormalizeTenancyConnectorSecretEnvelopeForWrite(envelope)
+	if err != nil {
+		return TenancyConnectorSecretEnvelope{}, false, err
+	}
+	connectorKey := tenancyConnectorKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID)
+	connector, exists := m.connectors[connectorKey]
+	if !exists {
+		return TenancyConnectorSecretEnvelope{}, false, ErrNotFound
+	}
+	if connector.LifecycleGeneration != expectedGeneration || connector.Disabled || connector.Status == "disconnected" {
+		return TenancyConnectorSecretEnvelope{}, false, ErrConflict
+	}
+	secretKey := tenancyConnectorSecretKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID, normalized.SecretName)
+	if existing, exists := m.connSecrets[secretKey]; exists {
+		existing.Envelope.Nonce = append([]byte(nil), existing.Envelope.Nonce...)
+		existing.Envelope.Ciphertext = append([]byte(nil), existing.Envelope.Ciphertext...)
+		return existing, false, nil
+	}
+	m.connSecrets[secretKey] = normalized
+	return normalized, true, nil
+}
+
+// UpsertTenancyConnectorSecretEnvelopeAtGeneration updates an encrypted
+// connector secret only in the observed eligible lifecycle generation.
+func (m *MemoryStore) UpsertTenancyConnectorSecretEnvelopeAtGeneration(ctx context.Context, envelope TenancyConnectorSecretEnvelope, expectedGeneration int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	envelope.TenantID = scope.TenantID
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, envelope.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	envelope.WorkspaceID = resolvedWorkspaceID
+	normalized, err := NormalizeTenancyConnectorSecretEnvelopeForWrite(envelope)
+	if err != nil {
+		return err
+	}
+	connectorKey := tenancyConnectorKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID)
+	connector, exists := m.connectors[connectorKey]
+	if !exists {
+		return ErrNotFound
+	}
+	if connector.LifecycleGeneration != expectedGeneration || connector.Disabled || connector.Status == "disconnected" {
+		return ErrConflict
+	}
+	secretKey := tenancyConnectorSecretKey(normalized.TenantID, normalized.WorkspaceID, normalized.ProjectID, normalized.ConnectorID, normalized.SecretName)
+	m.connSecrets[secretKey] = normalized
+	return nil
+}
+
+// DeleteTenancyConnectorSecretEnvelopeAtGeneration deletes a connector secret
+// only in the observed eligible lifecycle generation.
+func (m *MemoryStore) DeleteTenancyConnectorSecretEnvelopeAtGeneration(ctx context.Context, workspaceID string, projectID string, connectorID string, secretName string, expectedGeneration int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return err
+	}
+	connectorKey := tenancyConnectorKey(scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID))
+	connector, exists := m.connectors[connectorKey]
+	if !exists {
+		return ErrNotFound
+	}
+	if connector.LifecycleGeneration != expectedGeneration || connector.Disabled || connector.Status == "disconnected" {
+		return ErrConflict
+	}
+	delete(m.connSecrets, tenancyConnectorSecretKey(scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID), strings.TrimSpace(secretName)))
+	return nil
 }
 
 // UpsertTenancyConnectorSecretEnvelope persists one encrypted connector secret envelope.

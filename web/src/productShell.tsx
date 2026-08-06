@@ -4257,7 +4257,10 @@ function AWSConnectedSuccessPanel({
   baselineLoading,
   onRefresh,
   onRunBaseline,
-  onManageConnection
+  onManageConnection,
+  onDisconnect,
+  onDisable,
+  lifecycleBusy
 }: {
   scope: ProductSession;
   environmentID: string;
@@ -4268,12 +4271,16 @@ function AWSConnectedSuccessPanel({
   onRefresh: () => void;
   onRunBaseline: () => void;
   onManageConnection: () => void;
+  onDisconnect: () => void;
+  onDisable: () => void;
+  lifecycleBusy: boolean;
 }) {
   const overviewPath = awsRouteLink(scope, 'overview', environmentID);
   const identitiesPath = awsRouteLink(scope, 'identities', environmentID);
   const coveragePath = awsRouteLink(scope, 'coverage', environmentID);
   const findingsPath = awsRouteLink(scope, 'findings', environmentID);
   const tradeoffs = awsConnectedTradeoffs(connection);
+  const connectorConnected = connection.connected;
   const permissionFailures = connection.permission_checks.filter((check) => !check.passed).length;
   const showFindingsAction =
     connection.health_status === 'warning' ||
@@ -4287,9 +4294,14 @@ function AWSConnectedSuccessPanel({
         <div className="idt-source-config-title">
           <SourceLogoMark provider="aws" className="is-hero" />
           <div>
-            <p className="idt-app-kicker">Connected</p>
-            <h3>{connection.display_name || 'AWS connector is active'}</h3>
-            <p>{connection.setup_summary || 'AWS is connected and ready for identity intelligence.'}</p>
+            <p className="idt-app-kicker">{connectorConnected ? 'Connected' : 'Needs attention'}</p>
+            <h3>{connection.display_name || (connectorConnected ? 'AWS connector is active' : 'AWS connector needs attention')}</h3>
+            <p>
+              {connection.setup_summary ||
+                (connectorConnected
+                  ? 'AWS is connected and ready for identity intelligence.'
+                  : 'Lifecycle controls remain available while AWS access is repaired.')}
+            </p>
           </div>
         </div>
         <DomainStatusBadge variant={awsStatusVariant(connection)} detail={connection.health_status} />
@@ -4331,28 +4343,38 @@ function AWSConnectedSuccessPanel({
       </dl>
 
       <div className="idt-aws-connected-actions">
-        <Link className="idt-btn idt-btn-primary" to={overviewPath}>
-          Start AWS intelligence
-        </Link>
-        <Link className="idt-btn idt-btn-dark" to={identitiesPath}>
-          Review machine identities
-        </Link>
-        <Link className="idt-btn idt-btn-secondary" to={coveragePath}>
-          View coverage gaps
-        </Link>
-        {showFindingsAction ? (
-          <Link className="idt-btn idt-btn-ghost" to={findingsPath}>
-            Review findings
-          </Link>
+        {connectorConnected ? (
+          <>
+            <Link className="idt-btn idt-btn-primary" to={overviewPath}>
+              Start AWS intelligence
+            </Link>
+            <Link className="idt-btn idt-btn-dark" to={identitiesPath}>
+              Review machine identities
+            </Link>
+            <Link className="idt-btn idt-btn-secondary" to={coveragePath}>
+              View coverage gaps
+            </Link>
+            {showFindingsAction ? (
+              <Link className="idt-btn idt-btn-ghost" to={findingsPath}>
+                Review findings
+              </Link>
+            ) : null}
+          </>
         ) : null}
         <button className="idt-btn idt-btn-ghost" type="button" onClick={onRefresh} disabled={refreshing}>
           {refreshing ? 'Refreshing...' : 'Refresh status'}
         </button>
-        <button className="idt-btn idt-btn-ghost" type="button" onClick={onRunBaseline} disabled={baselineLoading}>
+        <button className="idt-btn idt-btn-ghost" type="button" onClick={onRunBaseline} disabled={baselineLoading || !connectorConnected}>
           {baselineLoading ? 'Running...' : 'Run baseline'}
         </button>
         <button className="idt-btn idt-btn-ghost" type="button" onClick={onManageConnection}>
           Manage connection
+        </button>
+        <button className="idt-btn idt-btn-ghost" type="button" onClick={onDisable} disabled={lifecycleBusy}>
+          {lifecycleBusy ? 'Updating...' : 'Pause connector'}
+        </button>
+        <button className="idt-btn idt-btn-ghost" type="button" onClick={onDisconnect} disabled={lifecycleBusy}>
+          Disconnect
         </button>
       </div>
 
@@ -22183,6 +22205,7 @@ export function ProductAWSConnectPage() {
   const [connection, setConnection] = useState<AWSConnectionStatus | null>(null);
   const [loadingConnection, setLoadingConnection] = useState(false);
   const [refreshingConnection, setRefreshingConnection] = useState(false);
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -22235,6 +22258,7 @@ export function ProductAWSConnectPage() {
   const [awsAutoPollExhausted, setAWSAutoPollExhausted] = useState(false);
   const awsValidationRequestRef = useRef(0);
   const awsStackSetOnboardingRequestRef = useRef(0);
+  const awsLifecycleRequestRef = useRef(0);
   const awsSetupModeTouchedRef = useRef(false);
   const awsSetupModeRef = useRef<AWSSetupMode>('cloudformation');
   const awsCloudFormationStartRef = useRef<AWSConnectorStartResponse | null>(null);
@@ -22245,6 +22269,7 @@ export function ProductAWSConnectPage() {
   const scopeKeyRef = useRef(scopeKey);
   selectedEnvironmentIDRef.current = selectedEnvironmentID;
   scopeKeyRef.current = scopeKey;
+  const disconnectedConnector = Boolean(connection?.connector_id && connection.status === 'disconnected');
 
   const hydrateAWSConnectorRepair = useCallback(
     async (candidate: AWSConnectionStatus) => {
@@ -22349,6 +22374,7 @@ export function ProductAWSConnectPage() {
         const preserveManualDraft = awsSetupModeTouchedRef.current
           ? awsSetupModeRef.current === 'manual'
           : responseSetupMode === 'manual';
+        const terminalConnection = response.connection.status === 'disconnected';
         setAWSSetupMode((current) => {
           const next = awsSetupModeTouchedRef.current ? current : responseSetupMode;
           awsSetupModeRef.current = next;
@@ -22360,11 +22386,11 @@ export function ProductAWSConnectPage() {
         const ouOnlyIDs = responseOUIDs.filter((id) => AWS_OU_ID_PATTERN.test(id));
         setAWSForm((current) => ({
           ...current,
-          roleARN: response.connection.role_arn ?? (preserveManualDraft ? current.roleARN : ''),
-          externalID: preserveManualDraft ? current.externalID : '',
+          roleARN: terminalConnection ? '' : response.connection.role_arn ?? (preserveManualDraft ? current.roleARN : ''),
+          externalID: terminalConnection ? '' : preserveManualDraft ? current.externalID : '',
           region: response.connection.region ?? 'us-east-1',
-          displayName: response.connection.display_name ?? '',
-          sessionName: preserveManualDraft ? current.sessionName : 'identrail-connector-validation',
+          displayName: terminalConnection ? '' : response.connection.display_name ?? '',
+          sessionName: terminalConnection ? 'identrail-connector-validation' : preserveManualDraft ? current.sessionName : 'identrail-connector-validation',
           organizationRootID: dirty.organizationRootID
             ? current.organizationRootID
             : rootFromOUIDs ?? current.organizationRootID,
@@ -22457,6 +22483,96 @@ export function ProductAWSConnectPage() {
       }
     }
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
+  const changeAWSLifecycle = useCallback(
+    async (action: 'disconnect' | 'disable' | 'enable') => {
+      const connectorID = normalizeValue(connection?.connector_id);
+      if (!scope || !selectedEnvironmentID || !connectorID) {
+        return;
+      }
+      if (
+        action === 'disconnect' &&
+        typeof window !== 'undefined' &&
+        !window.confirm(
+          'Disconnect this AWS connector? New scans will stop and provider cleanup will remain pending until verified.'
+        )
+      ) {
+        return;
+      }
+
+      const requestID = ++awsLifecycleRequestRef.current;
+      connectionRequestRef.current += 1;
+      baselineRequestRef.current += 1;
+      awsPollRequestRef.current += 1;
+      awsAutoPollGenerationRef.current += 1;
+      awsRepairHydrationRequestRef.current += 1;
+      awsStackSetOnboardingRequestRef.current += 1;
+      awsStartRequestRef.current += 1;
+      awsValidationRequestRef.current += 1;
+      setLoadingConnection(false);
+      setRefreshingConnection(false);
+      setBaselineLoading(false);
+      setSubmitting(false);
+      const requestEnvironmentID = selectedEnvironmentID;
+      const requestScopeKey = scopeKeyRef.current;
+      const isStale = () =>
+        requestID !== awsLifecycleRequestRef.current ||
+        selectedEnvironmentIDRef.current !== requestEnvironmentID ||
+        scopeKeyRef.current !== requestScopeKey;
+
+      setLifecycleBusy(true);
+      setErrorMessage('');
+      try {
+        const auth = buildProductAuthContext(scope);
+        const response =
+          action === 'disconnect'
+            ? await apiClient.disconnectAWSConnector(connectorID, scope.workspaceID, requestEnvironmentID, auth)
+            : action === 'disable'
+              ? await apiClient.disableAWSConnector(connectorID, scope.workspaceID, requestEnvironmentID, auth)
+              : await apiClient.enableAWSConnector(connectorID, scope.workspaceID, requestEnvironmentID, auth);
+        if (isStale()) {
+          return;
+        }
+        setConnection(response.connection);
+        if (action === 'disconnect') {
+          // The disconnected record is an audit trail, not a reconnect
+          // candidate. Clear prepared onboarding and credential drafts so
+          // the next start request necessarily creates a fresh connector.
+          awsStartRequestRef.current += 1;
+          awsStackSetOnboardingRequestRef.current += 1;
+          setAWSCloudFormationStart(null);
+          setAWSStackSetOnboarding(null);
+          setAWSStackSetOnboardingError('');
+          setAWSSetupMessage('');
+          setAWSForm((current) => ({
+            ...current,
+            roleARN: '',
+            externalID: '',
+            displayName: '',
+            sessionName: 'identrail-connector-validation'
+          }));
+        }
+        setBaseline(null);
+        setSuccessMessage(
+          action === 'disconnect'
+            ? 'AWS connector disconnected. Provider cleanup is pending verification.'
+            : action === 'disable'
+              ? 'AWS connector paused. New scans are blocked until it is resumed.'
+              : 'AWS connector resumed. Refresh or validate it to confirm access.'
+        );
+        setManageConnectionOpen(false);
+      } catch (error) {
+        if (!isStale()) {
+          setErrorMessage(formatAWSConnectorSetupError(error));
+        }
+      } finally {
+        if (!isStale()) {
+          setLifecycleBusy(false);
+        }
+      }
+    },
+    [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, connection?.connector_id]
+  );
 
   const verifyBaseline = useCallback(async () => {
     const requestID = ++baselineRequestRef.current;
@@ -22569,6 +22685,8 @@ export function ProductAWSConnectPage() {
     setAWSStackSetOnboarding(null);
     setAWSStackSetOnboardingLoading(false);
     setAWSStackSetOnboardingError('');
+    setLifecycleBusy(false);
+    awsLifecycleRequestRef.current += 1;
     setAWSForm((current) => ({
       ...current,
       roleARN: '',
@@ -22605,6 +22723,7 @@ export function ProductAWSConnectPage() {
       awsRepairHydrationRequestRef.current += 1;
       awsValidationRequestRef.current += 1;
       awsStackSetOnboardingRequestRef.current += 1;
+      awsLifecycleRequestRef.current += 1;
     };
   }, [refreshConnection, refreshBaseline]);
 
@@ -22614,7 +22733,7 @@ export function ProductAWSConnectPage() {
       connectorScope === 'organization' ||
       connectorScope === 'selected_ous' ||
       connectorScope === 'selected_accounts';
-    if (!isStackSetConnector || !connection?.connector_id) {
+    if (!isStackSetConnector || !connection?.connector_id || disconnectedConnector) {
       return;
     }
     // Only refetch when the currently-selected wizard mode matches the
@@ -22628,6 +22747,7 @@ export function ProductAWSConnectPage() {
   }, [
     connection?.connector_id,
     connection?.scope_type,
+    disconnectedConnector,
     awsSetupMode,
     refreshStackSetOnboarding
   ]);
@@ -22798,6 +22918,12 @@ export function ProductAWSConnectPage() {
       })
     : null;
   const activeConnectorID = (() => {
+    // A disconnected connector is terminal. Fresh onboarding must omit its
+    // id so the API creates a new connector instead of attempting to resume
+    // the record that was intentionally invalidated by disconnect.
+    if (disconnectedConnector) {
+      return '';
+    }
     if (isManualSetup) {
       return (
         manualAWSStart?.connector_id ??
@@ -23466,7 +23592,10 @@ export function ProductAWSConnectPage() {
   };
 
   const connectedNow = Boolean(connection?.connected);
-  const showAWSSetupControls = Boolean(selectedEnvironmentID) && (!connectedNow || manageConnectionOpen);
+  const showAWSSetupControls =
+    Boolean(selectedEnvironmentID) &&
+    (!connectedNow || manageConnectionOpen) &&
+    !connection?.disabled;
   const awaitingFirstConnectLoad = loadingConnection && !connection && !errorMessage;
   const connectSubtitle = (() => {
     if (awaitingFirstConnectLoad || environmentScope.loading) {
@@ -23534,7 +23663,7 @@ export function ProductAWSConnectPage() {
   const stackSetLaunchURL =
     stackSetAWSStart?.launch_url ??
     (persistedLaunchURLMatchesMode && isStackSetSetup ? connection?.launch_url ?? '' : '');
-  const hasConnectorSetup = Boolean(awsCloudFormationStart || connection?.connector_id);
+  const hasConnectorSetup = Boolean(awsCloudFormationStart || activeConnectorID);
   const hasRoleOnlyConnection = Boolean(connection?.role_arn && !connection?.connector_id && !awsCloudFormationStart);
   const showOperationalPanels = Boolean(
     connection?.connected ||
@@ -23738,7 +23867,53 @@ export function ProductAWSConnectPage() {
       {selectedEnvironmentID ? (
         <div className="idt-aws-connect-layout">
           <div className="idt-aws-connect-main">
-            {connectedNow && connection ? (
+            {connection?.disabled ? (
+              <section className="idt-source-config idt-aws-connect-panel" aria-label="AWS connector paused">
+                <div className="idt-source-config-header">
+                  <div>
+                    <p className="idt-app-kicker">Paused</p>
+                    <h3>AWS connector is paused</h3>
+                    <p>New validation and scans are blocked until this connector is resumed.</p>
+                  </div>
+                  <DomainStatusBadge variant="needs-attention" detail="disabled" />
+                </div>
+                <div className="idt-aws-connected-actions">
+                  <button
+                    className="idt-btn idt-btn-primary"
+                    type="button"
+                    onClick={() => void changeAWSLifecycle('enable')}
+                    disabled={lifecycleBusy}
+                  >
+                    {lifecycleBusy ? 'Updating...' : 'Resume connector'}
+                  </button>
+                  <button
+                    className="idt-btn idt-btn-ghost"
+                    type="button"
+                    onClick={() => void changeAWSLifecycle('disconnect')}
+                    disabled={lifecycleBusy}
+                  >
+                    {lifecycleBusy ? 'Updating...' : 'Disconnect'}
+                  </button>
+                </div>
+              </section>
+            ) : null}
+
+            {disconnectedConnector ? (
+              <section className="idt-source-config idt-aws-connect-panel" aria-label="AWS connector disconnected">
+                <div className="idt-source-config-header">
+                  <div>
+                    <p className="idt-app-kicker">Disconnected</p>
+                    <h3>AWS connector is disconnected</h3>
+                    <p>New scans are stopped and provider cleanup remains pending until it is verified.</p>
+                  </div>
+                  <DomainStatusBadge variant="disconnected" detail="disconnected" />
+                </div>
+              </section>
+            ) : null}
+
+            {connection &&
+            !disconnectedConnector &&
+            (connectedNow || Boolean(connection.connector_id && !connection.disabled)) ? (
               <AWSConnectedSuccessPanel
                 scope={scope}
                 environmentID={selectedEnvironmentID}
@@ -23749,6 +23924,9 @@ export function ProductAWSConnectPage() {
                 onRefresh={() => void refreshConnection('manual')}
                 onRunBaseline={() => void verifyBaseline()}
                 onManageConnection={() => setManageConnectionOpen(true)}
+                onDisconnect={() => void changeAWSLifecycle('disconnect')}
+                onDisable={() => void changeAWSLifecycle('disable')}
+                lifecycleBusy={lifecycleBusy}
               />
             ) : null}
 

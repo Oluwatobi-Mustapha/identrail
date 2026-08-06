@@ -53,6 +53,53 @@ var (
 
 var ErrAWSOrganizationRolloutMultiRegionUnsupported = errors.New("aws organization rollout multi-region routing is unavailable")
 
+// ErrAWSOrganizationRolloutControllingLifecycleChanged indicates that the
+// connector lifecycle decision that approved the rollout is no longer the
+// current decision. This is the only controlling-connector failure that
+// terminalizes an active rollout; ordinary health loss remains retryable.
+var ErrAWSOrganizationRolloutControllingLifecycleChanged = errors.New("aws controlling connector lifecycle changed")
+
+func (s *Service) ensureAWSOrganizationRolloutControllingConnector(ctx context.Context, rollout db.AWSOrganizationRollout) error {
+	stored, err := s.Store.GetTenancyConnector(ctx, rollout.WorkspaceID, rollout.ProjectID, rollout.ControllingConnectorID)
+	if err != nil {
+		return err
+	}
+	if stored.Connector.Type != domain.ConnectorTypeAWS {
+		return ErrAWSOrganizationRolloutControllingUnready
+	}
+	if stored.Connector.LifecycleGeneration != rollout.ControllingConnectorLifecycleGeneration ||
+		stored.Connector.Disabled || stored.Connector.Status == domain.ConnectorStatusDisconnected {
+		return ErrAWSOrganizationRolloutControllingLifecycleChanged
+	}
+	if !s.awsConnectionStatusFromStored(ctx, stored).Connected {
+		return ErrAWSOrganizationRolloutControllingUnready
+	}
+	return nil
+}
+
+func (s *Service) cancelAWSOrganizationRolloutForLifecycle(ctx context.Context, store db.AWSOrganizationRolloutStore, rollout db.AWSOrganizationRollout) {
+	if !awsOrganizationRolloutActiveStatus(rollout.Status) && rollout.Status != db.AWSOrganizationRolloutStatusPartial && rollout.Status != db.AWSOrganizationRolloutStatusFailed {
+		return
+	}
+	rollout.Status = db.AWSOrganizationRolloutStatusCanceled
+	rollout.FailureCode = "controlling_connector_lifecycle_changed"
+	rollout.FailureMessage = "The controlling AWS connector was paused or disconnected."
+	rollout.UpdatedAt = s.Now().UTC()
+	_, _ = store.UpdateAWSOrganizationRollout(ctx, rollout, rollout.Version)
+}
+
+func awsOrganizationRolloutActiveStatus(status string) bool {
+	switch status {
+	case db.AWSOrganizationRolloutStatusCreated,
+		db.AWSOrganizationRolloutStatusLaunching,
+		db.AWSOrganizationRolloutStatusInProgress,
+		db.AWSOrganizationRolloutStatusReconciling:
+		return true
+	default:
+		return false
+	}
+}
+
 // AWSOrganizationRolloutStartRequest is the operator-approved request to open
 // a scoped organization rollout envelope from a validated controlling
 // connector. Every field is bound into the persisted envelope so a member
@@ -291,31 +338,32 @@ func (s *Service) StartAWSOrganizationRollout(ctx context.Context, request AWSOr
 	s.expireStaleAWSOrganizationRollout(ctx, store, project.WorkspaceID, project.ProjectID, controllingConnectorID, now)
 	rolloutID := uuid.NewString()
 	rollout := db.AWSOrganizationRollout{
-		RolloutID:                    rolloutID,
-		TenantID:                     scope.TenantID,
-		WorkspaceID:                  project.WorkspaceID,
-		ProjectID:                    project.ProjectID,
-		ControllingConnectorID:       controllingConnectorID,
-		ControllingRole:              controllingRole,
-		OrganizationID:               organizationID,
-		ManagementAccountID:          managementAccountID,
-		Partition:                    partition,
-		DeploymentMode:               deploymentMode,
-		StackSetName:                 stackSetName,
-		ExpectedRoleName:             awsOrganizationRolloutRoleName,
-		TemplateVersion:              awsConnectorTemplateVersion,
-		TemplateChecksum:             normalizeAWSConnectorTemplateChecksum(templateChecksum),
-		RegistrationSecretKeyVersion: s.connectorSecretManager().ActiveKeyVersion(),
-		SelectedOUIDs:                selectedOUs,
-		SelectedAccountIDs:           selectedAccounts,
-		ExcludedAccountIDs:           excludedAccounts,
-		TargetRegions:                regions,
-		AutoDeployNewAccounts:        request.AutoDeployNewAccounts,
-		Status:                       db.AWSOrganizationRolloutStatusCreated,
-		ExpiresAt:                    now.Add(awsOrganizationRolloutLifetime),
-		CreatedAt:                    now,
-		UpdatedAt:                    now,
-		Version:                      1,
+		RolloutID:                               rolloutID,
+		TenantID:                                scope.TenantID,
+		WorkspaceID:                             project.WorkspaceID,
+		ProjectID:                               project.ProjectID,
+		ControllingConnectorID:                  controllingConnectorID,
+		ControllingConnectorLifecycleGeneration: stored.Connector.LifecycleGeneration,
+		ControllingRole:                         controllingRole,
+		OrganizationID:                          organizationID,
+		ManagementAccountID:                     managementAccountID,
+		Partition:                               partition,
+		DeploymentMode:                          deploymentMode,
+		StackSetName:                            stackSetName,
+		ExpectedRoleName:                        awsOrganizationRolloutRoleName,
+		TemplateVersion:                         awsConnectorTemplateVersion,
+		TemplateChecksum:                        normalizeAWSConnectorTemplateChecksum(templateChecksum),
+		RegistrationSecretKeyVersion:            s.connectorSecretManager().ActiveKeyVersion(),
+		SelectedOUIDs:                           selectedOUs,
+		SelectedAccountIDs:                      selectedAccounts,
+		ExcludedAccountIDs:                      excludedAccounts,
+		TargetRegions:                           regions,
+		AutoDeployNewAccounts:                   request.AutoDeployNewAccounts,
+		Status:                                  db.AWSOrganizationRolloutStatusCreated,
+		ExpiresAt:                               now.Add(awsOrganizationRolloutLifetime),
+		CreatedAt:                               now,
+		UpdatedAt:                               now,
+		Version:                                 1,
 	}
 	secret, err := s.awsOrganizationRolloutSecret(rollout)
 	if err != nil {

@@ -71,6 +71,80 @@ func keepAWSRolloutRetryableForTest(t *testing.T, svc *Service, ctx context.Cont
 	return updated
 }
 
+func TestReconcileAWSOrganizationRolloutStopsAfterControllingConnectorPause(t *testing.T) {
+	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
+	setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetValidating, "arn:aws:iam::222222222222:role/IdentrailReadOnly")
+	validator := &fakeAWSConnectorValidator{result: AWSConnectionValidationResult{
+		AccountID: "222222222222",
+		PermissionChecks: []AWSConnectionPermissionCheck{
+			{Name: "sts:AssumeRole", Passed: true},
+			{Name: "iam:ListRoles", Passed: true},
+		},
+	}}
+	svc.AWSConnectorValidator = validator
+
+	lifecycleStore, ok := svc.Store.(db.TenancyConnectorLifecycleStore)
+	if !ok {
+		t.Fatal("expected connector lifecycle store")
+	}
+	if _, err := lifecycleStore.SetTenancyConnectorDisabled(ctx, "workspace-a", "project-1", "aws-mgmt", true, svc.Now().UTC()); err != nil {
+		t.Fatalf("pause controlling connector: %v", err)
+	}
+
+	result, status, err := svc.ReconcileAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("reconcile paused rollout: %v", err)
+	}
+	if result.TargetsValidated != 0 || validator.calls != 0 {
+		t.Fatalf("paused rollout must not invoke member validation: result=%+v calls=%d", result, validator.calls)
+	}
+	if status.Status != db.AWSOrganizationRolloutStatusCanceled || status.FailureCode != "controlling_connector_lifecycle_changed" {
+		t.Fatalf("expected paused rollout to be canceled, got %+v", status)
+	}
+	target, err := svc.Store.(db.AWSOrganizationRolloutStore).GetAWSOrganizationRolloutTarget(ctx, rollout.RolloutID, "222222222222", "us-east-1")
+	if err != nil {
+		t.Fatalf("reload paused rollout target: %v", err)
+	}
+	if target.State != db.AWSOrganizationRolloutTargetValidating {
+		t.Fatalf("paused rollout must not mutate target state, got %+v", target)
+	}
+}
+
+func TestReconcileAWSOrganizationRolloutPreservesRolloutAfterTransientControllingHealthLoss(t *testing.T) {
+	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
+	setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetValidating, "arn:aws:iam::222222222222:role/IdentrailReadOnly")
+	validator := &fakeAWSConnectorValidator{}
+	svc.AWSConnectorValidator = validator
+
+	stored, err := svc.Store.GetTenancyConnector(ctx, "workspace-a", "project-1", "aws-mgmt")
+	if err != nil {
+		t.Fatalf("load controlling connector: %v", err)
+	}
+	stored.State.HealthStatus = "error"
+	stored.State.UpdatedAt = svc.Now().UTC()
+	if err := svc.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
+		t.Fatalf("record transient controlling health loss: %v", err)
+	}
+
+	result, status, err := svc.ReconcileAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID)
+	if !errors.Is(err, ErrAWSOrganizationRolloutControllingUnready) {
+		t.Fatalf("expected transient controlling health loss to remain retryable, got result=%+v status=%+v err=%v", result, status, err)
+	}
+	if validator.calls != 0 {
+		t.Fatalf("unready controlling connector must not invoke member validation: calls=%d", validator.calls)
+	}
+	if status.Status != "" {
+		t.Fatalf("expected no status payload when reconciliation is retryable, got %+v", status)
+	}
+	current, err := svc.Store.(db.AWSOrganizationRolloutStore).GetAWSOrganizationRollout(ctx, "workspace-a", "project-1", rollout.RolloutID)
+	if err != nil {
+		t.Fatalf("reload rollout after transient health loss: %v", err)
+	}
+	if current.Status != rollout.Status || current.FailureCode != rollout.FailureCode {
+		t.Fatalf("transient health loss must not cancel rollout: before=%+v after=%+v", rollout, current)
+	}
+}
+
 func TestReconcileAWSOrganizationRolloutConnectsValidatedMembers(t *testing.T) {
 	svc, ctx, rollout := startAWSRolloutForReconciliationTest(t, "222222222222")
 	setAWSRolloutMemberTarget(t, svc, ctx, rollout, "222222222222", db.AWSOrganizationRolloutTargetValidating, "arn:aws:iam::222222222222:role/IdentrailReadOnly")
