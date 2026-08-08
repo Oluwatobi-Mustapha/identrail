@@ -145,11 +145,13 @@ Repository configuration required before the workflow can plan:
 - secret `API_SESSION_KEY_SECRET_ARN`: Secrets Manager ARN containing
   `IDENTRAIL_SESSION_KEY`
 
-The `AWS_ROLE_ARN` deployment role must be allowed to write
+The `AWS_ROLE_ARN` deployment role must be allowed to read and write
 `connectors/aws/sha256/*/identrail-readonly.yaml` in the template bucket. The
+release workflow publishes those objects with a `public-read` ACL because AWS
+CloudFormation fetches the template without the deploy role's credentials. The
 bucket remains blocked for public writes; only object reads for the published
-template path are public so AWS CloudFormation can fetch the template without
-customer credentials.
+template path are public. The bucket must therefore allow public reads for that
+prefix and must not block the ACL used by the publisher.
 
 Hosted WorkOS login is optional. Configure these values only when deploying the
 hosted sign-in/sign-up flow:

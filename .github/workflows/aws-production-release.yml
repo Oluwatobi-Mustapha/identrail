@@ -317,20 +317,57 @@ jobs:
           # Write-once publish. --if-none-match '*' makes the PUT conditional
           # on the key not already existing, so a SHA-addressed object can
           # never be silently overwritten with different bytes after it has
-          # been verified and handed to customers. A PreconditionFailed means
-          # this exact digest was already published (a re-run, or a release
-          # that did not change the template); that is the expected, benign
-          # case and we fall through to verifying the stored bytes.
+          # been verified and handed to customers. The public-read ACL is
+          # required because CloudFormation fetches this URL without the
+          # deploy role's credentials. A PreconditionFailed means this exact
+          # digest was already published (a re-run, or a release that did not
+          # change the template); that path verifies the existing bytes before
+          # repairing the ACL with the same content when an earlier publish
+          # created a private object.
           if aws s3api put-object \
             --bucket "${TEMPLATE_BUCKET}" \
             --key "${key}" \
             --body "${template}" \
             --content-type "application/x-yaml" \
             --if-none-match '*' \
+            --acl "public-read" \
             --cache-control "public,max-age=31536000,immutable" >/dev/null 2>"${RUNNER_TEMP}/put-object.err"; then
             echo "Published ${key}."
           elif grep -qi "PreconditionFailed\|At least one of the pre-conditions" "${RUNNER_TEMP}/put-object.err"; then
-            echo "Object ${key} already exists; verifying stored bytes instead of overwriting."
+            existing="${RUNNER_TEMP}/identrail-existing.yaml"
+            if ! aws s3api get-object \
+              --bucket "${TEMPLATE_BUCKET}" \
+              --key "${key}" \
+              "${existing}" >/dev/null; then
+              echo "Object ${key} already exists, but the deploy role cannot read it for immutable verification." >&2
+              echo "Grant s3:GetObject on the connector template prefix before retrying the production deploy." >&2
+              exit 1
+            fi
+
+            existing_digest="$(sha256sum "${existing}" | awk '{print $1}')"
+            if [ "${existing_digest}" != "${digest}" ]; then
+              echo "Existing template ${key} has digest ${existing_digest}, expected ${digest}." >&2
+              echo "Refusing to overwrite a SHA-addressed object with different bytes." >&2
+              exit 1
+            fi
+
+            # The first self-operating release could create this object
+            # without the ACL needed by CloudFormation. Re-put the verified
+            # bytes with public-read so the repair still uses s3:PutObject,
+            # which the publisher already requires, and preserves the
+            # content-addressed invariant above.
+            if ! aws s3api put-object \
+              --bucket "${TEMPLATE_BUCKET}" \
+              --key "${key}" \
+              --body "${template}" \
+              --content-type "application/x-yaml" \
+              --acl "public-read" \
+              --cache-control "public,max-age=31536000,immutable" >/dev/null; then
+              echo "Existing template ${key} has the expected bytes, but its public-read ACL could not be repaired." >&2
+              echo "Confirm the bucket permits public reads and the deploy role can write the connector template prefix." >&2
+              exit 1
+            fi
+            echo "Object ${key} already existed; verified its bytes and repaired public-read access."
           else
             cat "${RUNNER_TEMP}/put-object.err" >&2
             exit 1
