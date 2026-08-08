@@ -312,8 +312,6 @@ jobs:
           key="connectors/aws/sha256/${digest}/identrail-readonly.yaml"
           template_url="https://${TEMPLATE_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}"
 
-          aws s3api head-bucket --bucket "${TEMPLATE_BUCKET}"
-
           # Write-once publish. --if-none-match '*' makes the PUT conditional
           # on the key not already existing, so a SHA-addressed object can
           # never be silently overwritten with different bytes after it has
