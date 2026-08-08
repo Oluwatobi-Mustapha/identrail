@@ -145,15 +145,38 @@ Repository configuration required before the workflow can plan:
 - secret `API_SESSION_KEY_SECRET_ARN`: Secrets Manager ARN containing
   `IDENTRAIL_SESSION_KEY`
 
-The `AWS_ROLE_ARN` deployment role must be allowed to read and write
-`connectors/aws/sha256/*/identrail-readonly.yaml` in the template bucket. The
-release workflow verifies that the published S3 URL is publicly readable so
-AWS CloudFormation can fetch it without the deploy role's credentials. Prefer a
-prefix-scoped bucket policy for public reads; the workflow falls back to a
-`public-read` object ACL only when the URL is not already public, which also
-repairs a private object left by an earlier publish. Buckets with S3 Object
-Ownership set to Bucket owner enforced must use the bucket-policy approach,
-because ACLs are disabled in that mode.
+The template bucket is an external, operator-owned prerequisite. Configure S3
+Object Ownership as `Bucket owner enforced`, keep public writes blocked, and
+merge this statement into the bucket policy (replace `BUCKET_NAME` with the
+configured bucket name):
+
+```json
+{
+  "Sid": "IdentrailCloudFormationTemplatePublicRead",
+  "Effect": "Allow",
+  "Principal": "*",
+  "Action": "s3:GetObject",
+  "Resource": "arn:aws:s3:::BUCKET_NAME/connectors/aws/sha256/*"
+}
+```
+
+Do not grant `s3:ListBucket` or public write access. The `AWS_ROLE_ARN`
+deployment role only needs to write
+`connectors/aws/sha256/*/identrail-readonly.yaml`; a setup role needs
+`s3:GetBucketPolicy` and `s3:PutBucketPolicy` to provision the policy. Run the
+idempotent helper from the repository root after setting the bucket and region:
+
+```bash
+AWS_CFN_TEMPLATE_BUCKET=identrail-cloudformation-templates \
+AWS_REGION=us-east-1 \
+./scripts/configure_cfn_template_bucket_policy.sh
+```
+
+The helper preserves unrelated bucket-policy statements and replaces only its
+own statement by `Sid`. The release workflow then verifies the public S3 URL
+and its SHA-256 digest before migrations or API deployment begin. This policy
+also makes previously uploaded private objects readable without rewriting their
+content. ACLs are intentionally not used.
 
 Hosted WorkOS login is optional. Configure these values only when deploying the
 hosted sign-in/sign-up flow:
