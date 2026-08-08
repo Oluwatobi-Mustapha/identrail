@@ -652,11 +652,11 @@ function stackSetContractsMatch(a: AWSStackSetContractSnapshot, b: AWSStackSetCo
 const AWS_SCOPE_OPTION_LABELS: Record<AWSSetupMode, { title: string; kicker: string; blurb: string }> = {
   cloudformation: {
     kicker: 'This account',
-    title: 'One AWS account',
+    title: 'One account',
     blurb: 'Recommended · CloudFormation'
   },
   organization: {
-    kicker: 'AWS Organization',
+    kicker: 'Organization',
     title: 'All accounts',
     blurb: 'Best for teams'
   },
@@ -22262,6 +22262,7 @@ export function ProductAWSConnectPage() {
   const awsLifecycleRequestRef = useRef(0);
   const awsSetupModeTouchedRef = useRef(false);
   const awsSetupModeRef = useRef<AWSSetupMode>('cloudformation');
+  const awsCoverageOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const awsCloudFormationStartRef = useRef<AWSConnectorStartResponse | null>(null);
   awsCloudFormationStartRef.current = awsCloudFormationStart;
   const activeConnectorIDRef = useRef('');
@@ -23038,6 +23039,9 @@ export function ProductAWSConnectPage() {
 
   const chooseAWSSetupMode = (mode: AWSSetupMode) => {
     const previousMode = awsSetupModeRef.current;
+    if (previousMode === mode) {
+      return;
+    }
     awsSetupModeTouchedRef.current = true;
     awsSetupModeRef.current = mode;
     setAWSSetupMode(mode);
@@ -23077,6 +23081,40 @@ export function ProductAWSConnectPage() {
     setErrorMessage('');
     setSuccessMessage('');
     setAWSCopiedField('');
+  };
+
+  const awsCoverageModes: AWSSetupMode[] = ['organization', 'cloudformation', 'selected_ous'];
+  const selectedAWSCoverageMode: AWSSetupMode =
+    awsSetupMode === 'manual' ? 'cloudformation' : awsSetupMode === 'selected_accounts' ? 'selected_ous' : awsSetupMode;
+  const selectAWSCoverageMode = (mode: AWSSetupMode) => {
+    // Manual IAM setup intentionally shares the single-account coverage
+    // choice. Its separate method control is the only way back to
+    // CloudFormation, so clicking the already-checked coverage radio must be
+    // a no-op and must not clear the prepared External ID.
+    if (mode === 'cloudformation' && awsSetupMode === 'manual') {
+      return;
+    }
+    if (mode === 'selected_ous' && awsSetupMode === 'selected_accounts') {
+      return;
+    }
+    chooseAWSSetupMode(mode);
+  };
+  const handleAWSCoverageKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
+    const key = event.key;
+    const isNext = key === 'ArrowRight' || key === 'ArrowDown';
+    const isPrevious = key === 'ArrowLeft' || key === 'ArrowUp';
+    if (!isNext && !isPrevious && key !== 'Home' && key !== 'End') {
+      return;
+    }
+    event.preventDefault();
+    const nextIndex =
+      key === 'Home'
+        ? 0
+        : key === 'End'
+          ? awsCoverageModes.length - 1
+          : (index + (isNext ? 1 : -1) + awsCoverageModes.length) % awsCoverageModes.length;
+    selectAWSCoverageMode(awsCoverageModes[nextIndex]);
+    awsCoverageOptionRefs.current[nextIndex]?.focus();
   };
 
   const handleAWSCloudFormationStart = async () => {
@@ -23933,7 +23971,9 @@ export function ProductAWSConnectPage() {
               </section>
             ) : null}
 
-            {connection && !disconnectedConnector && connectedNow ? (
+            {connection &&
+            !disconnectedConnector &&
+            (connectedNow || Boolean(connection.connector_id && !connection.disabled)) ? (
               <AWSConnectedSuccessPanel
                 scope={scope}
                 environmentID={selectedEnvironmentID}
@@ -23961,12 +24001,12 @@ export function ProductAWSConnectPage() {
                   <div className="idt-source-config-title">
                     <SourceLogoMark provider="aws" className="is-hero" />
                     <div>
-                      <p className="idt-app-kicker">{connectedNow ? 'Manage connection' : 'Connect AWS'}</p>
-                      <h3>{connectedNow ? 'Manage your AWS connection' : 'Connect your AWS environment'}</h3>
+                      <p className="idt-app-kicker">{connectedNow ? 'Manage connection' : 'Read-only setup'}</p>
+                      <h3>{connectedNow ? 'Manage this connection' : 'Connect this environment'}</h3>
                       <p>
                         {connectedNow
                           ? 'Change coverage or connection method for this environment.'
-                          : 'Connect a read-only source to begin.'}
+                          : 'Start with a scoped, read-only connection.'}
                       </p>
                     </div>
                   </div>
@@ -23995,26 +24035,36 @@ export function ProductAWSConnectPage() {
                   <div>
                     <p className="idt-app-kicker">Step 1 · Coverage</p>
                     <h3>Where should we scan?</h3>
-                    <p>Choose the AWS accounts Identrail should include.</p>
+                    <p>Choose the accounts Identrail should include.</p>
                   </div>
                   <div className="idt-aws-scope-options" role="radiogroup" aria-label="AWS coverage scope">
                     <button
-                      className={`idt-aws-scope-option ${awsSetupMode === 'organization' ? 'is-selected' : ''}`}
+                      className={`idt-aws-scope-option ${selectedAWSCoverageMode === 'organization' ? 'is-selected' : ''}`}
                       type="button"
                       role="radio"
-                      aria-checked={awsSetupMode === 'organization'}
-                      onClick={() => chooseAWSSetupMode('organization')}
+                      aria-checked={selectedAWSCoverageMode === 'organization'}
+                      tabIndex={selectedAWSCoverageMode === 'organization' ? 0 : -1}
+                      ref={(element) => {
+                        awsCoverageOptionRefs.current[0] = element;
+                      }}
+                      onKeyDown={(event) => handleAWSCoverageKeyDown(event, 0)}
+                      onClick={() => selectAWSCoverageMode('organization')}
                     >
                       <span>{AWS_SCOPE_OPTION_LABELS.organization.kicker}</span>
                       <strong>{AWS_SCOPE_OPTION_LABELS.organization.title}</strong>
                       <small>{AWS_SCOPE_OPTION_LABELS.organization.blurb}</small>
                     </button>
                     <button
-                      className={`idt-aws-scope-option ${awsSetupMode === 'cloudformation' || awsSetupMode === 'manual' ? 'is-selected' : ''}`}
+                      className={`idt-aws-scope-option ${selectedAWSCoverageMode === 'cloudformation' ? 'is-selected' : ''}`}
                       type="button"
                       role="radio"
-                      aria-checked={awsSetupMode === 'cloudformation' || awsSetupMode === 'manual'}
-                      onClick={() => chooseAWSSetupMode('cloudformation')}
+                      aria-checked={selectedAWSCoverageMode === 'cloudformation'}
+                      tabIndex={selectedAWSCoverageMode === 'cloudformation' ? 0 : -1}
+                      ref={(element) => {
+                        awsCoverageOptionRefs.current[1] = element;
+                      }}
+                      onKeyDown={(event) => handleAWSCoverageKeyDown(event, 1)}
+                      onClick={() => selectAWSCoverageMode('cloudformation')}
                     >
                       <span>{AWS_SCOPE_OPTION_LABELS.cloudformation.kicker}</span>
                       <strong>{AWS_SCOPE_OPTION_LABELS.cloudformation.title}</strong>
@@ -24022,16 +24072,17 @@ export function ProductAWSConnectPage() {
                     </button>
                     <button
                       className={`idt-aws-scope-option ${
-                        awsSetupMode === 'selected_ous' || awsSetupMode === 'selected_accounts' ? 'is-selected' : ''
+                        selectedAWSCoverageMode === 'selected_ous' ? 'is-selected' : ''
                       }`}
                       type="button"
                       role="radio"
-                      aria-checked={awsSetupMode === 'selected_ous' || awsSetupMode === 'selected_accounts'}
-                      onClick={() =>
-                        chooseAWSSetupMode(
-                          awsSetupMode === 'selected_accounts' ? 'selected_accounts' : 'selected_ous'
-                        )
-                      }
+                      aria-checked={selectedAWSCoverageMode === 'selected_ous'}
+                      tabIndex={selectedAWSCoverageMode === 'selected_ous' ? 0 : -1}
+                      ref={(element) => {
+                        awsCoverageOptionRefs.current[2] = element;
+                      }}
+                      onKeyDown={(event) => handleAWSCoverageKeyDown(event, 2)}
+                      onClick={() => selectAWSCoverageMode('selected_ous')}
                     >
                       <span>{AWS_SCOPE_OPTION_LABELS.selected_ous.kicker}</span>
                       <strong>{AWS_SCOPE_OPTION_LABELS.selected_ous.title}</strong>
@@ -24160,11 +24211,11 @@ export function ProductAWSConnectPage() {
                   <div className="idt-aws-step-body">
                     <div className="idt-aws-step-heading">
                       <div>
-                        <h4>Approve in AWS</h4>
+                        <h4>Approve the stack</h4>
                         <p>
                           {launchURL
                             ? 'Continue in AWS, approve the read-only stack, then return here.'
-                            : 'We’ll prepare a read-only CloudFormation stack in AWS.'}
+                            : 'We’ll prepare a read-only CloudFormation stack.'}
                         </p>
                       </div>
                       {cloudFormationAWSStart ? <span>Launch ready</span> : <span>Read-only</span>}
@@ -24199,7 +24250,7 @@ export function ProductAWSConnectPage() {
                           onClick={handleAWSCloudFormationStart}
                           disabled={!canSubmit}
                         >
-                          {submitting ? 'Opening AWS...' : 'Connect AWS'}
+                          {submitting ? 'Opening…' : 'Connect'}
                         </button>
                       )}
                       {awsAutoPollExhausted && activeConnectorID ? (
