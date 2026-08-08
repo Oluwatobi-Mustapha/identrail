@@ -307,6 +307,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if ! [[ "${TEMPLATE_BUCKET}" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]]; then
+            echo "AWS_CFN_TEMPLATE_BUCKET must use lowercase letters, numbers, and hyphens only; dotted S3 names are incompatible with the release URL." >&2
+            exit 1
+          fi
           template="deploy/connectors/aws/identrail-readonly.yaml"
           digest="$(sha256sum "${template}" | awk '{print $1}')"
           key="connectors/aws/sha256/${digest}/identrail-readonly.yaml"

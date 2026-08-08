@@ -145,7 +145,10 @@ Repository configuration required before the workflow can plan:
 - secret `API_SESSION_KEY_SECRET_ARN`: Secrets Manager ARN containing
   `IDENTRAIL_SESSION_KEY`
 
-The template bucket is an external, operator-owned prerequisite. Configure S3
+The template bucket name must use lowercase letters, numbers, and hyphens only;
+dotted S3 names are rejected because the release uses a virtual-hosted HTTPS
+URL whose wildcard certificate does not cover dotted bucket hostnames. The
+template bucket is an external, operator-owned prerequisite. Configure S3
 Object Ownership as `Bucket owner enforced`, keep public writes blocked, and
 merge this statement into the bucket policy (replace `BUCKET_NAME` with the
 configured bucket name):
@@ -185,9 +188,10 @@ write-once path. Verify its SHA-256, then perform a controlled one-time
 same-key re-encryption with SSE-S3 before retrying the release. ACLs are
 intentionally not used.
 
-For that one-time migration, verify the authenticated bytes and use the
-current ETag as a compare-and-swap guard before copying the object onto itself
-with SSE-S3:
+For that one-time migration, sample the current ETag first, condition the
+authenticated download on that ETag, verify the downloaded bytes, and use the
+same ETag as the compare-and-swap guard when copying the object onto itself with
+SSE-S3:
 
 ```bash
 key=connectors/aws/sha256/DIGEST/identrail-readonly.yaml
@@ -195,16 +199,17 @@ digest=DIGEST
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 
-aws s3api get-object \
-  --bucket "$AWS_CFN_TEMPLATE_BUCKET" \
-  --key "$key" \
-  "$tmp" >/dev/null
-test "$(sha256sum "$tmp" | awk '{print $1}')" = "$digest"
 etag="$(aws s3api head-object \
   --bucket "$AWS_CFN_TEMPLATE_BUCKET" \
   --key "$key" \
   --query ETag \
   --output text | tr -d '"')"
+aws s3api get-object \
+  --bucket "$AWS_CFN_TEMPLATE_BUCKET" \
+  --key "$key" \
+  --if-match "$etag" \
+  "$tmp" >/dev/null
+test "$(sha256sum "$tmp" | awk '{print $1}')" = "$digest"
 aws s3api copy-object \
   --bucket "$AWS_CFN_TEMPLATE_BUCKET" \
   --copy-source "$AWS_CFN_TEMPLATE_BUCKET/$key" \

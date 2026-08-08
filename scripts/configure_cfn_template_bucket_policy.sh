@@ -8,8 +8,8 @@ if [ -z "${bucket}" ]; then
   echo "AWS_CFN_TEMPLATE_BUCKET is required." >&2
   exit 1
 fi
-if ! [[ "${bucket}" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]]; then
-  echo "AWS_CFN_TEMPLATE_BUCKET must be a valid S3 bucket name." >&2
+if ! [[ "${bucket}" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]]; then
+  echo "AWS_CFN_TEMPLATE_BUCKET must use lowercase letters, numbers, and hyphens only; dotted names are incompatible with the release URL." >&2
   exit 1
 fi
 if ! [[ "${region}" =~ ^[a-z]{2}(-gov)?-[a-z]+-[0-9]+$ ]]; then
