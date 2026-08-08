@@ -8,6 +8,7 @@ import type {
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router';
 import {
   BarChart3,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -650,27 +651,27 @@ function stackSetContractsMatch(a: AWSStackSetContractSnapshot, b: AWSStackSetCo
 
 const AWS_SCOPE_OPTION_LABELS: Record<AWSSetupMode, { title: string; kicker: string; blurb: string }> = {
   cloudformation: {
-    kicker: 'Single account',
-    title: 'This AWS account',
-    blurb: 'One-click CloudFormation'
+    kicker: 'This account',
+    title: 'One AWS account',
+    blurb: 'Recommended · CloudFormation'
   },
   organization: {
     kicker: 'AWS Organization',
     title: 'All accounts',
-    blurb: 'Recommended for teams'
+    blurb: 'Best for teams'
   },
   selected_ous: {
-    kicker: 'Selected OUs',
-    title: 'Chosen OUs',
-    blurb: 'Pick OUs to onboard'
+    kicker: 'Selected scope',
+    title: 'OUs or accounts',
+    blurb: 'Choose a subset'
   },
   selected_accounts: {
-    kicker: 'Selected accounts',
-    title: 'Chosen accounts',
-    blurb: 'Pick accounts to onboard'
+    kicker: 'Selected scope',
+    title: 'OUs or accounts',
+    blurb: 'Choose a subset'
   },
   manual: {
-    kicker: 'Advanced',
+    kicker: 'Advanced setup',
     title: 'Existing IAM role',
     blurb: 'Use your change process'
   }
@@ -23623,7 +23624,14 @@ export function ProductAWSConnectPage() {
       return 'Pick an environment to connect.';
     }
     if (!connectedNow) {
-      return 'Not connected for this environment.';
+      const setupStatus = connection?.onboarding_status ?? awsCloudFormationStart?.onboarding_status;
+      if (setupStatus === 'waiting_for_aws' || setupStatus === 'launch_ready') {
+        return 'Continue in AWS to approve read-only access.';
+      }
+      if (setupStatus === 'registering' || setupStatus === 'validating') {
+        return 'Verifying read-only access for this environment.';
+      }
+      return 'Read-only access to identity and workload metadata.';
     }
     const bits: string[] = [];
     if (connection?.account_id) {
@@ -23787,7 +23795,7 @@ export function ProductAWSConnectPage() {
       return 'AWS is connected';
     }
     if (onboardingStatus === 'launch_ready') {
-      return 'Open the AWS stack';
+      return 'Continue in AWS';
     }
     if (onboardingStatus === 'waiting_for_aws') {
       return 'Waiting for approval';
@@ -23820,7 +23828,7 @@ export function ProductAWSConnectPage() {
       return 'This connector uses a self-managed StackSet. Manage it through the API, Terraform, or the AWS console — the wizard cannot relaunch self-managed setups.';
     }
     if (isStackSetSetup && stackSetAWSStart?.launch_url && stackSetBlockingPrereqCount === 0) {
-      return 'Open the StackSet in AWS to deploy the read-only role, then refresh status.';
+      return 'Continue in AWS to deploy the read-only role, then return here for verification.';
     }
     if (isStackSetSetup && stackSetAWSStart?.launch_url && stackSetBlockingPrereqCount > 0) {
       return 'Resolve the blocking StackSet prerequisites, then open the StackSet in AWS.';
@@ -23832,7 +23840,7 @@ export function ProductAWSConnectPage() {
       return connection.setup_summary;
     }
     if (launchURL) {
-      return 'Approve the stack in AWS. Identrail will verify the connection automatically.';
+      return 'Approve the read-only stack in AWS, then return here. Identrail will verify the connection automatically.';
     }
     if (hasConnectorSetup) {
       return 'Identrail is waiting for AWS.';
@@ -23840,7 +23848,9 @@ export function ProductAWSConnectPage() {
     return 'Create one read-only CloudFormation stack for this environment.';
   })();
   const onboardingInProgress = ['launch_ready', 'waiting_for_aws', 'registering', 'validating'].includes(onboardingStatus);
-  const wizardHealth = connection?.health_status;
+  const showSetupSummary =
+    !connectedNow &&
+    (onboardingInProgress || Boolean(awsCloudFormationStart || awsStackSetOnboarding || manualAWSStart));
 
   return (
     <DomainPageShell
@@ -23853,7 +23863,7 @@ export function ProductAWSConnectPage() {
       scope={<ProductEnvironmentSelector state={environmentScope} onChange={handleEnvironmentChange} />}
       statusTone={statusTone}
       primaryAction={
-        awaitingFirstConnectLoad
+        awaitingFirstConnectLoad || !connectedNow
           ? undefined
           : { label: 'AWS overview', to: controlPath, variant: 'primary' as const }
       }
@@ -23917,21 +23927,13 @@ export function ProductAWSConnectPage() {
             ) : null}
 
             {disconnectedConnector ? (
-              <section className="idt-source-config idt-aws-connect-panel" aria-label="AWS connector disconnected">
-                <div className="idt-source-config-header">
-                  <div>
-                    <p className="idt-app-kicker">Disconnected</p>
-                    <h3>AWS connector is disconnected</h3>
-                    <p>New scans are stopped and provider cleanup remains pending until it is verified.</p>
-                  </div>
-                  <DomainStatusBadge variant="disconnected" detail="disconnected" />
-                </div>
+              <section className="idt-aws-connect-notice" aria-label="AWS connector disconnected">
+                <DomainStatusBadge variant="disconnected" label="Disconnected" />
+                <p>Reconnect with a fresh read-only setup. Provider cleanup remains pending until it is verified.</p>
               </section>
             ) : null}
 
-            {connection &&
-            !disconnectedConnector &&
-            (connectedNow || Boolean(connection.connector_id && !connection.disabled)) ? (
+            {connection && !disconnectedConnector && connectedNow ? (
               <AWSConnectedSuccessPanel
                 scope={scope}
                 environmentID={selectedEnvironmentID}
@@ -23949,117 +23951,154 @@ export function ProductAWSConnectPage() {
             ) : null}
 
             {showAWSSetupControls ? (
-              <section className="idt-source-config idt-aws-connect-panel idt-aws-scope-wizard" aria-label="AWS account setup">
+              <section
+                className={`idt-source-config idt-aws-connect-panel idt-aws-scope-wizard ${
+                  connectedNow ? 'is-manage-mode' : 'is-first-connect'
+                }`}
+                aria-label="AWS account setup"
+              >
                 <div className="idt-source-config-header idt-aws-wizard-header">
                   <div className="idt-source-config-title">
                     <SourceLogoMark provider="aws" className="is-hero" />
                     <div>
-                      <h3>Choose coverage</h3>
-                      <p>Connect one account or select a broader scope.</p>
+                      <p className="idt-app-kicker">{connectedNow ? 'Manage connection' : 'Connect AWS'}</p>
+                      <h3>{connectedNow ? 'Manage your AWS connection' : 'Connect your AWS environment'}</h3>
+                      <p>
+                        {connectedNow
+                          ? 'Change coverage or connection method for this environment.'
+                          : 'Connect a read-only source to begin.'}
+                      </p>
                     </div>
                   </div>
                   <DomainStatusBadge
                     variant={onboardingInProgress ? 'running-scan' : awsStatusVariant(connection)}
-                    label={onboardingInProgress ? 'Connecting' : undefined}
-                    detail={onboardingInProgress ? setupSummaryTitle : wizardHealth && wizardHealth !== 'unknown' ? wizardHealth : undefined}
+                    label={onboardingInProgress ? 'Connecting' : connectedNow ? 'Connected' : 'Read-only'}
+                    detail={onboardingInProgress ? setupSummaryTitle : undefined}
                   />
                 </div>
 
-                <div className="idt-aws-scope-options" role="list" aria-label="AWS setup scope options">
-              <div className="idt-aws-scope-option-shell" role="listitem">
-                <button
-                  className={`idt-aws-scope-option ${awsSetupMode === 'organization' ? 'is-selected' : ''}`}
-                  type="button"
-                  aria-current={awsSetupMode === 'organization' ? 'true' : undefined}
-                  onClick={() => chooseAWSSetupMode('organization')}
-                >
-                  <span>{AWS_SCOPE_OPTION_LABELS.organization.kicker}</span>
-                  <strong>{AWS_SCOPE_OPTION_LABELS.organization.title}</strong>
-                  <small>{AWS_SCOPE_OPTION_LABELS.organization.blurb}</small>
-                </button>
-              </div>
-              <div className="idt-aws-scope-option-shell" role="listitem">
-                <button
-                  className={`idt-aws-scope-option ${awsSetupMode === 'cloudformation' ? 'is-selected' : ''}`}
-                  type="button"
-                  aria-current={awsSetupMode === 'cloudformation' ? 'true' : undefined}
-                  onClick={() => chooseAWSSetupMode('cloudformation')}
-                >
-                  <span>{AWS_SCOPE_OPTION_LABELS.cloudformation.kicker}</span>
-                  <strong>{AWS_SCOPE_OPTION_LABELS.cloudformation.title}</strong>
-                  <small>{AWS_SCOPE_OPTION_LABELS.cloudformation.blurb}</small>
-                </button>
-              </div>
-              <div className="idt-aws-scope-option-shell" role="listitem">
-                <button
-                  className={`idt-aws-scope-option ${
-                    awsSetupMode === 'selected_ous' || awsSetupMode === 'selected_accounts' ? 'is-selected' : ''
-                  }`}
-                  type="button"
-                  aria-current={
-                    awsSetupMode === 'selected_ous' || awsSetupMode === 'selected_accounts' ? 'true' : undefined
-                  }
-                  onClick={() =>
-                    chooseAWSSetupMode(
-                      awsSetupMode === 'selected_accounts' ? 'selected_accounts' : 'selected_ous'
-                    )
-                  }
-                >
-                  <span>Selected scope</span>
-                  <strong>OUs or accounts</strong>
-                  <small>Pick a subset</small>
-                </button>
-              </div>
-              <div className="idt-aws-scope-option-shell" role="listitem">
-                <button
-                  className={`idt-aws-scope-option ${awsSetupMode === 'manual' ? 'is-selected' : ''}`}
-                  type="button"
-                  aria-current={awsSetupMode === 'manual' ? 'true' : undefined}
-                  onClick={() => chooseAWSSetupMode('manual')}
-                >
-                  <span>{AWS_SCOPE_OPTION_LABELS.manual.kicker}</span>
-                  <strong>{AWS_SCOPE_OPTION_LABELS.manual.title}</strong>
-                  <small>{AWS_SCOPE_OPTION_LABELS.manual.blurb}</small>
-                </button>
-              </div>
-            </div>
+                {hasRoleOnlyConnection ? (
+                  <p className="idt-aws-setup-note idt-aws-legacy-role-note">
+                    Start CloudFormation setup to move it onto the connector flow.
+                  </p>
+                ) : null}
 
-            <form className="idt-app-form idt-aws-connect-form" onSubmit={handleAWSSubmit}>
-              <div className="idt-aws-wizard-step">
-                <div className="idt-aws-step-index" aria-hidden="true">1</div>
-                <div className="idt-aws-step-body">
-                  <div className="idt-aws-step-heading">
-                    <div>
-                      <h4>Name the account</h4>
-                      <p>Use a name your team will recognize.</p>
-                    </div>
-                    <span>{selectedAWSRegion}</span>
+                {!connectedNow ? (
+                  <ul className="idt-aws-trust-list" aria-label="AWS connection safeguards">
+                    <li><Check size={15} strokeWidth={2.2} aria-hidden="true" />No access keys</li>
+                    <li><Check size={15} strokeWidth={2.2} aria-hidden="true" />Read-only permissions</li>
+                    <li><Check size={15} strokeWidth={2.2} aria-hidden="true" />No workload changes</li>
+                  </ul>
+                ) : null}
+
+                <div className="idt-aws-scope-question">
+                  <div>
+                    <p className="idt-app-kicker">Step 1 · Coverage</p>
+                    <h3>Where should we scan?</h3>
+                    <p>Choose the AWS accounts Identrail should include.</p>
                   </div>
-                  <div className="idt-source-inline-fields">
-                    <label>
-                      Display name
-                      <input
-                        value={awsForm.displayName}
-                        onChange={(event) => setAWSForm((current) => ({ ...current, displayName: event.target.value }))}
-                        placeholder="Production AWS"
-                      />
-                    </label>
-                    {!isStackSetSetup ? (
-                      <label>
-                        Home region
-                        <input
-                          value={awsForm.region}
-                          onChange={(event) =>
-                            setAWSForm((current) => ({ ...current, region: event.target.value }))
-                          }
-                          placeholder="us-east-1"
-                          pattern="[a-z]{2}(-gov)?-[a-z]+-[0-9]"
-                        />
-                      </label>
-                    ) : null}
+                  <div className="idt-aws-scope-options" role="radiogroup" aria-label="AWS coverage scope">
+                    <button
+                      className={`idt-aws-scope-option ${awsSetupMode === 'organization' ? 'is-selected' : ''}`}
+                      type="button"
+                      role="radio"
+                      aria-checked={awsSetupMode === 'organization'}
+                      onClick={() => chooseAWSSetupMode('organization')}
+                    >
+                      <span>{AWS_SCOPE_OPTION_LABELS.organization.kicker}</span>
+                      <strong>{AWS_SCOPE_OPTION_LABELS.organization.title}</strong>
+                      <small>{AWS_SCOPE_OPTION_LABELS.organization.blurb}</small>
+                    </button>
+                    <button
+                      className={`idt-aws-scope-option ${awsSetupMode === 'cloudformation' || awsSetupMode === 'manual' ? 'is-selected' : ''}`}
+                      type="button"
+                      role="radio"
+                      aria-checked={awsSetupMode === 'cloudformation' || awsSetupMode === 'manual'}
+                      onClick={() => chooseAWSSetupMode('cloudformation')}
+                    >
+                      <span>{AWS_SCOPE_OPTION_LABELS.cloudformation.kicker}</span>
+                      <strong>{AWS_SCOPE_OPTION_LABELS.cloudformation.title}</strong>
+                      <small>{AWS_SCOPE_OPTION_LABELS.cloudformation.blurb}</small>
+                    </button>
+                    <button
+                      className={`idt-aws-scope-option ${
+                        awsSetupMode === 'selected_ous' || awsSetupMode === 'selected_accounts' ? 'is-selected' : ''
+                      }`}
+                      type="button"
+                      role="radio"
+                      aria-checked={awsSetupMode === 'selected_ous' || awsSetupMode === 'selected_accounts'}
+                      onClick={() =>
+                        chooseAWSSetupMode(
+                          awsSetupMode === 'selected_accounts' ? 'selected_accounts' : 'selected_ous'
+                        )
+                      }
+                    >
+                      <span>{AWS_SCOPE_OPTION_LABELS.selected_ous.kicker}</span>
+                      <strong>{AWS_SCOPE_OPTION_LABELS.selected_ous.title}</strong>
+                      <small>{AWS_SCOPE_OPTION_LABELS.selected_ous.blurb}</small>
+                    </button>
                   </div>
                 </div>
-              </div>
+
+                <div className={`idt-aws-advanced-method ${awsSetupMode === 'manual' ? 'is-active' : ''}`}>
+                  <div>
+                    <strong>{AWS_SCOPE_OPTION_LABELS.manual.title}</strong>
+                    <span>
+                      {awsSetupMode === 'manual'
+                        ? 'Using your existing IAM role and change process.'
+                        : 'For teams that manage IAM outside Identrail.'}
+                    </span>
+                  </div>
+                  <button
+                    className="idt-btn idt-btn-ghost"
+                    type="button"
+                    onClick={() => chooseAWSSetupMode(awsSetupMode === 'manual' ? 'cloudformation' : 'manual')}
+                  >
+                    {awsSetupMode === 'manual' ? 'Use CloudFormation instead' : 'Use an existing IAM role'}
+                  </button>
+                </div>
+
+                <form className="idt-app-form idt-aws-connect-form" onSubmit={handleAWSSubmit}>
+                  <div className="idt-aws-wizard-step">
+                    <div className="idt-aws-step-index" aria-hidden="true">1</div>
+                    <div className="idt-aws-step-body">
+                      <div className="idt-aws-step-heading">
+                        <div>
+                          <h4>Connection details</h4>
+                          <p>Give this connection a name your team will recognize.</p>
+                        </div>
+                        <span>{selectedAWSRegion}</span>
+                      </div>
+                      <div className="idt-source-inline-fields">
+                        <label>
+                          <span className="idt-aws-field-label">
+                            Connection name <span className="idt-aws-optional" aria-hidden="true">Optional</span>
+                          </span>
+                          <input
+                            aria-label="Connection name"
+                            value={awsForm.displayName}
+                            onChange={(event) =>
+                              setAWSForm((current) => ({ ...current, displayName: event.target.value }))
+                            }
+                            placeholder="Production AWS"
+                          />
+                        </label>
+                        {!isStackSetSetup ? (
+                          <label>
+                            Home region
+                            <input
+                              value={awsForm.region}
+                              onChange={(event) =>
+                                setAWSForm((current) => ({ ...current, region: event.target.value }))
+                              }
+                              placeholder="us-east-1"
+                              pattern="[a-z]{2}(-gov)?-[a-z]+-[0-9]"
+                            />
+                          </label>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
 
               {isStackSetSetup ? (
                 <AWSStackSetScopeStep
@@ -24121,12 +24160,18 @@ export function ProductAWSConnectPage() {
                   <div className="idt-aws-step-body">
                     <div className="idt-aws-step-heading">
                       <div>
-            <h4>Connect this account</h4>
-            <p>Approve one read-only CloudFormation stack in AWS.</p>
+                        <h4>Approve in AWS</h4>
+                        <p>
+                          {launchURL
+                            ? 'Continue in AWS, approve the read-only stack, then return here.'
+                            : 'We’ll prepare a read-only CloudFormation stack in AWS.'}
+                        </p>
                       </div>
                       {cloudFormationAWSStart ? <span>Launch ready</span> : <span>Read-only</span>}
                     </div>
-          <p className="idt-aws-access-note">Reads identity and workload metadata. Cannot write, delete, or remediate.</p>
+                    <p className="idt-aws-access-note">
+                      Reads identity and workload metadata. Cannot write, delete, or remediate.
+                    </p>
                     {awsSetupMessage ? (
                       <p role="status" className="idt-aws-setup-note">
                         {awsSetupMessage}
@@ -24145,7 +24190,7 @@ export function ProductAWSConnectPage() {
                           target="_blank"
                           rel="noreferrer"
                         >
-                          Open AWS
+                          Continue in AWS
                         </a>
                       ) : (
                         <button
@@ -24323,7 +24368,7 @@ export function ProductAWSConnectPage() {
                   </div>
                 </div>
               ) : null}
-            </form>
+                </form>
             {isStackSetSetup && (stackSetAWSStart || awsStackSetOnboarding) ? (
               <AWSStackSetProgressPanel
                 start={stackSetAWSStart}
@@ -24364,8 +24409,10 @@ export function ProductAWSConnectPage() {
             ) : null}
           </div>
 
+          {showSetupSummary || guidedRepairItems.length > 0 || showOperationalPanels ? (
           <div className="idt-aws-connect-side">
-            <section className="idt-source-config idt-aws-connect-summary" aria-label="AWS setup summary">
+            {showSetupSummary ? (
+              <section className="idt-source-config idt-aws-connect-summary" aria-label="AWS setup summary">
               <p className="idt-app-kicker">Setup</p>
               <h3>{setupSummaryTitle}</h3>
               <dl className="idt-source-meta">
@@ -24396,7 +24443,8 @@ export function ProductAWSConnectPage() {
                   </a>
         ) : null}
               </div>
-            </section>
+              </section>
+            ) : null}
 
       {guidedRepairItems.length > 0 ? (
               <DomainStatusPanel
@@ -24455,6 +24503,7 @@ export function ProductAWSConnectPage() {
             ) : null}
 
           </div>
+          ) : null}
         </div>
       ) : null}
 
