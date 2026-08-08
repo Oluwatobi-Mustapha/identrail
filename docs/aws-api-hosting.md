@@ -216,6 +216,36 @@ aws s3api copy-object \
   --server-side-encryption AES256
 ```
 
+Run this migration with a dedicated, one-time migration role rather than the
+GitHub deployment or bucket-policy setup role. Its temporary permissions should
+be limited to the exact digest object and source KMS key:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "MigrateOneTemplateObject",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:aws:s3:::BUCKET_NAME/connectors/aws/sha256/DIGEST/identrail-readonly.yaml"
+    },
+    {
+      "Sid": "DecryptOneTemplateObject",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "KMS_KEY_ARN"
+    }
+  ]
+}
+```
+
+The KMS key policy must also allow this migration role to use
+`kms:Decrypt`; an identity policy alone is insufficient when the key policy
+does not delegate access. The SSE-S3 destination does not require
+`kms:Encrypt`. Remove the temporary role permission and key-policy grant after
+the migration, then rerun the release.
+
 This is an operator migration for an already-published object; the release
 workflow itself remains write-once and will not perform this overwrite.
 
