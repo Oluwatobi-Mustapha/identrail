@@ -317,20 +317,19 @@ jobs:
           # Write-once publish. --if-none-match '*' makes the PUT conditional
           # on the key not already existing, so a SHA-addressed object can
           # never be silently overwritten with different bytes after it has
-          # been verified and handed to customers. The public-read ACL is
-          # required because CloudFormation fetches this URL without the
-          # deploy role's credentials. A PreconditionFailed means this exact
-          # digest was already published (a re-run, or a release that did not
-          # change the template); that path verifies the existing bytes before
-          # repairing the ACL with the same content when an earlier publish
-          # created a private object.
+          # been verified and handed to customers. A prefix-scoped bucket
+          # policy is preferred because modern S3 buckets may disable ACLs;
+          # the public URL check below falls back to a public-read ACL only
+          # when the bucket's policy does not already expose the object.
+          # A PreconditionFailed means this exact digest was already published
+          # (a re-run, or a release that did not change the template); that
+          # path verifies the existing bytes before any access repair.
           if aws s3api put-object \
             --bucket "${TEMPLATE_BUCKET}" \
             --key "${key}" \
             --body "${template}" \
             --content-type "application/x-yaml" \
             --if-none-match '*' \
-            --acl "public-read" \
             --cache-control "public,max-age=31536000,immutable" >/dev/null 2>"${RUNNER_TEMP}/put-object.err"; then
             echo "Published ${key}."
           elif grep -qi "PreconditionFailed\|At least one of the pre-conditions" "${RUNNER_TEMP}/put-object.err"; then
@@ -351,23 +350,7 @@ jobs:
               exit 1
             fi
 
-            # The first self-operating release could create this object
-            # without the ACL needed by CloudFormation. Re-put the verified
-            # bytes with public-read so the repair still uses s3:PutObject,
-            # which the publisher already requires, and preserves the
-            # content-addressed invariant above.
-            if ! aws s3api put-object \
-              --bucket "${TEMPLATE_BUCKET}" \
-              --key "${key}" \
-              --body "${template}" \
-              --content-type "application/x-yaml" \
-              --acl "public-read" \
-              --cache-control "public,max-age=31536000,immutable" >/dev/null; then
-              echo "Existing template ${key} has the expected bytes, but its public-read ACL could not be repaired." >&2
-              echo "Confirm the bucket permits public reads and the deploy role can write the connector template prefix." >&2
-              exit 1
-            fi
-            echo "Object ${key} already existed; verified its bytes and repaired public-read access."
+            echo "Object ${key} already existed; verified its bytes before checking public access."
           else
             cat "${RUNNER_TEMP}/put-object.err" >&2
             exit 1
@@ -377,12 +360,39 @@ jobs:
           # digest in the path, whether we just wrote them or found them already
           # present. This is what makes the URL safe to hand to customers.
           downloaded="${RUNNER_TEMP}/identrail-readonly.yaml"
-          curl -fsSL --retry 5 --retry-all-errors "${template_url}" -o "${downloaded}"
-          published_digest="$(sha256sum "${downloaded}" | awk '{print $1}')"
-          if [ "${published_digest}" != "${digest}" ]; then
-            echo "Published template digest ${published_digest} does not match ${digest}."
-            echo "The SHA-addressed key holds different bytes than this release's template; refusing to continue."
-            exit 1
+          public_read_verified=false
+          if curl -fsSL --retry 5 --retry-all-errors "${template_url}" -o "${downloaded}"; then
+            published_digest="$(sha256sum "${downloaded}" | awk '{print $1}')"
+            if [ "${published_digest}" != "${digest}" ]; then
+              echo "Published template digest ${published_digest} does not match ${digest}."
+              echo "The SHA-addressed key holds different bytes than this release's template; refusing to continue."
+              exit 1
+            fi
+            public_read_verified=true
+          fi
+
+          if [ "${public_read_verified}" != "true" ]; then
+            echo "Template URL is not publicly readable; attempting a public-read ACL repair."
+            if ! aws s3api put-object \
+              --bucket "${TEMPLATE_BUCKET}" \
+              --key "${key}" \
+              --body "${template}" \
+              --content-type "application/x-yaml" \
+              --acl "public-read" \
+              --cache-control "public,max-age=31536000,immutable" >/dev/null; then
+              echo "The template URL is not publicly readable and the bucket rejected the ACL repair." >&2
+              echo "Grant public read through a bucket policy for this prefix, or enable object ACLs for the publisher." >&2
+              exit 1
+            fi
+
+            curl -fsSL --retry 5 --retry-all-errors "${template_url}" -o "${downloaded}"
+            published_digest="$(sha256sum "${downloaded}" | awk '{print $1}')"
+            if [ "${published_digest}" != "${digest}" ]; then
+              echo "Repaired template digest ${published_digest} does not match ${digest}."
+              echo "The SHA-addressed key holds different bytes than this release's template; refusing to continue."
+              exit 1
+            fi
+            echo "Repaired public-read access for ${key} after verifying its bytes."
           fi
 
           {

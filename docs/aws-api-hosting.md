@@ -147,11 +147,13 @@ Repository configuration required before the workflow can plan:
 
 The `AWS_ROLE_ARN` deployment role must be allowed to read and write
 `connectors/aws/sha256/*/identrail-readonly.yaml` in the template bucket. The
-release workflow publishes those objects with a `public-read` ACL because AWS
-CloudFormation fetches the template without the deploy role's credentials. The
-bucket remains blocked for public writes; only object reads for the published
-template path are public. The bucket must therefore allow public reads for that
-prefix and must not block the ACL used by the publisher.
+release workflow verifies that the published S3 URL is publicly readable so
+AWS CloudFormation can fetch it without the deploy role's credentials. Prefer a
+prefix-scoped bucket policy for public reads; the workflow falls back to a
+`public-read` object ACL only when the URL is not already public, which also
+repairs a private object left by an earlier publish. Buckets with S3 Object
+Ownership set to Bucket owner enforced must use the bucket-policy approach,
+because ACLs are disabled in that mode.
 
 Hosted WorkOS login is optional. Configure these values only when deploying the
 hosted sign-in/sign-up flow:
