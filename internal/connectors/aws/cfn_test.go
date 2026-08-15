@@ -40,6 +40,19 @@ func TestReadOnlyTemplateAutomaticRegistrationContract(t *testing.T) {
 	if registration["Type"] != "Custom::IdentrailAWSConnectorRegistration" || registration["DependsOn"] == nil {
 		t.Fatalf("registration must wait for the role: %+v", registration)
 	}
+	role := requireYAMLMap(t, resources, "IdentrailReadOnlyRole")
+	roleProperties := requireYAMLMap(t, role, "Properties")
+	tags, ok := roleProperties["Tags"].([]any)
+	if !ok || len(tags) != 1 {
+		t.Fatalf("role must carry one registration-mode tag: %#v", roleProperties["Tags"])
+	}
+	tag, ok := tags[0].(map[string]any)
+	if !ok || tag["Key"] != "IdentrailConnectorMode" {
+		t.Fatalf("role registration-mode tag is malformed: %#v", tags[0])
+	}
+	if _, ok := tag["Value"].(map[string]any); !ok {
+		t.Fatalf("role registration-mode tag must be conditional: %#v", tag["Value"])
+	}
 	if _, leaksToken := registrationProperties["RegistrationToken"]; leaksToken {
 		t.Fatal("registration phase must use the stack-bound bootstrap result, not replay the launch token")
 	}

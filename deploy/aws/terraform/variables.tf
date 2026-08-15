@@ -368,7 +368,7 @@ variable "api_secret_kms_key_arns" {
 }
 
 variable "api_connector_role_arns" {
-  description = "AWS connector role ARNs the hosted API task may assume for connector validation and recurring scans. Leave empty until connector roles are ready."
+  description = "Additional AWS connector role ARNs the hosted API and worker tasks may assume for connector validation and recurring scans. Automatic CloudFormation registration adds a separately tagged runtime role grant."
   type        = list(string)
   default     = []
   validation {
