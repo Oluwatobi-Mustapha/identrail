@@ -83,7 +83,15 @@ through a dedicated one-off migration step before deploying or upgrading the
 service.
 The task role includes the read-only IAM discovery calls required by that live
 collector. Optional `sts:AssumeRole` access is limited to ARNs listed in
-`api_connector_role_arns`.
+`api_connector_role_arns`. When automatic AWS CloudFormation connector
+registration is enabled through the configured
+`IDENTRAIL_AWS_REGISTRATION_TOPIC_ARNS` map, the API and worker task roles also
+receive a cross-account role-resource grant so newly created customer
+connector roles can be validated without redeploying Identrail. That grant is
+conditioned on a non-empty STS external ID and the automatic-registration tag
+applied by the published template. The customer role trust policy must still
+match the connector-specific external ID exactly, so the runtime grant does not
+make arbitrary manually configured roles assumable by Identrail on its own.
 Hosted API plans create and wire `IDENTRAIL_USER_DATA_EXPORT_S3_*` settings by
 default so "Download my data" can store bundles in S3 instead of local task
 disk. The API and worker task roles can access only objects under the configured
@@ -296,9 +304,11 @@ Do not run `terraform apply` until the database, runtime secrets, container
 image tag, health checks, rollback plan, and DNS cutover plan have all been
 reviewed.
 
-Keep `api_connector_role_arns=[]` until reviewed AWS connector roles exist. Add
-only those connector role ARNs when the hosted API should validate connector
-setup or run recurring scans through assumed roles.
+Keep `api_connector_role_arns=[]` unless the hosted API needs access to
+additional explicitly managed connector roles. Automatic CloudFormation
+registration adds its runtime role grant automatically; the customer role's
+trust policy and exact external ID are still required before any role can be
+assumed.
 
 Set `api_private_subnet_egress_ready=true` only after the private task subnets
 have NAT egress or private VPC endpoints for the services Fargate needs at

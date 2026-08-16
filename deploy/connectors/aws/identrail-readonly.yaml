@@ -200,6 +200,16 @@ Resources:
       RoleName:
         Ref: RoleName
       Description: Read-only role used by Identrail to build machine identity trust graphs.
+      Tags:
+        - Key: IdentrailConnectorMode
+          Value:
+            Fn::If:
+              - UseAutomaticRegistration
+              - automatic
+              - Fn::If:
+                  - UseRolloutRegistration
+                  - automatic
+                  - manual
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:

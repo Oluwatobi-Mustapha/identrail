@@ -53,6 +53,17 @@ locals {
   api_secret_resource_arns = toset([
     for value_from in values(var.api_secrets) : join(":", slice(split(":", value_from), 0, 7))
   ])
+  api_automatic_connector_registration_enabled = trimspace(lookup(local.api_runtime_environment_variables, "IDENTRAIL_AWS_REGISTRATION_TOPIC_ARNS", "")) != ""
+  # Automatic CloudFormation registration creates connector roles in customer
+  # accounts at runtime, so their ARNs cannot be enumerated at deployment
+  # time. The topic map may come from this root or from separately provisioned
+  # regional providers consumed through api_environment_variables. Keep this
+  # grant separate from explicitly configured connector role ARNs so the
+  # automatic path can require an external ID without changing existing
+  # connectors.
+  api_automatic_connector_role_arns = local.api_automatic_connector_registration_enabled ? [
+    "arn:${data.aws_partition.current.partition}:iam::*:role/*"
+  ] : []
   api_runtime_cors_allowed_origins = compact([
     for origin in split(",", lookup(local.api_runtime_environment_variables, "IDENTRAIL_CORS_ALLOWED_ORIGINS", "")) : trimspace(origin)
   ])
@@ -375,6 +386,32 @@ data "aws_iam_policy_document" "api_task_aws_collector" {
     content {
       actions   = ["sts:AssumeRole"]
       resources = var.api_connector_role_arns
+    }
+  }
+
+  dynamic "statement" {
+    for_each = length(local.api_automatic_connector_role_arns) > 0 ? [1] : []
+
+    content {
+      actions   = ["sts:AssumeRole"]
+      resources = local.api_automatic_connector_role_arns
+
+      # Connector validation always supplies a connector-specific external ID.
+      # Keep the runtime identity grant from assuming an unguarded role even
+      # when a customer role's trust policy is broader than the published
+      # Identrail template. The exact external-ID match remains enforced by
+      # the target role trust policy.
+      condition {
+        test     = "StringLike"
+        variable = "sts:ExternalId"
+        values   = ["?*"]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "iam:ResourceTag/IdentrailConnectorMode"
+        values   = ["automatic"]
+      }
     }
   }
 }
