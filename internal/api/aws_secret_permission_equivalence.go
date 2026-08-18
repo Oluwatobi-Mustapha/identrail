@@ -161,11 +161,25 @@ func (s *Service) GetAWSSecretPermissionEquivalence(ctx context.Context, workspa
 	region := firstNonEmptyAWSValue(connection.Region, strings.TrimSpace(request.Region), "us-east-1")
 	connectorID := firstNonEmptyAWSValue(connection.ConnectorID, strings.TrimSpace(request.ConnectorID))
 	sourceFixtureState := fixtureState
+	runtimeFixtureState := fixtureState
+	responseFixtureState := fixtureState
+	liveInventoryUnavailable := false
 	if strings.TrimSpace(request.FixtureState) == "" && hasConnection && connection.Connected {
-		sourceFixtureState = ""
+		// The source inventories currently have fixture builders for their
+		// explicit demo states, but they do not yet have live collectors for
+		// every input required by this correlation. Keep live requests from
+		// promoting those deterministic records into customer findings.
+		sourceFixtureState = "empty"
+		// Runtime access has a live CloudTrail delivery path when the connector
+		// advertises runtime_evidence. Leave that request unforced so the
+		// runtime collector can choose its live inputs instead of being treated
+		// like a fixture-only inventory.
+		runtimeFixtureState = ""
+		responseFixtureState = ""
+		liveInventoryUnavailable = true
 	}
 
-	sources, err := s.awsSecretPermissionEquivalenceSourceSignals(ctx, workspaceID, projectID, connectorID, sourceFixtureState)
+	sources, err := s.awsSecretPermissionEquivalenceSourceSignals(ctx, workspaceID, projectID, connectorID, sourceFixtureState, runtimeFixtureState)
 	if err != nil {
 		return AWSSecretPermissionEquivalenceResult{}, err
 	}
@@ -180,6 +194,26 @@ func (s *Service) GetAWSSecretPermissionEquivalence(ctx context.Context, workspa
 	relationships := awsSecretPermissionEquivalenceRelationships(filtered)
 	diagnostics := awsSecretPermissionEquivalenceDiagnostics(sources)
 	coverageGaps := awsSecretPermissionEquivalenceCoverageGaps(sources)
+	failureReasons := awsSecretPermissionEquivalenceFailureReasons(sources)
+	remediationHints := awsSecretPermissionEquivalenceRemediationHints(sources)
+	if liveInventoryUnavailable {
+		diagnostics = append(diagnostics, AWSSecretPermissionEquivalenceDiagnostic{
+			Collector:   "aws_secret_permission_equivalence",
+			SourceID:    connectorID,
+			Code:        "live_inventory_unavailable",
+			Message:     "Live credential, secret, KMS, and workload inventory is not available yet; deterministic fixture findings were suppressed.",
+			Remediation: "Enable the live AWS inventory collectors before treating an empty equivalence response as proof that no risks exist.",
+			Retryable:   true,
+		})
+		coverageGaps = append(coverageGaps, AWSSecretPermissionEquivalenceCoverageGap{
+			Capability:  "secret_permission_live_inventory",
+			Status:      "unavailable",
+			Reason:      "The connected account does not yet have live source records for every input used by secret-to-permission equivalence.",
+			Remediation: "Run or enable the live credential-reference, Secrets Manager, KMS, and workload inventory collectors for this connector.",
+		})
+		failureReasons = append(failureReasons, "live secret-permission inventory is unavailable")
+		remediationHints = append(remediationHints, "Enable live AWS inventory collectors before interpreting an empty equivalence response as no risk.")
+	}
 	status, confidence := summarizeAWSSecretPermissionEquivalenceStatus(sources, filtered, diagnostics)
 
 	return AWSSecretPermissionEquivalenceResult{
@@ -195,7 +229,7 @@ func (s *Service) GetAWSSecretPermissionEquivalence(ctx context.Context, workspa
 		CurrentIssueRef:    awsIssueRef(awsSecretPermissionEquivalenceCurrentIssue),
 		Version:            awsSecretPermissionEquivalenceVersion,
 		Status:             status,
-		FixtureState:       sourceFixtureState,
+		FixtureState:       responseFixtureState,
 		Confidence:         confidence,
 		CalculationVersion: awsSecretPermissionEquivalenceVersion,
 		AppliedFilters:     applied,
@@ -203,8 +237,8 @@ func (s *Service) GetAWSSecretPermissionEquivalence(ctx context.Context, workspa
 		Findings:           filtered,
 		Relationships:      relationships,
 		Caveats:            awsSecretPermissionEquivalenceCaveats(),
-		FailureReasons:     awsSecretPermissionEquivalenceFailureReasons(sources),
-		RemediationHints:   awsSecretPermissionEquivalenceRemediationHints(sources),
+		FailureReasons:     dedupeStrings(failureReasons),
+		RemediationHints:   dedupeStrings(remediationHints),
 		EvidenceLinks: dedupeStrings([]string{
 			awsIssueURL(awsPlatformDependencyParentIssue),
 			awsIssueURL(awsSecretPermissionEquivalenceCurrentIssue),
@@ -240,7 +274,7 @@ func normalizeAWSSecretPermissionEquivalenceFixtureState(requested string, conne
 	}
 }
 
-func (s *Service) awsSecretPermissionEquivalenceSourceSignals(ctx context.Context, workspaceID, projectID, connectorID, fixtureState string) (awsSecretPermissionEquivalenceSources, error) {
+func (s *Service) awsSecretPermissionEquivalenceSourceSignals(ctx context.Context, workspaceID, projectID, connectorID, fixtureState, runtimeFixtureState string) (awsSecretPermissionEquivalenceSources, error) {
 	credentials, err := s.GetAWSCredentialReferencesInventory(ctx, workspaceID, projectID, AWSCredentialReferencesInventoryRequest{ConnectorID: connectorID, FixtureState: fixtureState})
 	if err != nil {
 		return awsSecretPermissionEquivalenceSources{}, fmt.Errorf("secret permission equivalence credential references: %w", err)
@@ -253,7 +287,7 @@ func (s *Service) awsSecretPermissionEquivalenceSourceSignals(ctx context.Contex
 	if err != nil {
 		return awsSecretPermissionEquivalenceSources{}, fmt.Errorf("secret permission equivalence kms reachability: %w", err)
 	}
-	runtime, err := s.GetAWSSecretsKMSRuntimeAccess(ctx, workspaceID, projectID, AWSSecretsKMSRuntimeAccessRequest{ConnectorID: connectorID, FixtureState: fixtureState})
+	runtime, err := s.GetAWSSecretsKMSRuntimeAccess(ctx, workspaceID, projectID, AWSSecretsKMSRuntimeAccessRequest{ConnectorID: connectorID, FixtureState: runtimeFixtureState})
 	if err != nil {
 		return awsSecretPermissionEquivalenceSources{}, fmt.Errorf("secret permission equivalence runtime access: %w", err)
 	}
