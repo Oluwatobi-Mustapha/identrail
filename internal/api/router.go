@@ -861,6 +861,24 @@ func NewRouter(logger *zap.Logger, metrics *telemetry.Metrics, svc *Service, opt
 		c.JSON(http.StatusOK, paginatedItemsResponse(items, offset, limit))
 	})
 
+	v1.GET("/scans/:scan_id", func(c *gin.Context) {
+		scanID, ok := requiredUUIDParam(c, c.Param("scan_id"), "scan_id")
+		if !ok {
+			return
+		}
+		item, err := svc.GetScan(c.Request.Context(), scanID)
+		if err != nil {
+			if errors.Is(err, db.ErrNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "scan not found"})
+				return
+			}
+			logger.Error("get scan", telemetry.ZapError(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get scan"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"scan": item})
+	})
+
 	v1.GET("/scans/:scan_id/diff", func(c *gin.Context) {
 		limit := parseLimit(c.Query("limit"), defaultFindingsLimit, maxListLimit)
 		scanID, ok := requiredUUIDParam(c, c.Param("scan_id"), "scan_id")

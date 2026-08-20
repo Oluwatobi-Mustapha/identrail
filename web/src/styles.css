@@ -24456,6 +24456,119 @@ html[data-theme='light'] .idt-app-shell-screen select {
   line-height: 1.45;
 }
 
+.idt-aws-discovery-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.idt-aws-discovery-progress {
+  display: grid;
+  gap: 1.25rem;
+  border: 1px solid rgba(126, 105, 255, 0.38);
+  border-radius: 12px;
+  padding: 1.3rem;
+  background: linear-gradient(135deg, rgba(20, 17, 45, 0.96), #050505 72%);
+}
+
+.idt-aws-discovery-progress > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.idt-aws-discovery-progress h3 {
+  margin: 0;
+  color: #ffffff;
+}
+
+.idt-aws-discovery-progress header p:not(.idt-app-kicker) {
+  max-width: 58rem;
+  margin: 0.35rem 0 0;
+  color: var(--app-muted);
+  line-height: 1.5;
+}
+
+.idt-aws-discovery-result-count {
+  flex: 0 0 auto;
+  border: 1px solid rgba(88, 214, 141, 0.4);
+  border-radius: 999px;
+  padding: 0.35rem 0.62rem;
+  color: #b8f3cf;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.idt-aws-discovery-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.idt-aws-discovery-step {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 0.65rem;
+  min-width: 0;
+  border-top: 2px solid var(--app-border-soft);
+  padding-top: 0.7rem;
+  color: var(--app-muted);
+}
+
+.idt-aws-discovery-step.is-current {
+  border-color: #7e69ff;
+  color: #ffffff;
+}
+
+.idt-aws-discovery-step.is-complete {
+  border-color: #58d68d;
+  color: #b8f3cf;
+}
+
+.idt-aws-discovery-step.is-error {
+  border-color: #e26b6b;
+  color: #ffc1c1;
+}
+
+.idt-aws-discovery-step-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.idt-aws-discovery-step strong {
+  display: block;
+  color: inherit;
+}
+
+.idt-aws-discovery-step p {
+  margin: 0.22rem 0 0;
+  color: var(--app-muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.idt-aws-discovery-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.idt-aws-discovery-actions > span {
+  color: var(--app-muted);
+  font-size: 0.84rem;
+}
+
 .idt-app-console-layout .idt-aws-connect-summary .idt-source-meta {
   grid-template-columns: 1fr;
 }

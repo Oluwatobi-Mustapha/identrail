@@ -948,6 +948,10 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord, a
 		}
 		return RunScanResult{}, err
 	}
+	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "collecting provider evidence", map[string]any{
+		"phase":    "collecting",
+		"provider": record.Provider,
+	})
 	result, err := scanner.Run(ctx)
 	if err != nil {
 		if handleErr := s.handleScanFailure(ctx, record, allowRetry, scanFailureStageExecution, 0, 0, err, "scan failed during collection/analysis"); handleErr != nil {
@@ -958,6 +962,10 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord, a
 		}
 		return RunScanResult{}, err
 	}
+	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "analyzing collected evidence", map[string]any{
+		"phase":    "analyzing",
+		"provider": record.Provider,
+	})
 	result.Findings = enrichFindings(result.Findings)
 	if len(result.SourceErrors) > 0 {
 		if s.Metrics != nil {
@@ -3989,6 +3997,12 @@ func (s *Service) GetFindingExports(ctx context.Context, findingID string, scanI
 func (s *Service) ListScans(ctx context.Context, limit int) ([]db.ScanRecord, error) {
 	ctx = s.scopeContext(ctx)
 	return s.Store.ListScans(ctx, limit)
+}
+
+// GetScan returns one persisted scan.
+func (s *Service) GetScan(ctx context.Context, scanID string) (db.ScanRecord, error) {
+	ctx = s.scopeContext(ctx)
+	return s.Store.GetScan(ctx, scanID)
 }
 
 // GetFindingsSummary returns grouped counts by severity and type.

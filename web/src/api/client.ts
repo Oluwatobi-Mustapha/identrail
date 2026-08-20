@@ -335,6 +335,8 @@ export type ScanRecord = {
   asset_count: number;
   finding_count: number;
   error_message?: string;
+  failure_category?: string;
+  dead_lettered?: boolean;
 };
 
 export type ScanRequest = {
@@ -10612,6 +10614,9 @@ export const apiClient = {
   },
   listScans(auth?: RequestAuthContext) {
     return request<{ items: ScanRecord[] }>('/v1/scans?sort_by=started_at&sort_order=desc', auth);
+  },
+  getScan(scanID: string, auth?: RequestAuthContext) {
+    return request<{ scan: ScanRecord }>(`/v1/scans/${encodeURIComponent(scanID)}`, auth);
   },
   startScan(payloadOrAuth?: ScanRequest | RequestAuthContext, maybeAuth?: RequestAuthContext) {
     // A second argument means the first is unambiguously the scan payload. With a single

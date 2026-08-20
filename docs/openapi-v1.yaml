@@ -84,6 +84,11 @@ x-identrail-route-authorizations:
     action: scans.read
     resource_type: scan
   - method: GET
+    path: /v1/scans/{scan_id}
+    action: scans.read
+    resource_type: scan
+    resource_id_param: scan_id
+  - method: GET
     path: /v1/scans/{scan_id}/diff
     action: scans.read
     resource_type: scan_diff
@@ -10038,6 +10043,39 @@ paths:
                 $ref: "#/components/schemas/AWSPlatformBaselineNotReadyResponse"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /v1/scans/{scan_id}:
+    parameters:
+      - $ref: "#/components/parameters/scopeTenantID"
+      - $ref: "#/components/parameters/scopeWorkspaceID"
+    get:
+      tags: [Scans]
+      summary: Get scan status
+      operationId: getScan
+      parameters:
+        - in: path
+          name: scan_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Scan status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scan:
+                    $ref: "#/components/schemas/ScanRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
   /v1/scans/{scan_id}/diff:

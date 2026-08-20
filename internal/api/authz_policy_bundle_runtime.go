@@ -705,6 +705,7 @@ func defaultBuiltInRoutePolicyDefinitions() []routePolicyDefinition {
 		{Method: http.MethodGet, Path: "/v1/relationships", Action: policyActionGraphRead, ResourceType: "relationship"},
 		{Method: http.MethodGet, Path: "/v1/ownership/signals", Action: policyActionGraphRead, ResourceType: "ownership_signal"},
 		{Method: http.MethodGet, Path: "/v1/scans", Action: policyActionScansRead, ResourceType: "scan"},
+		{Method: http.MethodGet, Path: "/v1/scans/:scan_id", Action: policyActionScansRead, ResourceType: "scan", ResourceIDParam: "scan_id"},
 		{Method: http.MethodGet, Path: "/v1/scans/:scan_id/diff", Action: policyActionScansRead, ResourceType: "scan_diff", ResourceIDParam: "scan_id"},
 		{Method: http.MethodGet, Path: "/v1/scans/:scan_id/events", Action: policyActionScansRead, ResourceType: "scan_event", ResourceIDParam: "scan_id"},
 		{Method: http.MethodPost, Path: "/v1/scans", Action: policyActionScansRun, ResourceType: "scan"},

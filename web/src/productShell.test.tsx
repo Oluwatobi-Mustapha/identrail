@@ -12114,7 +12114,7 @@ describe('Domain-first app routes', () => {
     expect(within(summary).getByText('1 region')).toBeInTheDocument();
     expect(within(summary).getByRole('link', { name: /Start AWS intelligence/i })).toHaveAttribute(
       'href',
-      '/app/tenant-a/workspace-a/aws?environment=production'
+      '/app/tenant-a/workspace-a/aws/discovery?environment=production&start=1'
     );
     expect(within(summary).getByRole('link', { name: /Review machine identities/i })).toHaveAttribute(
       'href',

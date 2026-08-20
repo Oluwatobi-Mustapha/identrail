@@ -34,6 +34,7 @@ import {
   ProductAWSCoveragePage,
   ProductAWSAgentsPage,
   ProductAWSControlCenterPage,
+  ProductAWSDiscoveryPage,
   ProductAWSFindingsPage,
   ProductAWSGovernancePage,
   ProductAWSGADemoPage,
@@ -4829,6 +4830,7 @@ export function RoutedSite() {
             <Route path="findings" element={<LegacyScopedAppRedirect target="github/findings" />} />
             <Route path="ai-risks" element={<LegacyScopedAppRedirect target="github/agentic-risk" />} />
             <Route path="aws" element={<ProductAWSControlCenterPage />} />
+            <Route path="aws/discovery" element={<ProductAWSDiscoveryPage />} />
             <Route path="aws/connect" element={<ProductAWSConnectPage />} />
             <Route path="aws/accounts" element={<ProductAWSAccountsPage />} />
             <Route path="aws/coverage" element={<ProductAWSCoveragePage />} />
