@@ -1760,13 +1760,16 @@ function environmentIDFromSearch(search: string): string {
   return normalizeValue(new URLSearchParams(search).get(ENVIRONMENT_QUERY_PARAM));
 }
 
-function environmentSearch(search: string, environmentID: string): string {
+function environmentSearch(search: string, environmentID: string, options: { omit?: string[] } = {}): string {
   const params = new URLSearchParams(search);
   const normalized = normalizeValue(environmentID);
   if (normalized) {
     params.set(ENVIRONMENT_QUERY_PARAM, normalized);
   } else {
     params.delete(ENVIRONMENT_QUERY_PARAM);
+  }
+  for (const key of options.omit ?? []) {
+    params.delete(key);
   }
   const next = params.toString();
   return next ? `?${next}` : '';
@@ -3845,8 +3848,18 @@ function awsConnectedTradeoffs(connection: AWSConnectionStatus): string[] {
   }
 }
 
-function awsRouteLink(scope: ProductSession, routeID: ProductDomainRouteID, environmentID: string): string {
-  return appendEnvironmentQuery(domainRoutePath(scope, 'aws', findDomainRoute('aws', routeID)), environmentID);
+function awsRouteLink(
+  scope: ProductSession,
+  routeID: ProductDomainRouteID,
+  environmentID: string,
+  options: { scanID?: string } = {}
+): string {
+  const path = appendEnvironmentQuery(domainRoutePath(scope, 'aws', findDomainRoute('aws', routeID)), environmentID);
+  if (!options.scanID) {
+    return path;
+  }
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}scan_id=${encodeURIComponent(options.scanID)}`;
 }
 
 function awsDiscoveryPath(
@@ -5496,7 +5509,11 @@ function useAWSInventoryData(): AWSInventoryDataState {
       navigate(
         {
           pathname: location.pathname,
-          search: environmentSearch(location.search, environmentID)
+          search: environmentSearch(
+            location.search,
+            environmentID,
+            location.pathname.endsWith('/aws/findings') ? { omit: ['scan_id'] } : undefined
+          )
         },
         { replace: false }
       );
@@ -18074,6 +18091,73 @@ function awsSecretPermissionEquivalenceRiskOperationRow(
   };
 }
 
+function awsPersistedFindingStage(finding: ApiFinding): AWSCapabilityStage {
+  const severity = normalizeValue(finding.severity).toLowerCase();
+  if (severity === 'critical') {
+    return 'not-available';
+  }
+  if (severity === 'high') {
+    return 'coming';
+  }
+  return 'wired';
+}
+
+function awsPersistedFindingStatus(finding: ApiFinding): string {
+  switch (normalizeValue(finding.lifecycle_status).toLowerCase()) {
+    case 'ack':
+      return 'queued';
+    case 'suppressed':
+    case 'resolved':
+      return 'blocked';
+    default:
+      return 'open';
+  }
+}
+
+function awsPersistedFindingEvidence(finding: ApiFinding): string {
+  const summary = normalizeValue(finding.human_summary);
+  if (summary) {
+    return summary;
+  }
+  return Object.keys(finding.evidence ?? {}).length > 0 ? 'Inventory-backed AWS evidence' : 'Evidence unavailable';
+}
+
+function awsPersistedFindingRiskOperationRow(
+  finding: ApiFinding,
+  connection: AWSConnectionStatus | null
+): AWSRiskOperationTableRow {
+  const status = awsPersistedFindingStatus(finding);
+  const path = finding.path?.filter(Boolean).join(' → ');
+  const account = connection?.account_id ?? 'Connected AWS account';
+  const region = connection?.region ?? 'Connected region';
+  const evidence = awsPersistedFindingEvidence(finding);
+  return {
+    id: finding.id,
+    title: finding.title || formatTokenLabel(finding.type),
+    category: formatTokenLabel(finding.severity),
+    evidence,
+    owner: finding.owner || finding.adapter_source || 'AWS scanner',
+    blastRadius: path || `${account} · ${region}`,
+    nextAction: finding.remediation || 'Review the finding evidence and remediate the affected AWS resource.',
+    status,
+    stage: awsPersistedFindingStage(finding),
+    filters: {
+      severity: normalizeValue(finding.severity).toLowerCase() || 'unknown',
+      account: 'connected',
+      region: 'current',
+      evidence: Object.keys(finding.evidence ?? {}).length > 0 ? 'inventory-backed' : 'unavailable',
+      status
+    },
+    searchText: inventorySearchText([
+      finding.title,
+      finding.type,
+      finding.human_summary,
+      finding.remediation,
+      ...(finding.path ?? [])
+    ])
+  };
+}
+
 function awsSecretPermissionEquivalenceFindingStatusFilterToken(value: string | undefined): string {
   switch (normalizeFilterValue(value ?? '')) {
     case 'action_required':
@@ -18089,6 +18173,11 @@ function awsSecretPermissionEquivalenceFindingStatusFilterToken(value: string | 
 
 function AWSFindingsContent({
   findings,
+  persistedFindings,
+  persistedScan,
+  persistedScanPartial,
+  persistedScanCoverageUnknown,
+  persistedScanID,
   scope,
   environmentID,
   connection,
@@ -18099,6 +18188,11 @@ function AWSFindingsContent({
   onFiltersChange
 }: {
   findings: AWSSecretPermissionEquivalenceResult | null;
+  persistedFindings: ApiFinding[] | null;
+  persistedScan: ScanRecord | null;
+  persistedScanPartial: boolean;
+  persistedScanCoverageUnknown: boolean;
+  persistedScanID?: string;
   scope: ProductSession | null;
   environmentID?: string;
   connection: AWSConnectionStatus | null;
@@ -18108,13 +18202,32 @@ function AWSFindingsContent({
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
-  const rows = findings?.findings.map((finding) => awsSecretPermissionEquivalenceRiskOperationRow(finding, scope, environmentID, connection)) ?? [];
+  const showingPersistedScan = Boolean(persistedScanID);
+  const rows = showingPersistedScan
+    ? persistedFindings?.map((finding) => awsPersistedFindingRiskOperationRow(finding, connection)) ?? []
+    : findings?.findings.map((finding) => awsSecretPermissionEquivalenceRiskOperationRow(finding, scope, environmentID, connection)) ?? [];
   const displayedRows = filterAWSInventoryRows(rows, filters);
   const isReadyToLoad = Boolean(scope && environmentID && connection?.connected);
-  const isLoading = loading || (isReadyToLoad && !findings && !error);
+  const isLoading = loading || (showingPersistedScan && isReadyToLoad && !persistedFindings && !error) || (!showingPersistedScan && isReadyToLoad && !findings && !error);
 
   return (
     <>
+      {showingPersistedScan && persistedScan ? (
+        <DomainStatusPanel
+          eyebrow="Discovery result"
+          title="Showing findings from this AWS scan"
+          status={`${persistedScan.finding_count} finding${persistedScan.finding_count === 1 ? '' : 's'}`}
+          tone={persistedScanPartial || persistedScanCoverageUnknown ? 'warning' : 'success'}
+        >
+          <p>
+            {persistedScanPartial
+              ? 'The scan completed with some unavailable sources. These findings are valid for the evidence Identrail collected; review coverage gaps before treating the result as complete.'
+              : persistedScanCoverageUnknown
+                ? 'These findings come directly from the completed AWS discovery run, but Identrail could not verify source completeness. Run discovery again if you need a fresh coverage check.'
+                : 'These findings come directly from the completed AWS discovery run.'}
+          </p>
+        </DomainStatusPanel>
+      ) : null}
       <AWSRiskOperationFilterSet routeID="findings" filters={filters} onChange={onFiltersChange} />
       {error ? (
         <DomainErrorState
@@ -18135,10 +18248,16 @@ function AWSFindingsContent({
           getRowKey={(row) => row.id}
           emptyState={
             <DomainEmptyState
-              eyebrow={findings?.status === 'degraded' ? 'Evidence incomplete' : 'Empty'}
-              title={findings?.status === 'degraded' ? 'Live AWS findings are not available yet' : 'No AWS findings'}
+              eyebrow={showingPersistedScan && (persistedScanPartial || persistedScanCoverageUnknown) ? 'Evidence incomplete' : 'Empty'}
+              title={showingPersistedScan ? 'No findings in this AWS scan' : findings?.status === 'degraded' ? 'Live AWS findings are not available yet' : 'No AWS findings'}
               body={
-                findings?.status === 'degraded'
+                showingPersistedScan
+                  ? persistedScanPartial
+                    ? 'The scan returned no findings from the sources that were available. Resolve the coverage gaps and run discovery again for a complete result.'
+                    : persistedScanCoverageUnknown
+                      ? 'This completed AWS scan did not produce any findings, but source completeness could not be verified. Run discovery again before treating the empty result as complete.'
+                      : 'This completed AWS scan did not produce any findings.'
+                  : findings?.status === 'degraded'
                   ? findings.failure_reasons[0] ?? 'Live AWS inventory is unavailable, so Identrail is not presenting sample findings as customer risk.'
                   : 'No live AWS finding matches this environment yet. Run the collectors or clear filters to load evidence.'
               }
@@ -18348,8 +18467,10 @@ function AWSGovernanceContent({
 
 function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRouteID }) {
   const data = useAWSInventoryData();
+  const location = useLocation();
   const { scope, environmentScope, selectedEnvironmentID, connection, connectionLoading, connectionError } = data;
   const copy = AWS_RISK_OPERATION_PAGE_COPY[routeID];
+  const persistedScanID = useMemo(() => normalizeValue(new URLSearchParams(location.search).get('scan_id')), [location.search]);
   const [activeFilters, setActiveFilters] = useState<AWSInventoryFilterState>(() => ({
     ...AWS_RISK_OPERATION_FILTER_DEFAULTS[routeID]
   }));
@@ -18502,6 +18623,13 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [secretPermissionEquivalenceLoading, setSecretPermissionEquivalenceLoading] = useState(false);
   const [secretPermissionEquivalenceError, setSecretPermissionEquivalenceError] = useState('');
   const secretPermissionEquivalenceRequestRef = useRef(0);
+  const [persistedFindings, setPersistedFindings] = useState<ApiFinding[] | null>(null);
+  const [persistedScan, setPersistedScan] = useState<ScanRecord | null>(null);
+  const [persistedScanPartial, setPersistedScanPartial] = useState(false);
+  const [persistedScanCoverageUnknown, setPersistedScanCoverageUnknown] = useState(false);
+  const [persistedFindingsLoading, setPersistedFindingsLoading] = useState(false);
+  const [persistedFindingsError, setPersistedFindingsError] = useState('');
+  const persistedFindingsRequestRef = useRef(0);
 
   const onFiltersChange = (nextFilters: AWSInventoryFilterState): void => {
     setActiveFilters(nextFilters);
@@ -18512,7 +18640,7 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   }, [routeID]);
 
   const showSecretPermissionEquivalence = routeID === 'runtime';
-  const shouldLoadSecretPermissionEquivalence = routeID === 'runtime' || routeID === 'findings';
+  const shouldLoadSecretPermissionEquivalence = routeID === 'runtime' || (routeID === 'findings' && !persistedScanID);
 
   const loadGraphExplorer = useCallback(async ({ append = false }: { append?: boolean } = {}) => {
     const requestID = ++graphExplorerRequestRef.current;
@@ -20364,6 +20492,56 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     };
   }, [loadSecretPermissionEquivalence]);
 
+  const loadPersistedAWSFindings = useCallback(async () => {
+    const requestID = ++persistedFindingsRequestRef.current;
+    setPersistedFindings(null);
+    setPersistedScan(null);
+    setPersistedScanPartial(false);
+    setPersistedScanCoverageUnknown(false);
+    setPersistedFindingsError('');
+    if (routeID !== 'findings' || !persistedScanID || !scope || !selectedEnvironmentID || !connection?.connected) {
+      setPersistedFindingsLoading(false);
+      return;
+    }
+    setPersistedFindingsLoading(true);
+    try {
+      const [scanResponse, findingsResponse, eventsResponse] = await Promise.all([
+        apiClient.getScan(persistedScanID, buildProductAuthContext(scope)),
+        apiClient.listFindings({ scan_id: persistedScanID, limit: 500 }, buildProductAuthContext(scope)),
+        apiClient.listScanEvents(persistedScanID, undefined, 100, buildProductAuthContext(scope))
+          .then((response) => ({ items: response.items, available: true }))
+          .catch(() => ({ items: [], available: false }))
+      ]);
+      if (requestID !== persistedFindingsRequestRef.current) {
+        return;
+      }
+      const scan = scanResponse.scan;
+      if (normalizeValue(scan.provider).toLowerCase() !== 'aws' || (scan.project_id && scan.project_id !== selectedEnvironmentID) || (connection.connector_id && scan.connector_id && scan.connector_id !== connection.connector_id)) {
+        throw new Error('The requested AWS scan does not belong to this environment.');
+      }
+      setPersistedScan(scan);
+      setPersistedFindings(findingsResponse.items);
+      setPersistedScanPartial(awsDiscoveryHasPartialResults(eventsResponse.items));
+      setPersistedScanCoverageUnknown(!eventsResponse.available);
+    } catch (requestError) {
+      if (requestID !== persistedFindingsRequestRef.current) {
+        return;
+      }
+      setPersistedFindingsError(formatAPIError(requestError, 'Unable to load findings from this AWS scan.'));
+    } finally {
+      if (requestID === persistedFindingsRequestRef.current) {
+        setPersistedFindingsLoading(false);
+      }
+    }
+  }, [connection?.connected, connection?.connector_id, persistedScanID, routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
+  useEffect(() => {
+    void loadPersistedAWSFindings();
+    return () => {
+      persistedFindingsRequestRef.current += 1;
+    };
+  }, [loadPersistedAWSFindings]);
+
   if (!scope) {
     return (
       <section className="idt-app-panel idt-app-panel-error" role="alert">
@@ -20738,12 +20916,17 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
         {routeID === 'findings' ? (
           <AWSFindingsContent
             findings={secretPermissionEquivalence}
+            persistedFindings={persistedFindings}
+            persistedScan={persistedScan}
+            persistedScanPartial={persistedScanPartial}
+            persistedScanCoverageUnknown={persistedScanCoverageUnknown}
+            persistedScanID={persistedScanID}
             scope={scope}
             environmentID={selectedEnvironmentID}
             connection={connection}
-            loading={secretPermissionEquivalenceLoading}
-            error={secretPermissionEquivalenceError}
-            onRetry={loadSecretPermissionEquivalence}
+            loading={persistedScanID ? persistedFindingsLoading : secretPermissionEquivalenceLoading}
+            error={persistedScanID ? persistedFindingsError : secretPermissionEquivalenceError}
+            onRetry={persistedScanID ? loadPersistedAWSFindings : loadSecretPermissionEquivalence}
             filters={activeFilters}
             onFiltersChange={onFiltersChange}
           />
@@ -21057,7 +21240,9 @@ export function ProductAWSDiscoveryPage() {
 
   const phase = awsDiscoveryPhase(scan, events);
   const partial = awsDiscoveryHasPartialResults(events);
-  const findingsPath = scope && selectedEnvironmentID ? awsRouteLink(scope, 'findings', selectedEnvironmentID) : '#';
+  const findingsPath = scope && selectedEnvironmentID
+    ? awsRouteLink(scope, 'findings', selectedEnvironmentID, { scanID: scanID || undefined })
+    : '#';
   const connectPath = scope && selectedEnvironmentID ? awsRouteLink(scope, 'connect', selectedEnvironmentID) : '#';
   const hasTerminalResults = phase === 'results' && Boolean(scanID) && Boolean(scan);
 
