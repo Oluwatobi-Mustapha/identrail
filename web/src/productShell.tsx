@@ -20877,6 +20877,7 @@ export function ProductAWSDiscoveryPage() {
   const startRequested = query.get('start') === '1';
   const scanID = normalizeValue(query.get('scan_id'));
   const [connection, setConnection] = useState<AWSConnectionStatus | null>(null);
+  const [connectionEnvironmentID, setConnectionEnvironmentID] = useState('');
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [connectionError, setConnectionError] = useState('');
   const [scan, setScan] = useState<ScanRecord | null>(null);
@@ -20884,6 +20885,7 @@ export function ProductAWSDiscoveryPage() {
   const [loading, setLoading] = useState(Boolean(scanID));
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState('');
+  const [retryNonce, setRetryNonce] = useState(0);
   const startRef = useRef('');
   const requestRef = useRef(0);
   const redirectRef = useRef('');
@@ -20897,9 +20899,12 @@ export function ProductAWSDiscoveryPage() {
     const requestEnvironmentID = selectedEnvironmentID;
     if (!scope || !requestEnvironmentID) {
       setConnection(null);
+      setConnectionEnvironmentID('');
       setConnectionLoading(false);
       return;
     }
+    setConnection(null);
+    setConnectionEnvironmentID('');
     setConnectionLoading(true);
     setConnectionError('');
     void apiClient.getAWSProjectConnection(
@@ -20909,10 +20914,12 @@ export function ProductAWSDiscoveryPage() {
     ).then((response) => {
       if (requestID === requestRef.current && requestEnvironmentID === selectedEnvironmentID) {
         setConnection(response.connection);
+        setConnectionEnvironmentID(requestEnvironmentID);
       }
     }).catch((requestError) => {
       if (requestID === requestRef.current && requestEnvironmentID === selectedEnvironmentID) {
         setConnection(null);
+        setConnectionEnvironmentID('');
         setConnectionError(formatAPIError(requestError, 'Unable to load AWS connection status.'));
       }
     }).finally(() => {
@@ -20925,9 +20932,26 @@ export function ProductAWSDiscoveryPage() {
     };
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
 
+  const retryDiscovery = useCallback(() => {
+    startRef.current = '';
+    setError('');
+    setLoading(Boolean(scanID));
+    setRetryNonce((value) => value + 1);
+  }, [scanID]);
+
+  const prepareNewDiscovery = useCallback(() => {
+    startRef.current = '';
+    redirectRef.current = '';
+    setScan(null);
+    setEvents([]);
+    setError('');
+    setLoading(false);
+    setRetryNonce((value) => value + 1);
+  }, []);
+
   useEffect(() => {
     const requestEnvironmentID = selectedEnvironmentID;
-    if (!startRequested || scanID || !scope || !requestEnvironmentID || environmentScope.loading || connectionLoading) {
+    if (!startRequested || scanID || !scope || !requestEnvironmentID || environmentScope.loading || connectionLoading || connectionEnvironmentID !== requestEnvironmentID) {
       return;
     }
     if (!connection) {
@@ -20968,11 +20992,10 @@ export function ProductAWSDiscoveryPage() {
     }).finally(() => {
       setStarting(false);
     });
-  }, [connection, connectionLoading, environmentScope.loading, scanID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, startRequested, navigate]);
+  }, [connection, connectionEnvironmentID, connectionLoading, environmentScope.loading, retryNonce, scanID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, startRequested, navigate]);
 
   useEffect(() => {
     if (!scanID || !scope || !selectedEnvironmentID) {
-      startRef.current = '';
       setScan(null);
       setEvents([]);
       setLoading(false);
@@ -21009,7 +21032,7 @@ export function ProductAWSDiscoveryPage() {
     return () => {
       active = false;
     };
-  }, [scanID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+  }, [retryNonce, scanID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
 
   const phase = awsDiscoveryPhase(scan, events);
   const partial = awsDiscoveryHasPartialResults(events);
@@ -21053,7 +21076,7 @@ export function ProductAWSDiscoveryPage() {
           <DomainErrorState
             title={phase === 'error' ? 'AWS discovery failed' : 'Couldn\'t start AWS discovery'}
             body={error}
-            retryAction={{ label: 'Try again', to: awsDiscoveryPath(scope, selectedEnvironmentID, { start: true }) }}
+            retryAction={{ label: 'Try again', onClick: retryDiscovery }}
           >
             <Link className="idt-btn idt-btn-ghost" to={connectPath}>Back to AWS connection</Link>
           </DomainErrorState>
@@ -21106,7 +21129,7 @@ export function ProductAWSDiscoveryPage() {
             ) : null}
             {phase === 'error' ? (
               <div className="idt-aws-discovery-actions">
-                <Link className="idt-btn idt-btn-primary" to={awsDiscoveryPath(scope, selectedEnvironmentID, { start: true })}>Start a new discovery</Link>
+                <Link className="idt-btn idt-btn-primary" to={awsDiscoveryPath(scope, selectedEnvironmentID, { start: true })} onClick={prepareNewDiscovery}>Start a new discovery</Link>
                 <Link className="idt-btn idt-btn-ghost" to={connectPath}>Review AWS connection</Link>
               </div>
             ) : null}
