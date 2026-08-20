@@ -23,6 +23,16 @@ type ScanResult struct {
 	Completed     time.Time
 }
 
+// PhaseCallback receives scanner lifecycle transitions at the point where
+// the corresponding pipeline stage begins.
+type PhaseCallback func(phase string)
+
+// PhaseAwareScanner exposes the scanner pipeline to callers that need
+// progress updates without changing the compatibility Run contract.
+type PhaseAwareScanner interface {
+	RunWithPhase(ctx context.Context, onPhase PhaseCallback) (ScanResult, error)
+}
+
 // Scanner orchestrates end-to-end scan stages with explicit dependencies.
 type Scanner struct {
 	Collector            providers.Collector
@@ -35,6 +45,13 @@ type Scanner struct {
 // Run executes a deterministic scan pipeline. Each dependency is injected so
 // provider modules can evolve independently while keeping orchestration stable.
 func (s Scanner) Run(ctx context.Context) (ScanResult, error) {
+	return s.RunWithPhase(ctx, nil)
+}
+
+// RunWithPhase executes the scan pipeline and reports transitions before each
+// stage starts. In particular, analyzing is emitted after collection succeeds
+// and immediately before normalization begins.
+func (s Scanner) RunWithPhase(ctx context.Context, onPhase PhaseCallback) (ScanResult, error) {
 	tracer := otel.Tracer("identrail/scanner")
 	ctx, span := tracer.Start(ctx, "scanner.run")
 	defer span.End()
@@ -63,6 +80,9 @@ func (s Scanner) Run(ctx context.Context) (ScanResult, error) {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "collector failed")
 		return ScanResult{}, err
+	}
+	if onPhase != nil {
+		onPhase("analyzing")
 	}
 
 	normalizeCtx, normalizeSpan := tracer.Start(ctx, "scanner.normalize")

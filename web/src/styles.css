@@ -25433,6 +25433,10 @@ html[data-theme='light'] .idt-app-console-layout .idt-permission-tier .idt-badge
 }
 
 @media (max-width: 720px) {
+  .idt-aws-discovery-steps {
+    grid-template-columns: 1fr;
+  }
+
   .idt-domain-header-main,
   .idt-domain-status-panel header,
   .idt-domain-filter-bar {

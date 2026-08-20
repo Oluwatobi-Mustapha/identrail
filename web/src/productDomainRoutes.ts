@@ -1,6 +1,7 @@
 export const DOMAIN_APP_ROUTE_MANIFEST = [
   '/app/:tenantID/:workspaceID',
   '/app/:tenantID/:workspaceID/aws',
+  '/app/:tenantID/:workspaceID/aws/discovery',
   '/app/:tenantID/:workspaceID/aws/connect',
   '/app/:tenantID/:workspaceID/aws/accounts',
   '/app/:tenantID/:workspaceID/aws/coverage',

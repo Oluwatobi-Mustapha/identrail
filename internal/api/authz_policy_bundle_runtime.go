@@ -291,6 +291,7 @@ func (r *storeBackedCentralPolicyRuntimeResolver) compiledVersion(version db.Aut
 	// omission. A future route addition must be added to this explicit list and
 	// covered by the compatibility test below.
 	compiled = overlayRouteAuthorizationPolicyCompatibility(compiled, r.fallback, []routePolicyDefinition{
+		{Method: http.MethodGet, Path: "/v1/scans/:scan_id", Action: policyActionScansRead, ResourceType: "scan", ResourceIDParam: "scan_id"},
 		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id/reconcile", Action: policyActionTenancyWrite, ResourceType: "project", ResourceIDParam: "project_id"},
 		{Method: http.MethodPost, Path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id/retry", Action: policyActionTenancyWrite, ResourceType: "project", ResourceIDParam: "project_id"},
 	})

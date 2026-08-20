@@ -697,16 +697,21 @@ func TestCentralPolicyRuntimeResolverOverlaysNewRolloutRoutesOnPersistedVersion(
 	if err != nil {
 		t.Fatalf("resolve persisted policy version: %v", err)
 	}
-	for _, path := range []string{
-		"/v1/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id/reconcile",
-		"/v1/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id/retry",
+	for _, test := range []struct {
+		method string
+		path   string
+		action string
+	}{
+		{method: "GET", path: "/v1/scans/:scan_id", action: policyActionScansRead},
+		{method: "POST", path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id/reconcile", action: policyActionTenancyWrite},
+		{method: "POST", path: "/v1/workspaces/:workspace_id/projects/:project_id/aws/rollouts/:rollout_id/retry", action: policyActionTenancyWrite},
 	} {
-		policy, exists := resolved.Registry.lookup("POST", path)
+		policy, exists := resolved.Registry.lookup(test.method, test.path)
 		if !exists {
-			t.Fatalf("expected compatibility overlay for POST %s", path)
+			t.Fatalf("expected compatibility overlay for %s %s", test.method, test.path)
 		}
-		if policy.Action != policyActionTenancyWrite {
-			t.Fatalf("expected tenancy.write for POST %s, got %q", path, policy.Action)
+		if policy.Action != test.action {
+			t.Fatalf("expected %s for %s %s, got %q", test.action, test.method, test.path, policy.Action)
 		}
 	}
 }

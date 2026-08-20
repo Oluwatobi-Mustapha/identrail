@@ -3363,6 +3363,7 @@ describe('Domain-first app routes', () => {
     expect(DOMAIN_APP_ROUTE_MANIFEST).toEqual([
       '/app/:tenantID/:workspaceID',
       '/app/:tenantID/:workspaceID/aws',
+      '/app/:tenantID/:workspaceID/aws/discovery',
       '/app/:tenantID/:workspaceID/aws/connect',
       '/app/:tenantID/:workspaceID/aws/accounts',
       '/app/:tenantID/:workspaceID/aws/coverage',
@@ -12304,6 +12305,107 @@ describe('Domain-first app routes', () => {
       { project_id: 'staging', connector_id: 'staging-connector' },
       expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
     ));
+  });
+
+  it('ignores a late AWS discovery start response from the previous environment', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    const api = await import('./api/client');
+    const startProduction = deferred<{ scan: { id: string; project_id: string; connector_id: string; provider: string; status: string; started_at: string; asset_count: number; finding_count: number } }>();
+    const startStaging = deferred<{ scan: { id: string; project_id: string; connector_id: string; provider: string; status: string; started_at: string; asset_count: number; finding_count: number } }>();
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        },
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'staging',
+          name: 'Staging',
+          slug: 'staging',
+          description: 'Staging AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockImplementation((_workspaceID, projectID) => Promise.resolve({
+      connection: projectID === 'staging' ? { ...connectedAWS, connector_id: 'staging-connector' } : connectedAWS
+    }));
+    const startScan = vi.spyOn(api.apiClient, 'startScan')
+      .mockImplementationOnce(() => startProduction.promise)
+      .mockImplementationOnce(() => startStaging.promise);
+    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
+      scan: {
+        id: 'scan-staging',
+        project_id: 'staging',
+        connector_id: 'staging-connector',
+        provider: 'aws',
+        status: 'running',
+        started_at: '2026-08-20T20:00:00Z',
+        asset_count: 0,
+        finding_count: 0
+      }
+    });
+    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
+
+    const { ProductAWSDiscoveryPage } = await import('./productShell');
+    function LocationProbe() {
+      const currentLocation = useLocation();
+      return <output data-testid="aws-discovery-location">{currentLocation.search}</output>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/discovery?environment=production&start=1']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/discovery" element={<><ProductAWSDiscoveryPage /><LocationProbe /></>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(startScan).toHaveBeenCalledTimes(1));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
+    await waitFor(() => expect(startScan).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      startProduction.resolve({
+        scan: {
+          id: 'scan-production',
+          project_id: 'production',
+          connector_id: 'aws-connector-1',
+          provider: 'aws',
+          status: 'queued',
+          started_at: '2026-08-20T20:00:00Z',
+          asset_count: 0,
+          finding_count: 0
+        }
+      });
+    });
+    expect(screen.getByTestId('aws-discovery-location')).toHaveTextContent('environment=staging&start=1');
+
+    await act(async () => {
+      startStaging.resolve({
+        scan: {
+          id: 'scan-staging',
+          project_id: 'staging',
+          connector_id: 'staging-connector',
+          provider: 'aws',
+          status: 'queued',
+          started_at: '2026-08-20T20:00:00Z',
+          asset_count: 0,
+          finding_count: 0
+        }
+      });
+    });
+    await waitFor(() => expect(screen.getByTestId('aws-discovery-location')).toHaveTextContent('environment=staging&scan_id=scan-staging'));
   });
 
   it('keeps edited AWS role drafts when polling status returns older connection data', async () => {

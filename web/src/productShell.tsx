@@ -20887,6 +20887,7 @@ export function ProductAWSDiscoveryPage() {
   const [error, setError] = useState('');
   const [retryNonce, setRetryNonce] = useState(0);
   const startRef = useRef('');
+  const startRequestRef = useRef(0);
   const requestRef = useRef(0);
   const redirectRef = useRef('');
 
@@ -20933,6 +20934,7 @@ export function ProductAWSDiscoveryPage() {
   }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
 
   const retryDiscovery = useCallback(() => {
+    startRequestRef.current += 1;
     startRef.current = '';
     setError('');
     setLoading(Boolean(scanID));
@@ -20940,6 +20942,7 @@ export function ProductAWSDiscoveryPage() {
   }, [scanID]);
 
   const prepareNewDiscovery = useCallback(() => {
+    startRequestRef.current += 1;
     startRef.current = '';
     redirectRef.current = '';
     setScan(null);
@@ -20948,6 +20951,11 @@ export function ProductAWSDiscoveryPage() {
     setLoading(false);
     setRetryNonce((value) => value + 1);
   }, []);
+
+  useEffect(() => {
+    startRequestRef.current += 1;
+    setStarting(false);
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
 
   useEffect(() => {
     const requestEnvironmentID = selectedEnvironmentID;
@@ -20961,6 +20969,8 @@ export function ProductAWSDiscoveryPage() {
     if (startRef.current === startKey) {
       return;
     }
+    const requestID = startRequestRef.current + 1;
+    startRequestRef.current = requestID;
     startRef.current = startKey;
     setStarting(true);
     setError('');
@@ -20968,11 +20978,20 @@ export function ProductAWSDiscoveryPage() {
       { project_id: requestEnvironmentID, connector_id: connection.connector_id },
       buildProductAuthContext(scope)
     ).then((response) => {
+      if (requestID !== startRequestRef.current || requestEnvironmentID !== selectedEnvironmentID) {
+        return;
+      }
       navigate(awsDiscoveryPath(scope, requestEnvironmentID, { scanID: response.scan.id }), { replace: true });
     }).catch(async (requestError) => {
+      if (requestID !== startRequestRef.current || requestEnvironmentID !== selectedEnvironmentID) {
+        return;
+      }
       if (requestError instanceof ApiError && requestError.status === 409) {
         try {
           const scans = await apiClient.listScans(buildProductAuthContext(scope));
+          if (requestID !== startRequestRef.current || requestEnvironmentID !== selectedEnvironmentID) {
+            return;
+          }
           const existing = scans.items.find((item) => (
             item.provider === 'aws' &&
             item.project_id === requestEnvironmentID &&
@@ -20990,7 +21009,9 @@ export function ProductAWSDiscoveryPage() {
       setError(formatAPIError(requestError, 'Unable to start AWS discovery.'));
       startRef.current = '';
     }).finally(() => {
-      setStarting(false);
+      if (requestID === startRequestRef.current && requestEnvironmentID === selectedEnvironmentID) {
+        setStarting(false);
+      }
     });
   }, [connection, connectionEnvironmentID, connectionLoading, environmentScope.loading, retryNonce, scanID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, startRequested, navigate]);
 

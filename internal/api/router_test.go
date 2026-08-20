@@ -489,6 +489,20 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 		t.Fatalf("expected completed scan detail, got %+v", detailBody.Scan)
 	}
 
+	invalidDetailReq := httptest.NewRequest(http.MethodGet, "/v1/scans/not-a-uuid", nil)
+	invalidDetailW := httptest.NewRecorder()
+	r.ServeHTTP(invalidDetailW, invalidDetailReq)
+	if invalidDetailW.Code != http.StatusBadRequest {
+		t.Fatalf("expected malformed scan detail 400, got %d", invalidDetailW.Code)
+	}
+
+	missingDetailReq := httptest.NewRequest(http.MethodGet, "/v1/scans/00000000-0000-0000-0000-000000000000", nil)
+	missingDetailW := httptest.NewRecorder()
+	r.ServeHTTP(missingDetailW, missingDetailReq)
+	if missingDetailW.Code != http.StatusNotFound {
+		t.Fatalf("expected missing scan detail 404, got %d", missingDetailW.Code)
+	}
+
 	phaseEventsReq := httptest.NewRequest(http.MethodGet, "/v1/scans/"+firstScanID+"/events", nil)
 	phaseEventsW := httptest.NewRecorder()
 	r.ServeHTTP(phaseEventsW, phaseEventsReq)

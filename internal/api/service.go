@@ -952,7 +952,24 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord, a
 		"phase":    "collecting",
 		"provider": record.Provider,
 	})
-	result, err := scanner.Run(ctx)
+	var (
+		result               app.ScanResult
+		analysisPhaseEmitted bool
+	)
+	if phaseScanner, ok := scanner.(app.PhaseAwareScanner); ok {
+		result, err = phaseScanner.RunWithPhase(ctx, func(phase string) {
+			if phase != "analyzing" {
+				return
+			}
+			analysisPhaseEmitted = true
+			s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "analyzing collected evidence", map[string]any{
+				"phase":    "analyzing",
+				"provider": record.Provider,
+			})
+		})
+	} else {
+		result, err = scanner.Run(ctx)
+	}
 	if err != nil {
 		if handleErr := s.handleScanFailure(ctx, record, allowRetry, scanFailureStageExecution, 0, 0, err, "scan failed during collection/analysis"); handleErr != nil {
 			return RunScanResult{}, handleErr
@@ -962,10 +979,12 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord, a
 		}
 		return RunScanResult{}, err
 	}
-	s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "analyzing collected evidence", map[string]any{
-		"phase":    "analyzing",
-		"provider": record.Provider,
-	})
+	if !analysisPhaseEmitted {
+		s.appendScanEvent(ctx, record.ID, db.ScanEventLevelInfo, "analyzing collected evidence", map[string]any{
+			"phase":    "analyzing",
+			"provider": record.Provider,
+		})
+	}
 	result.Findings = enrichFindings(result.Findings)
 	if len(result.SourceErrors) > 0 {
 		if s.Metrics != nil {
