@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -17,6 +18,9 @@ type stubDiagnosticCollector struct {
 	err    error
 }
 type stubNormalizer struct{ err error }
+type phaseRecordingNormalizer struct {
+	phases *[]string
+}
 type stubPermResolver struct{ err error }
 type stubRelResolver struct{ err error }
 type stubRules struct{ err error }
@@ -62,6 +66,11 @@ func (s stubNormalizer) Normalize(context.Context, []providers.RawAsset) (provid
 			Name:     "role-a",
 		}},
 	}, nil
+}
+
+func (s phaseRecordingNormalizer) Normalize(ctx context.Context, raw []providers.RawAsset) (providers.NormalizedBundle, error) {
+	*s.phases = append(*s.phases, "normalize")
+	return stubNormalizer{}.Normalize(ctx, raw)
 }
 
 func (s fixedNormalizer) Normalize(context.Context, []providers.RawAsset) (providers.NormalizedBundle, error) {
@@ -123,6 +132,27 @@ func TestScannerRunSuccess(t *testing.T) {
 	}
 	if len(result.Findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
+	}
+}
+
+func TestScannerRunWithPhaseReportsAnalysisBeforeNormalization(t *testing.T) {
+	phases := []string{}
+	scanner := Scanner{
+		Collector:            stubCollector{},
+		Normalizer:           phaseRecordingNormalizer{phases: &phases},
+		PermissionResolver:   stubPermResolver{},
+		RelationshipResolver: stubRelResolver{},
+		RiskRuleSet:          stubRules{},
+	}
+
+	_, err := scanner.RunWithPhase(context.Background(), func(phase string) {
+		phases = append(phases, phase)
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got, want := phases, []string{"analyzing", "normalize"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected phase callback before normalization, got %v", got)
 	}
 }
 

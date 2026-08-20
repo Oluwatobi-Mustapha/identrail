@@ -473,6 +473,58 @@ func TestRouterRunsScanAndListsData(t *testing.T) {
 		t.Fatal("expected first queued scan to be processed")
 	}
 
+	detailReq := httptest.NewRequest(http.MethodGet, "/v1/scans/"+firstScanID, nil)
+	detailW := httptest.NewRecorder()
+	r.ServeHTTP(detailW, detailReq)
+	if detailW.Code != http.StatusOK {
+		t.Fatalf("expected scan detail 200, got %d", detailW.Code)
+	}
+	var detailBody struct {
+		Scan db.ScanRecord `json:"scan"`
+	}
+	if err := json.Unmarshal(detailW.Body.Bytes(), &detailBody); err != nil {
+		t.Fatalf("decode scan detail body: %v", err)
+	}
+	if detailBody.Scan.ID != firstScanID || detailBody.Scan.Status != "succeeded" {
+		t.Fatalf("expected completed scan detail, got %+v", detailBody.Scan)
+	}
+
+	invalidDetailReq := httptest.NewRequest(http.MethodGet, "/v1/scans/not-a-uuid", nil)
+	invalidDetailW := httptest.NewRecorder()
+	r.ServeHTTP(invalidDetailW, invalidDetailReq)
+	if invalidDetailW.Code != http.StatusBadRequest {
+		t.Fatalf("expected malformed scan detail 400, got %d", invalidDetailW.Code)
+	}
+
+	missingDetailReq := httptest.NewRequest(http.MethodGet, "/v1/scans/00000000-0000-0000-0000-000000000000", nil)
+	missingDetailW := httptest.NewRecorder()
+	r.ServeHTTP(missingDetailW, missingDetailReq)
+	if missingDetailW.Code != http.StatusNotFound {
+		t.Fatalf("expected missing scan detail 404, got %d", missingDetailW.Code)
+	}
+
+	phaseEventsReq := httptest.NewRequest(http.MethodGet, "/v1/scans/"+firstScanID+"/events", nil)
+	phaseEventsW := httptest.NewRecorder()
+	r.ServeHTTP(phaseEventsW, phaseEventsReq)
+	if phaseEventsW.Code != http.StatusOK {
+		t.Fatalf("expected scan events 200, got %d", phaseEventsW.Code)
+	}
+	var eventsBody struct {
+		Items []db.ScanEvent `json:"items"`
+	}
+	if err := json.Unmarshal(phaseEventsW.Body.Bytes(), &eventsBody); err != nil {
+		t.Fatalf("decode scan events body: %v", err)
+	}
+	seenPhases := map[string]bool{}
+	for _, event := range eventsBody.Items {
+		if phase, ok := event.Metadata["phase"].(string); ok {
+			seenPhases[phase] = true
+		}
+	}
+	if !seenPhases["collecting"] || !seenPhases["analyzing"] {
+		t.Fatalf("expected collecting and analyzing scan phases, got %v", seenPhases)
+	}
+
 	postReq2 := httptest.NewRequest(http.MethodPost, "/v1/scans", nil)
 	postW2 := httptest.NewRecorder()
 	r.ServeHTTP(postW2, postReq2)

@@ -213,6 +213,8 @@ import {
   type RepoRiskGraphNodeKind,
   type RepoScanRequest,
   type RepoScanRecord,
+  type ScanEvent,
+  type ScanRecord,
   type TrendPoint,
   type RequestAuthContext,
   type ScanPolicyRecord,
@@ -3847,6 +3849,25 @@ function awsRouteLink(scope: ProductSession, routeID: ProductDomainRouteID, envi
   return appendEnvironmentQuery(domainRoutePath(scope, 'aws', findDomainRoute('aws', routeID)), environmentID);
 }
 
+function awsDiscoveryPath(
+  scope: ProductSession,
+  environmentID: string,
+  options: { start?: boolean; scanID?: string } = {}
+): string {
+  const params = new URLSearchParams();
+  if (normalizeValue(environmentID)) {
+    params.set(ENVIRONMENT_QUERY_PARAM, normalizeValue(environmentID));
+  }
+  if (options.start) {
+    params.set('start', '1');
+  }
+  if (options.scanID) {
+    params.set('scan_id', options.scanID);
+  }
+  const query = params.toString();
+  return `${buildScopedPath(scope, 'aws/discovery')}${query ? `?${query}` : ''}`;
+}
+
 function awsRemediationCenterPath(scope: ProductSession, environmentID: string): string {
   return appendEnvironmentQuery(buildScopedPath(scope, 'aws/remediation/center'), environmentID);
 }
@@ -4275,7 +4296,7 @@ function AWSConnectedSuccessPanel({
   onDisable: () => void;
   lifecycleBusy: boolean;
 }) {
-  const overviewPath = awsRouteLink(scope, 'overview', environmentID);
+  const discoveryPath = awsDiscoveryPath(scope, environmentID, { start: true });
   const identitiesPath = awsRouteLink(scope, 'identities', environmentID);
   const coveragePath = awsRouteLink(scope, 'coverage', environmentID);
   const findingsPath = awsRouteLink(scope, 'findings', environmentID);
@@ -4345,7 +4366,7 @@ function AWSConnectedSuccessPanel({
       <div className="idt-aws-connected-actions">
         {connectorConnected ? (
           <>
-            <Link className="idt-btn idt-btn-primary" to={overviewPath}>
+            <Link className="idt-btn idt-btn-primary" to={discoveryPath}>
               Start AWS intelligence
             </Link>
             <Link className="idt-btn idt-btn-dark" to={identitiesPath}>
@@ -20787,6 +20808,366 @@ export function ProductAWSGADemoPage() {
 
 export function ProductAWSGraphPage() {
   return <ProductAWSRiskOperationsPage routeID="graph" />;
+}
+
+type AWSDiscoveryPhase = 'connecting' | 'collecting' | 'analyzing' | 'results' | 'error';
+
+const AWS_DISCOVERY_STEPS: Array<{ id: Exclude<AWSDiscoveryPhase, 'error' | 'results'>; label: string; description: string }> = [
+  { id: 'connecting', label: 'Connecting', description: 'Confirming the AWS connector and starting the discovery run.' },
+  { id: 'collecting', label: 'Collecting', description: 'Reading the approved AWS identity and workload evidence.' },
+  { id: 'analyzing', label: 'Analyzing', description: 'Building relationships and evaluating the collected evidence.' }
+];
+
+function awsDiscoveryEventPhase(events: ScanEvent[]): AWSDiscoveryPhase | null {
+  const orderedEvents = [...events].sort((left, right) => {
+    return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+  });
+  for (const event of orderedEvents) {
+    const phase = normalizeValue(event.metadata?.phase).toLowerCase();
+    if (phase === 'collecting' || phase === 'analyzing') {
+      return phase;
+    }
+    const message = normalizeValue(event.message).toLowerCase();
+    if (message.includes('analyzing') || message.includes('artifacts persisted') || message.includes('findings persisted')) {
+      return 'analyzing';
+    }
+    if (message.includes('collecting')) {
+      return 'collecting';
+    }
+  }
+  return null;
+}
+
+function awsDiscoveryHasPartialResults(events: ScanEvent[]): boolean {
+  return events.some((event) => {
+    const message = normalizeValue(event.message).toLowerCase();
+    return message.includes('partial source') || normalizeValue(event.metadata?.state).toLowerCase() === 'partial';
+  });
+}
+
+function awsDiscoveryPhase(scan: ScanRecord | null, events: ScanEvent[]): AWSDiscoveryPhase {
+  if (!scan) {
+    return 'connecting';
+  }
+  const status = normalizeValue(scan.status).toLowerCase();
+  if (status === 'failed' || status === 'canceled' || scan.dead_lettered) {
+    return 'error';
+  }
+  if (status === 'succeeded' || status === 'completed' || status === 'partial') {
+    return 'results';
+  }
+  return awsDiscoveryEventPhase(events) ?? (status === 'queued' ? 'connecting' : 'collecting');
+}
+
+function awsDiscoveryStatusLabel(phase: AWSDiscoveryPhase, partial: boolean): string {
+  if (phase === 'error') return 'Discovery failed';
+  if (phase === 'results') return partial ? 'Partial results ready' : 'Results ready';
+  return AWS_DISCOVERY_STEPS.find((step) => step.id === phase)?.label ?? 'Starting discovery';
+}
+
+export function ProductAWSDiscoveryPage() {
+  const params = useParams<ScopeRouteParams>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const scope = resolveScopeFromParams(params);
+  const requestedEnvironmentID = useMemo(() => environmentIDFromSearch(location.search), [location.search]);
+  const environmentScope = useEnvironmentScope(scope, requestedEnvironmentID);
+  const selectedEnvironmentID = environmentScope.selectedID;
+  const query = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const startRequested = query.get('start') === '1';
+  const scanID = normalizeValue(query.get('scan_id'));
+  const [connection, setConnection] = useState<AWSConnectionStatus | null>(null);
+  const [connectionEnvironmentID, setConnectionEnvironmentID] = useState('');
+  const [connectionLoading, setConnectionLoading] = useState(false);
+  const [connectionError, setConnectionError] = useState('');
+  const [scan, setScan] = useState<ScanRecord | null>(null);
+  const [events, setEvents] = useState<ScanEvent[]>([]);
+  const [loading, setLoading] = useState(Boolean(scanID));
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState('');
+  const [retryNonce, setRetryNonce] = useState(0);
+  const startRef = useRef('');
+  const startRequestRef = useRef(0);
+  const requestRef = useRef(0);
+  const redirectRef = useRef('');
+
+  const onChangeEnvironment = useCallback((environmentID: string) => {
+    navigate(awsDiscoveryPath(scope!, environmentID, { start: true }), { replace: true });
+  }, [navigate, scope]);
+
+  useEffect(() => {
+    const requestID = ++requestRef.current;
+    const requestEnvironmentID = selectedEnvironmentID;
+    if (!scope || !requestEnvironmentID) {
+      setConnection(null);
+      setConnectionEnvironmentID('');
+      setConnectionLoading(false);
+      return;
+    }
+    setConnection(null);
+    setConnectionEnvironmentID('');
+    setConnectionLoading(true);
+    setConnectionError('');
+    void apiClient.getAWSProjectConnection(
+      scope.workspaceID,
+      requestEnvironmentID,
+      buildProductAuthContext(scope)
+    ).then((response) => {
+      if (requestID === requestRef.current && requestEnvironmentID === selectedEnvironmentID) {
+        setConnection(response.connection);
+        setConnectionEnvironmentID(requestEnvironmentID);
+      }
+    }).catch((requestError) => {
+      if (requestID === requestRef.current && requestEnvironmentID === selectedEnvironmentID) {
+        setConnection(null);
+        setConnectionEnvironmentID('');
+        setConnectionError(formatAPIError(requestError, 'Unable to load AWS connection status.'));
+      }
+    }).finally(() => {
+      if (requestID === requestRef.current && requestEnvironmentID === selectedEnvironmentID) {
+        setConnectionLoading(false);
+      }
+    });
+    return () => {
+      requestRef.current += 1;
+    };
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
+  const retryDiscovery = useCallback(() => {
+    startRequestRef.current += 1;
+    startRef.current = '';
+    setError('');
+    setLoading(Boolean(scanID));
+    setRetryNonce((value) => value + 1);
+  }, [scanID]);
+
+  const prepareNewDiscovery = useCallback(() => {
+    startRequestRef.current += 1;
+    startRef.current = '';
+    redirectRef.current = '';
+    setScan(null);
+    setEvents([]);
+    setError('');
+    setLoading(false);
+    setRetryNonce((value) => value + 1);
+  }, []);
+
+  useEffect(() => {
+    startRequestRef.current += 1;
+    setStarting(false);
+  }, [scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
+  useEffect(() => {
+    const requestEnvironmentID = selectedEnvironmentID;
+    if (!startRequested || scanID || !scope || !requestEnvironmentID || environmentScope.loading || connectionLoading || connectionEnvironmentID !== requestEnvironmentID) {
+      return;
+    }
+    if (!connection) {
+      return;
+    }
+    const startKey = `${scope.tenantID}:${scope.workspaceID}:${requestEnvironmentID}:${connection.connector_id ?? ''}`;
+    if (startRef.current === startKey) {
+      return;
+    }
+    const requestID = startRequestRef.current + 1;
+    startRequestRef.current = requestID;
+    startRef.current = startKey;
+    setStarting(true);
+    setError('');
+    void apiClient.startScan(
+      { project_id: requestEnvironmentID, connector_id: connection.connector_id },
+      buildProductAuthContext(scope)
+    ).then((response) => {
+      if (requestID !== startRequestRef.current || requestEnvironmentID !== selectedEnvironmentID) {
+        return;
+      }
+      navigate(awsDiscoveryPath(scope, requestEnvironmentID, { scanID: response.scan.id }), { replace: true });
+    }).catch(async (requestError) => {
+      if (requestID !== startRequestRef.current || requestEnvironmentID !== selectedEnvironmentID) {
+        return;
+      }
+      if (requestError instanceof ApiError && requestError.status === 409) {
+        try {
+          const scans = await apiClient.listScans(buildProductAuthContext(scope));
+          if (requestID !== startRequestRef.current || requestEnvironmentID !== selectedEnvironmentID) {
+            return;
+          }
+          const existing = scans.items.find((item) => (
+            item.provider === 'aws' &&
+            item.project_id === requestEnvironmentID &&
+            (!connection.connector_id || item.connector_id === connection.connector_id) &&
+            isActiveScanStatus(item.status)
+          ));
+          if (existing) {
+            navigate(awsDiscoveryPath(scope, requestEnvironmentID, { scanID: existing.id }), { replace: true });
+            return;
+          }
+        } catch {
+          // Preserve the original conflict message when the recovery lookup fails.
+        }
+      }
+      setError(formatAPIError(requestError, 'Unable to start AWS discovery.'));
+      startRef.current = '';
+    }).finally(() => {
+      if (requestID === startRequestRef.current && requestEnvironmentID === selectedEnvironmentID) {
+        setStarting(false);
+      }
+    });
+  }, [connection, connectionEnvironmentID, connectionLoading, environmentScope.loading, retryNonce, scanID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID, startRequested, navigate]);
+
+  useEffect(() => {
+    if (!scanID || !scope || !selectedEnvironmentID) {
+      setScan(null);
+      setEvents([]);
+      setLoading(false);
+      return;
+    }
+    let active = true;
+    const requestEnvironmentID = selectedEnvironmentID;
+    const load = async () => {
+      try {
+        const [scanResponse, eventResponse] = await Promise.all([
+          apiClient.getScan(scanID, buildProductAuthContext(scope)),
+          apiClient.listScanEvents(scanID, undefined, 100, buildProductAuthContext(scope))
+        ]);
+        if (!active || requestEnvironmentID !== selectedEnvironmentID) {
+          return;
+        }
+        setScan(scanResponse.scan);
+        setEvents(eventResponse.items);
+        setError('');
+        setLoading(false);
+        if (isActiveScanStatus(scanResponse.scan.status)) {
+          window.setTimeout(load, 1500);
+        }
+      } catch (requestError) {
+        if (!active || requestEnvironmentID !== selectedEnvironmentID) {
+          return;
+        }
+        setLoading(false);
+        setError(formatAPIError(requestError, 'Unable to load AWS discovery status.'));
+      }
+    };
+    setLoading(true);
+    void load();
+    return () => {
+      active = false;
+    };
+  }, [retryNonce, scanID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+
+  const phase = awsDiscoveryPhase(scan, events);
+  const partial = awsDiscoveryHasPartialResults(events);
+  const findingsPath = scope && selectedEnvironmentID ? awsRouteLink(scope, 'findings', selectedEnvironmentID) : '#';
+  const connectPath = scope && selectedEnvironmentID ? awsRouteLink(scope, 'connect', selectedEnvironmentID) : '#';
+  const hasTerminalResults = phase === 'results' && Boolean(scanID) && Boolean(scan);
+
+  useEffect(() => {
+    if (!hasTerminalResults || !scanID || !scope || !selectedEnvironmentID || redirectRef.current === scanID) {
+      return;
+    }
+    redirectRef.current = scanID;
+    const timeoutID = window.setTimeout(() => {
+      navigate(findingsPath, { replace: true });
+    }, 1200);
+    return () => window.clearTimeout(timeoutID);
+  }, [findingsPath, hasTerminalResults, navigate, scanID, scope, selectedEnvironmentID]);
+
+  const statusTone = phase === 'error' ? 'danger' : phase === 'results' ? (partial ? 'warning' : 'success') : 'info';
+  const scopeSelector = scope ? <ProductEnvironmentSelector state={environmentScope} onChange={onChangeEnvironment} /> : null;
+
+  if (!scope) {
+    return <DomainErrorState title="Workspace route context is missing" body="Choose a tenant and workspace before starting AWS discovery." />;
+  }
+
+  return (
+    <DomainPageShell
+      domain="aws"
+      eyebrow={null}
+      hideLogo
+      title="AWS discovery"
+      description="Identrail is collecting and analyzing the approved AWS scope before opening Findings."
+      scope={scopeSelector}
+      statusTone={statusTone}
+      status={<DomainStatusBadge variant={phase === 'error' ? 'needs-attention' : phase === 'results' ? (partial ? 'degraded' : 'connected') : 'running-scan'} detail={awsDiscoveryStatusLabel(phase, partial)} />}
+    >
+      <div className="idt-aws-discovery-shell">
+        {environmentScope.error ? <DomainErrorState title="Unable to load the AWS environment" body={environmentScope.error} /> : null}
+        {connectionError ? <DomainErrorState title="Unable to verify the AWS connector" body={connectionError} /> : null}
+        {error ? (
+          <DomainErrorState
+            title={phase === 'error' ? 'AWS discovery failed' : 'Couldn\'t start AWS discovery'}
+            body={error}
+            retryAction={{ label: 'Try again', onClick: retryDiscovery }}
+          >
+            <Link className="idt-btn idt-btn-ghost" to={connectPath}>Back to AWS connection</Link>
+          </DomainErrorState>
+        ) : null}
+
+        {loading || starting || connectionLoading || environmentScope.loading ? <DomainLoadingState label={starting ? 'Starting AWS discovery' : 'Loading discovery status'} /> : null}
+
+        {!loading && !starting && !error && scan ? (
+          <section className="idt-aws-discovery-progress" aria-label="AWS discovery progress" aria-live="polite">
+            <header>
+              <div>
+                <p className="idt-app-kicker">Live run status</p>
+                <h3>{awsDiscoveryStatusLabel(phase, partial)}</h3>
+                <p>
+                  {phase === 'error'
+                    ? scan.error_message || 'The AWS worker could not complete this discovery run.'
+                    : phase === 'results'
+                      ? partial
+                        ? 'Some sources were unavailable. The available results are ready to review.'
+                        : scan.finding_count === 0
+                          ? 'The collected scope completed successfully and produced no findings.'
+                          : `${scan.finding_count} finding${scan.finding_count === 1 ? '' : 's'} are ready to review.`
+                      : 'You can leave this page open while the run continues in the background.'}
+                </p>
+              </div>
+              {phase === 'results' ? <span className="idt-aws-discovery-result-count">{scan.finding_count} findings</span> : null}
+            </header>
+            <ol className="idt-aws-discovery-steps">
+              {AWS_DISCOVERY_STEPS.map((step, index) => {
+                const stepIndex = AWS_DISCOVERY_STEPS.findIndex((item) => item.id === phase);
+                const complete = phase === 'results' || (phase === 'error' ? index < Math.max(stepIndex, 0) : index < stepIndex);
+                const current = phase === step.id || (phase === 'error' && index === Math.max(stepIndex, 0));
+                return (
+                  <li key={step.id} className={`idt-aws-discovery-step ${complete ? 'is-complete' : ''} ${current ? 'is-current' : ''} ${phase === 'error' && current ? 'is-error' : ''}`}>
+                    <span className="idt-aws-discovery-step-marker" aria-hidden="true">{complete ? '✓' : index + 1}</span>
+                    <div><strong>{step.label}</strong><p>{step.description}</p></div>
+                  </li>
+                );
+              })}
+              <li className={`idt-aws-discovery-step ${phase === 'results' ? 'is-current is-complete' : ''} ${phase === 'error' ? 'is-error' : ''}`}>
+                <span className="idt-aws-discovery-step-marker" aria-hidden="true">{phase === 'results' ? '✓' : '4'}</span>
+                <div><strong>{phase === 'error' ? 'Needs attention' : 'Results ready'}</strong><p>{phase === 'results' ? 'Opening AWS Findings next.' : 'Findings will open when the run completes.'}</p></div>
+              </li>
+            </ol>
+            {phase === 'results' ? (
+              <div className="idt-aws-discovery-actions">
+                <Link className="idt-btn idt-btn-primary" to={findingsPath}>Open Findings now</Link>
+                <span>Redirecting automatically…</span>
+              </div>
+            ) : null}
+            {phase === 'error' ? (
+              <div className="idt-aws-discovery-actions">
+                <Link className="idt-btn idt-btn-primary" to={awsDiscoveryPath(scope, selectedEnvironmentID, { start: true })} onClick={prepareNewDiscovery}>Start a new discovery</Link>
+                <Link className="idt-btn idt-btn-ghost" to={connectPath}>Review AWS connection</Link>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {!loading && !starting && !error && !scan ? (
+          <DomainEmptyState
+            eyebrow="AWS discovery"
+            title="Ready to collect AWS evidence"
+            body="Start a read-only discovery run. Identrail will show each stage and open Findings when the results are ready."
+            nextAction={{ label: 'Start discovery', to: awsDiscoveryPath(scope, selectedEnvironmentID, { start: true }) }}
+          />
+        ) : null}
+      </div>
+    </DomainPageShell>
+  );
 }
 
 export function ProductAWSFindingsPage() {
