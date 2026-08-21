@@ -71,8 +71,6 @@ func routePolicyKey(method string, fullPath string) string {
 }
 
 func defaultRouteActionRoleGrants() map[string][]string {
-	readRoles := []string{scopeRead, scopeWrite, scopeAdmin}
-	writeRoles := []string{scopeWrite, scopeAdmin}
 	tenancyReadRoles := []string{scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
 	tenancyWriteRoles := []string{scopeWrite, scopeAdmin, "owner", "admin"}
 	// tenancy.owner gates destructive workspace lifecycle actions (suspend,
@@ -88,9 +86,14 @@ func defaultRouteActionRoleGrants() map[string][]string {
 	enterpriseWriteRoles := []string{scopeWrite, scopeAdmin, "owner", "admin"}
 	authenticatedRoles := []string{"authenticated", scopeRead, scopeWrite, scopeAdmin, "owner", "admin", "analyst", "viewer"}
 	return map[string][]string{
-		policyActionFindingsRead:    readRoles,
-		policyActionFindingsTriage:  writeRoles,
-		policyActionGraphRead:       readRoles,
+		// Findings and graph data are workspace-scoped read surfaces. Browser
+		// sessions carry the active workspace membership role (for example,
+		// "owner"), while API keys carry scope roles. Both need to reach the
+		// same read-only data without requiring the primary user to create a
+		// second identity.
+		policyActionFindingsRead:    tenancyReadRoles,
+		policyActionFindingsTriage:  tenancyWriteRoles,
+		policyActionGraphRead:       tenancyReadRoles,
 		policyActionScansRead:       tenancyReadRoles,
 		policyActionScansRun:        tenancyWriteRoles,
 		policyActionScansReplay:     tenancyWriteRoles,

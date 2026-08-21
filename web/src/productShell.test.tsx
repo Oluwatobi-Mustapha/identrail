@@ -8741,7 +8741,9 @@ describe('Domain-first app routes', () => {
       ]
     });
     vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockRejectedValue(new Error('AWS inventory request failed'));
+    vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockRejectedValue(
+      new api.ApiError('forbidden', 403, { detail: 'forbidden' })
+    );
 
     const { ProductAWSFindingsPage } = await import('./productShell');
 
@@ -8754,7 +8756,8 @@ describe('Domain-first app routes', () => {
     );
 
     expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load AWS findings");
-    expect(screen.getByText('AWS inventory request failed')).toBeInTheDocument();
+    expect(screen.getByText(/Identrail denied the findings request for this workspace/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^forbidden$/i)).not.toBeInTheDocument();
     expect(screen.queryByText('No AWS findings')).not.toBeInTheDocument();
   });
 

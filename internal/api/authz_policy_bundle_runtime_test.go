@@ -109,6 +109,25 @@ func TestDefaultRoutePolicyBundleUsesRepoScansReadForRepoFindingsTrends(t *testi
 	}
 }
 
+func TestDefaultRouteActionRoleGrantsAllowWorkspaceFindingsAccess(t *testing.T) {
+	grants := defaultRouteActionRoleGrants()
+
+	for _, test := range []struct {
+		action string
+		roles  []string
+	}{
+		{action: policyActionFindingsRead, roles: []string{"owner", "analyst", "viewer"}},
+		{action: policyActionFindingsTriage, roles: []string{"owner", "admin"}},
+		{action: policyActionGraphRead, roles: []string{"owner", "analyst", "viewer"}},
+	} {
+		for _, role := range test.roles {
+			if !containsString(grants[test.action], role) {
+				t.Fatalf("expected role %q to be granted %s, got %v", role, test.action, grants[test.action])
+			}
+		}
+	}
+}
+
 func TestDefaultRoutePolicyBundleUsesRepoScansRunForDeleteRepoFinding(t *testing.T) {
 	compiled, err := compileRouteAuthorizationPolicyBundle(defaultBuiltInRouteAuthorizationPolicyBundle())
 	if err != nil {
@@ -261,6 +280,28 @@ func TestCentralPolicyRuntimeResolverUsesPersistedActiveVersion(t *testing.T) {
 	}
 	if policy.Action != policyActionFindingsRead {
 		t.Fatalf("expected persisted action %q, got %q", policyActionFindingsRead, policy.Action)
+	}
+	for _, test := range []struct {
+		action string
+		role   string
+	}{
+		{action: policyActionFindingsRead, role: "owner"},
+		{action: policyActionFindingsRead, role: "viewer"},
+	} {
+		decision, err := runtimePolicy.Engine.Decide(ctx, PolicyInput{
+			Subject: PolicySubject{
+				TenantID:    "tenant-a",
+				WorkspaceID: "workspace-a",
+				Roles:       []string{test.role},
+			},
+			Action: test.action,
+		})
+		if err != nil {
+			t.Fatalf("decide persisted %s for role %s: %v", test.action, test.role, err)
+		}
+		if !decision.Allowed {
+			t.Fatalf("expected legacy persisted policy to allow %s for role %s, got %+v", test.action, test.role, decision)
+		}
 	}
 }
 

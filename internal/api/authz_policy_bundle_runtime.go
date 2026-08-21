@@ -284,6 +284,13 @@ func (r *storeBackedCentralPolicyRuntimeResolver) compiledVersion(version db.Aut
 	if err != nil {
 		return compiledRouteAuthorizationPolicy{}, fmt.Errorf("compile policy version %d: %w", version.Version, err)
 	}
+	// Versions created from the former built-in defaults can remain active
+	// after an upgrade. Refresh only those exact legacy grants so the primary
+	// workspace user is not stranded behind a stale persisted policy. Custom
+	// role grants remain authoritative and are never broadened here.
+	if strings.EqualFold(strings.TrimSpace(r.policySet), defaultCentralPolicySetID) {
+		compiled = upgradeLegacyDefaultRoleGrants(compiled, r.fallback)
+	}
 	// Persisted policy bundles are immutable and may predate newly shipped
 	// routes. Overlay only the rollout compatibility entries that were added in
 	// this release, preserving every existing persisted decision while keeping
@@ -299,6 +306,39 @@ func (r *storeBackedCentralPolicyRuntimeResolver) compiledVersion(version db.Aut
 		r.cacheByKey.Store(cacheKey, compiled)
 	}
 	return compiled, nil
+}
+
+func upgradeLegacyDefaultRoleGrants(base compiledRouteAuthorizationPolicy, fallback compiledRouteAuthorizationPolicy) compiledRouteAuthorizationPolicy {
+	legacyGrants := map[string][]string{
+		policyActionFindingsRead:   {scopeRead, scopeWrite, scopeAdmin},
+		policyActionFindingsTriage: {scopeWrite, scopeAdmin},
+		policyActionGraphRead:      {scopeRead, scopeWrite, scopeAdmin},
+	}
+	for action, legacyRoles := range legacyGrants {
+		currentRoles, exists := base.RBACActionRole[action]
+		fallbackRoles, hasFallback := fallback.RBACActionRole[action]
+		if !exists || !hasFallback || !sameRoleSet(currentRoles, legacyRoles) {
+			continue
+		}
+		base.RBACActionRole[action] = append([]string(nil), fallbackRoles...)
+	}
+	return base
+}
+
+func sameRoleSet(left []string, right []string) bool {
+	leftCopy := append([]string(nil), left...)
+	rightCopy := append([]string(nil), right...)
+	sort.Strings(leftCopy)
+	sort.Strings(rightCopy)
+	if len(leftCopy) != len(rightCopy) {
+		return false
+	}
+	for i := range leftCopy {
+		if leftCopy[i] != rightCopy[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func overlayRouteAuthorizationPolicyCompatibility(base compiledRouteAuthorizationPolicy, fallback compiledRouteAuthorizationPolicy, definitions []routePolicyDefinition) compiledRouteAuthorizationPolicy {
