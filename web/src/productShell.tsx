@@ -12957,6 +12957,9 @@ const AWS_RISK_OPERATION_FILTERS: AWSRiskOperationFilterConfigMap = {
       options: [
         { label: 'All statuses', value: 'all' },
         { label: 'Open', value: 'open' },
+        { label: 'Acknowledged', value: 'ack' },
+        { label: 'Suppressed', value: 'suppressed' },
+        { label: 'Resolved', value: 'resolved' },
         { label: 'Queued', value: 'queued' },
         { label: 'Blocked', value: 'blocked' },
         { label: 'Unavailable', value: 'unavailable' }
@@ -18104,8 +18107,8 @@ function awsPersistedFindingStage(finding: ApiFinding): AWSCapabilityStage {
 
 function awsPersistedFindingStatus(finding: ApiFinding): string {
   const triageStatus = normalizeValue(finding.triage?.status).toLowerCase();
-  if (triageStatus === 'ack' || triageStatus === 'suppressed' || triageStatus === 'resolved') {
-    return triageStatus === 'ack' ? 'queued' : 'blocked';
+  if (triageStatus === 'open' || triageStatus === 'ack' || triageStatus === 'suppressed' || triageStatus === 'resolved') {
+    return triageStatus;
   }
   switch (normalizeValue(finding.lifecycle_status).toLowerCase()) {
     case 'fixed':
@@ -18117,6 +18120,19 @@ function awsPersistedFindingStatus(finding: ApiFinding): string {
     case 'reopened':
     default:
       return 'open';
+  }
+}
+
+function awsPersistedFindingStatusLabel(status: string): string {
+  switch (status) {
+    case 'ack':
+      return 'Acknowledged';
+    case 'risk_accepted':
+      return 'Risk accepted';
+    case 'false_positive':
+      return 'False positive';
+    default:
+      return formatTokenLabel(status);
   }
 }
 
@@ -18305,7 +18321,7 @@ function AWSFindingsContent({
             { key: 'category', header: 'Severity', render: (row) => row.category },
             { key: 'evidence', header: 'Evidence', render: (row) => row.evidence },
             { key: 'blast', header: 'Blast radius', render: (row) => row.blastRadius },
-            { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={formatTokenLabel(row.status)} /> }
+            { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={showingPersistedScan ? awsPersistedFindingStatusLabel(row.status) : formatTokenLabel(row.status)} /> }
           ]}
         />
       )}
@@ -20557,17 +20573,17 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       const scanStatus = normalizeValue(scan.status).toLowerCase();
       const scanProjectID = normalizeValue(scan.project_id);
       const scanConnectorID = normalizeValue(scan.connector_id);
-      const currentConnectorID = normalizeValue(connection?.connector_id);
       const isSupportedResult = scanStatus === 'succeeded' || scanStatus === 'completed' || scanStatus === 'partial';
       if (!isSupportedResult) {
         throw new Error('The requested AWS scan has not completed yet.');
       }
+      // A scan can outlive the connector that created it. Project-scoped, authenticated
+      // scan metadata is the ownership boundary; connector IDs are historical metadata.
       if (
         normalizeValue(scan.provider).toLowerCase() !== 'aws' ||
         !scanProjectID ||
         scanProjectID !== selectedEnvironmentID ||
-        !scanConnectorID ||
-        (currentConnectorID && scanConnectorID !== currentConnectorID)
+        !scanConnectorID
       ) {
         throw new Error('The requested AWS scan does not belong to this environment.');
       }
@@ -20585,7 +20601,7 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
         setPersistedFindingsLoading(false);
       }
     }
-  }, [connection?.connector_id, persistedScanID, routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+  }, [persistedScanID, routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
 
   useEffect(() => {
     void loadPersistedAWSFindings();

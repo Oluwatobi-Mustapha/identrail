@@ -8333,7 +8333,7 @@ describe('Domain-first app routes', () => {
         started_at: '2026-08-20T20:00:00Z',
         finished_at: '2026-08-20T20:03:00Z',
         asset_count: 12,
-        finding_count: 2
+        finding_count: 4
       }
     });
     const listFindings = vi.spyOn(api.apiClient, 'listFindings').mockImplementation(async (filters = {}) =>
@@ -8353,6 +8353,34 @@ describe('Domain-first app routes', () => {
                 remediation: 'Restrict the bucket policy to approved principals.',
                 created_at: '2026-08-20T20:03:00Z',
                 lifecycle_status: 'fixed'
+              },
+              {
+                id: 'finding-aws-3',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_acknowledged_role',
+                severity: 'low',
+                title: 'Acknowledged IAM role',
+                human_summary: 'The finding has been acknowledged for review.',
+                path: ['review-role'],
+                owner: 'AWS scanner',
+                evidence: { source: 'iam-policy' },
+                remediation: 'Review the acknowledged finding.',
+                created_at: '2026-08-20T20:03:00Z',
+                triage: { status: 'ack' }
+              },
+              {
+                id: 'finding-aws-4',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_resolved_role',
+                severity: 'low',
+                title: 'Resolved IAM role',
+                human_summary: 'The finding has been resolved.',
+                path: ['resolved-role'],
+                owner: 'AWS scanner',
+                evidence: { source: 'iam-policy' },
+                remediation: 'No remediation is pending.',
+                created_at: '2026-08-20T20:03:00Z',
+                triage: { status: 'resolved' }
               }
             ]
           }
@@ -8396,7 +8424,15 @@ describe('Domain-first app routes', () => {
     expect(within(findingsTable).getByText('Overprivileged IAM role')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Public S3 bucket')).toBeInTheDocument();
     expect(within(findingsTable).getByText('High')).toBeInTheDocument();
-    expect(within(findingsTable).getAllByText('Blocked')).toHaveLength(2);
+    expect(within(findingsTable).getByText('Suppressed')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Acknowledged')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Resolved')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Blocked')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Remediation'), { target: { value: 'suppressed' } });
+    await waitFor(() => {
+      expect(within(findingsTable).getByText('Overprivileged IAM role')).toBeInTheDocument();
+      expect(within(findingsTable).queryByText('Public S3 bucket')).not.toBeInTheDocument();
+    });
     expect(getScan).toHaveBeenCalledWith('scan-aws-complete', expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' }));
     expect(listFindings).toHaveBeenCalledWith(
       { scan_id: 'scan-aws-complete', limit: 500 },
@@ -8409,7 +8445,7 @@ describe('Domain-first app routes', () => {
     expect(getSecretPermissionEquivalence).not.toHaveBeenCalled();
   });
 
-  it('loads historical AWS findings without a live connector', async () => {
+  it('loads historical AWS findings without requiring the current connector', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: [
@@ -8425,7 +8461,7 @@ describe('Domain-first app routes', () => {
         }
       ]
     });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: { ...disconnectedAWS, connector_id: 'aws-connector-new' } });
     vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
       scan: {
         id: 'scan-aws-history',
