@@ -10682,6 +10682,7 @@ export const apiClient = {
   listFindings(
     filters: {
       limit?: number;
+      cursor?: string;
       scan_id?: string;
       severity?: string;
       type?: string;
@@ -10692,7 +10693,7 @@ export const apiClient = {
     } = {},
     auth?: RequestAuthContext
   ) {
-    return request<{ items: Finding[] }>(`/v1/findings${buildQuery(filters)}`, auth);
+    return request<{ items: Finding[]; next_cursor?: string }>(`/v1/findings${buildQuery(filters)}`, auth);
   },
   listRepoFindings(
     filters: {

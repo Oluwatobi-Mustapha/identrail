@@ -18103,14 +18103,50 @@ function awsPersistedFindingStage(finding: ApiFinding): AWSCapabilityStage {
 }
 
 function awsPersistedFindingStatus(finding: ApiFinding): string {
+  const triageStatus = normalizeValue(finding.triage?.status).toLowerCase();
+  if (triageStatus === 'ack' || triageStatus === 'suppressed' || triageStatus === 'resolved') {
+    return triageStatus === 'ack' ? 'queued' : 'blocked';
+  }
   switch (normalizeValue(finding.lifecycle_status).toLowerCase()) {
-    case 'ack':
-      return 'queued';
+    case 'fixed':
+    case 'risk_accepted':
+    case 'false_positive':
     case 'suppressed':
     case 'resolved':
       return 'blocked';
+    case 'reopened':
     default:
       return 'open';
+  }
+}
+
+const AWS_PERSISTED_FINDINGS_PAGE_LIMIT = 500;
+
+async function listAllAWSScanFindings(scanID: string, auth: RequestAuthContext): Promise<ApiFinding[]> {
+  const findings: ApiFinding[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+
+  while (true) {
+    const response = await apiClient.listFindings(
+      {
+        scan_id: scanID,
+        limit: AWS_PERSISTED_FINDINGS_PAGE_LIMIT,
+        ...(cursor ? { cursor } : {})
+      },
+      auth
+    );
+    findings.push(...response.items);
+
+    const nextCursor = normalizeValue(response.next_cursor);
+    if (!nextCursor) {
+      return findings;
+    }
+    if (seenCursors.has(nextCursor)) {
+      throw new Error('AWS findings pagination returned a repeated cursor.');
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
   }
 }
 
@@ -18207,8 +18243,9 @@ function AWSFindingsContent({
     ? persistedFindings?.map((finding) => awsPersistedFindingRiskOperationRow(finding, connection)) ?? []
     : findings?.findings.map((finding) => awsSecretPermissionEquivalenceRiskOperationRow(finding, scope, environmentID, connection)) ?? [];
   const displayedRows = filterAWSInventoryRows(rows, filters);
-  const isReadyToLoad = Boolean(scope && environmentID && connection?.connected);
-  const isLoading = loading || (showingPersistedScan && isReadyToLoad && !persistedFindings && !error) || (!showingPersistedScan && isReadyToLoad && !findings && !error);
+  const persistedScanReadyToLoad = Boolean(scope && environmentID);
+  const liveFindingsReadyToLoad = Boolean(scope && environmentID && connection?.connected);
+  const isLoading = loading || (showingPersistedScan && persistedScanReadyToLoad && !persistedFindings && !error) || (!showingPersistedScan && liveFindingsReadyToLoad && !findings && !error);
 
   return (
     <>
@@ -20499,16 +20536,17 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     setPersistedScanPartial(false);
     setPersistedScanCoverageUnknown(false);
     setPersistedFindingsError('');
-    if (routeID !== 'findings' || !persistedScanID || !scope || !selectedEnvironmentID || !connection?.connected) {
+    if (routeID !== 'findings' || !persistedScanID || !scope || !selectedEnvironmentID) {
       setPersistedFindingsLoading(false);
       return;
     }
     setPersistedFindingsLoading(true);
+    const auth = buildProductAuthContext(scope);
     try {
       const [scanResponse, findingsResponse, eventsResponse] = await Promise.all([
-        apiClient.getScan(persistedScanID, buildProductAuthContext(scope)),
-        apiClient.listFindings({ scan_id: persistedScanID, limit: 500 }, buildProductAuthContext(scope)),
-        apiClient.listScanEvents(persistedScanID, undefined, 100, buildProductAuthContext(scope))
+        apiClient.getScan(persistedScanID, auth),
+        listAllAWSScanFindings(persistedScanID, auth),
+        apiClient.listScanEvents(persistedScanID, undefined, 100, auth)
           .then((response) => ({ items: response.items, available: true }))
           .catch(() => ({ items: [], available: false }))
       ]);
@@ -20516,12 +20554,26 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
         return;
       }
       const scan = scanResponse.scan;
-      if (normalizeValue(scan.provider).toLowerCase() !== 'aws' || (scan.project_id && scan.project_id !== selectedEnvironmentID) || (connection.connector_id && scan.connector_id && scan.connector_id !== connection.connector_id)) {
+      const scanStatus = normalizeValue(scan.status).toLowerCase();
+      const scanProjectID = normalizeValue(scan.project_id);
+      const scanConnectorID = normalizeValue(scan.connector_id);
+      const currentConnectorID = normalizeValue(connection?.connector_id);
+      const isSupportedResult = scanStatus === 'succeeded' || scanStatus === 'completed' || scanStatus === 'partial';
+      if (!isSupportedResult) {
+        throw new Error('The requested AWS scan has not completed yet.');
+      }
+      if (
+        normalizeValue(scan.provider).toLowerCase() !== 'aws' ||
+        !scanProjectID ||
+        scanProjectID !== selectedEnvironmentID ||
+        !scanConnectorID ||
+        (currentConnectorID && scanConnectorID !== currentConnectorID)
+      ) {
         throw new Error('The requested AWS scan does not belong to this environment.');
       }
       setPersistedScan(scan);
-      setPersistedFindings(findingsResponse.items);
-      setPersistedScanPartial(awsDiscoveryHasPartialResults(eventsResponse.items));
+      setPersistedFindings(findingsResponse);
+      setPersistedScanPartial(scanStatus === 'partial' || awsDiscoveryHasPartialResults(eventsResponse.items));
       setPersistedScanCoverageUnknown(!eventsResponse.available);
     } catch (requestError) {
       if (requestID !== persistedFindingsRequestRef.current) {
@@ -20533,7 +20585,7 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
         setPersistedFindingsLoading(false);
       }
     }
-  }, [connection?.connected, connection?.connector_id, persistedScanID, routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
+  }, [connection?.connector_id, persistedScanID, routeID, scope?.tenantID, scope?.workspaceID, selectedEnvironmentID]);
 
   useEffect(() => {
     void loadPersistedAWSFindings();
