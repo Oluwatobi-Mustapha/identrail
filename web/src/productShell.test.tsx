@@ -8306,6 +8306,424 @@ describe('Domain-first app routes', () => {
     expect(screen.queryByText('No AWS findings')).not.toBeInTheDocument();
   });
 
+  it('shows findings persisted by the completed AWS discovery scan', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    const getScan = vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
+      scan: {
+        id: 'scan-aws-complete',
+        project_id: 'production',
+        connector_id: 'aws-connector-1',
+        provider: 'AWS',
+        status: 'succeeded',
+        started_at: '2026-08-20T20:00:00Z',
+        finished_at: '2026-08-20T20:03:00Z',
+        asset_count: 12,
+        finding_count: 4
+      }
+    });
+    const listFindings = vi.spyOn(api.apiClient, 'listFindings').mockImplementation(async (filters = {}) =>
+      filters.cursor
+        ? {
+            items: [
+              {
+                id: 'finding-aws-2',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_s3_public_bucket',
+                severity: 'medium',
+                title: 'Public S3 bucket',
+                human_summary: 'The bucket is reachable through a public policy.',
+                path: ['production-assets'],
+                owner: 'AWS scanner',
+                evidence: { source: 's3-policy' },
+                remediation: 'Restrict the bucket policy to approved principals.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'fixed'
+              },
+              {
+                id: 'finding-aws-3',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_acknowledged_role',
+                severity: 'low',
+                title: 'Acknowledged IAM role',
+                human_summary: 'The finding has been acknowledged for review.',
+                path: ['review-role'],
+                owner: 'AWS scanner',
+                evidence: { source: 'iam-policy' },
+                remediation: 'Review the acknowledged finding.',
+                created_at: '2026-08-20T20:03:00Z',
+                triage: { status: 'ack' }
+              },
+              {
+                id: 'finding-aws-4',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_resolved_role',
+                severity: 'low',
+                title: 'Resolved IAM role',
+                human_summary: 'The finding has been resolved.',
+                path: ['resolved-role'],
+                owner: 'AWS scanner',
+                evidence: { source: 'iam-policy' },
+                remediation: 'No remediation is pending.',
+                created_at: '2026-08-20T20:03:00Z',
+                triage: { status: 'resolved' }
+              }
+            ]
+          }
+        : {
+            items: [
+              {
+                id: 'finding-aws-1',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_overprivileged_role',
+                severity: 'high',
+                title: 'Overprivileged IAM role',
+                human_summary: 'The role grants more permissions than this workload requires.',
+                path: ['production-role', 'AdministratorAccess'],
+                owner: 'AWS scanner',
+                evidence: { source: 'iam-policy' },
+                remediation: 'Reduce the role policy to the required actions.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open',
+                triage: { status: 'suppressed' }
+              }
+            ],
+            next_cursor: 'aws-findings-page-2'
+          }
+    );
+    vi.spyOn(api.apiClient, 'listScanEvents').mockRejectedValue(new Error('scan events unavailable'));
+    const getSecretPermissionEquivalence = vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence');
+
+    const { ProductAWSFindingsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-complete']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Showing findings from this AWS scan')).toBeInTheDocument();
+    expect(screen.getByText(/could not verify source completeness/i)).toBeInTheDocument();
+    const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
+    expect(within(findingsTable).getByText('Overprivileged IAM role')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Public S3 bucket')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('High')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Suppressed')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Acknowledged')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Resolved')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Blocked')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Remediation'), { target: { value: 'suppressed' } });
+    await waitFor(() => {
+      expect(within(findingsTable).getByText('Overprivileged IAM role')).toBeInTheDocument();
+      expect(within(findingsTable).queryByText('Public S3 bucket')).not.toBeInTheDocument();
+    });
+    expect(getScan).toHaveBeenCalledWith('scan-aws-complete', expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' }));
+    expect(listFindings).toHaveBeenCalledWith(
+      { scan_id: 'scan-aws-complete', limit: 500 },
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(listFindings).toHaveBeenCalledWith(
+      { scan_id: 'scan-aws-complete', limit: 500, cursor: 'aws-findings-page-2' },
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    );
+    expect(getSecretPermissionEquivalence).not.toHaveBeenCalled();
+  });
+
+  it('loads historical AWS findings without requiring the current connector', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: { ...disconnectedAWS, connector_id: 'aws-connector-new' } });
+    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
+      scan: {
+        id: 'scan-aws-history',
+        project_id: 'production',
+        connector_id: 'aws-connector-1',
+        provider: 'aws',
+        status: 'succeeded',
+        started_at: '2026-08-20T20:00:00Z',
+        finished_at: '2026-08-20T20:03:00Z',
+        asset_count: 1,
+        finding_count: 1
+      }
+    });
+    vi.spyOn(api.apiClient, 'listFindings').mockResolvedValue({
+      items: [
+        {
+          id: 'finding-aws-history',
+          scan_id: 'scan-aws-history',
+          type: 'aws_iam_overprivileged_role',
+          severity: 'high',
+          title: 'Historical IAM finding',
+          human_summary: 'A persisted finding from the completed scan.',
+          remediation: 'Review the role policy.',
+          evidence: { account_id: '999999999999', region: 'us-west-2' },
+          created_at: '2026-08-20T20:03:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
+
+    const { ProductAWSFindingsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-history']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Showing findings from this AWS scan')).toBeInTheDocument();
+    expect(await screen.findByText('Historical IAM finding')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), { target: { value: 'unknown' } });
+    expect(await screen.findByText('Historical IAM finding')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), { target: { value: 'connected' } });
+    expect(await screen.findByText('No findings match these filters')).toBeInTheDocument();
+  });
+
+  it('rejects persisted AWS findings until the scan reaches a terminal result', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
+      scan: {
+        id: 'scan-aws-running',
+        project_id: 'production',
+        connector_id: 'aws-connector-1',
+        provider: 'aws',
+        status: 'running',
+        started_at: '2026-08-20T20:00:00Z',
+        asset_count: 0,
+        finding_count: 0
+      }
+    });
+    vi.spyOn(api.apiClient, 'listFindings').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
+
+    const { ProductAWSFindingsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-running']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The requested AWS scan has not completed yet.');
+  });
+
+  it('rejects persisted AWS findings from another project or connector', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
+      scan: {
+        id: 'scan-aws-other-scope',
+        project_id: 'staging',
+        connector_id: 'aws-connector-2',
+        provider: 'aws',
+        status: 'succeeded',
+        started_at: '2026-08-20T20:00:00Z',
+        finished_at: '2026-08-20T20:03:00Z',
+        asset_count: 0,
+        finding_count: 0
+      }
+    });
+    vi.spyOn(api.apiClient, 'listFindings').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
+
+    const { ProductAWSFindingsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-other-scope']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The requested AWS scan does not belong to this environment.');
+  });
+
+  it('marks an empty partial AWS scan as incomplete evidence', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
+      scan: {
+        id: 'scan-aws-partial',
+        project_id: 'production',
+        connector_id: 'aws-connector-1',
+        provider: 'aws',
+        status: 'partial',
+        started_at: '2026-08-20T20:00:00Z',
+        finished_at: '2026-08-20T20:03:00Z',
+        asset_count: 1,
+        finding_count: 0
+      }
+    });
+    vi.spyOn(api.apiClient, 'listFindings').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
+
+    const { ProductAWSFindingsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-partial']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('No findings in this AWS scan')).toBeInTheDocument();
+    expect(screen.getByText('Evidence incomplete')).toBeInTheDocument();
+    expect(screen.getByText(/sources that were available/i)).toBeInTheDocument();
+  });
+
+  it('clears a completed scan context when switching AWS findings environments', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        },
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'staging',
+          name: 'Staging',
+          slug: 'staging',
+          description: 'Staging AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-03T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
+      scan: {
+        id: 'scan-aws-complete',
+        project_id: 'production',
+        connector_id: 'aws-connector-1',
+        provider: 'aws',
+        status: 'succeeded',
+        started_at: '2026-08-20T20:00:00Z',
+        finished_at: '2026-08-20T20:03:00Z',
+        asset_count: 12,
+        finding_count: 0
+      }
+    });
+    vi.spyOn(api.apiClient, 'listFindings').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockResolvedValue({
+      findings: {
+        status: 'ready',
+        findings: [],
+        summary: {},
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        coverage_gaps: [],
+        diagnostics: []
+      } as any
+    });
+
+    const { ProductAWSFindingsPage } = await import('./productShell');
+    function LocationProbe() {
+      const currentLocation = useLocation();
+      return <output data-testid="aws-findings-location">{currentLocation.search}</output>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-complete&severity=high']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<><ProductAWSFindingsPage /><LocationProbe /></>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
+    await waitFor(() => expect(screen.getByTestId('aws-findings-location')).toHaveTextContent('environment=staging&severity=high'));
+    expect(screen.getByTestId('aws-findings-location')).not.toHaveTextContent('scan_id=');
+  });
+
   it('shows AWS findings load errors separately from an empty result', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
