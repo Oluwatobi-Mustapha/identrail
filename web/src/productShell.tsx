@@ -18174,14 +18174,81 @@ function awsPersistedFindingEvidence(finding: ApiFinding): string {
   return Object.keys(finding.evidence ?? {}).length > 0 ? 'Inventory-backed AWS evidence' : 'Evidence unavailable';
 }
 
+type AWSPersistedFindingScope = {
+  accountID?: string;
+  region?: string;
+};
+
+const AWS_FINDING_ACCOUNT_ID_PATTERN = /^\d{12}$/;
+const AWS_FINDING_REGION_PATTERN = /^(?:af|ap|ca|cn|eu|il|me|sa|us|mx|us-gov|us-iso|us-isob|eu-isoe)-[a-z0-9-]+-\d+$/;
+
+function awsPersistedFindingScope(finding: ApiFinding): AWSPersistedFindingScope {
+  const scope: AWSPersistedFindingScope = {};
+  const visited = new Set<object>();
+
+  const inspect = (value: unknown, key?: string): void => {
+    if (scope.accountID && scope.region) {
+      return;
+    }
+
+    const normalizedKey = key?.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const normalizedValue = normalizeValue(value);
+    if (normalizedValue) {
+      if (
+        normalizedKey &&
+        ['account', 'accountid', 'awsaccountid'].includes(normalizedKey) &&
+        AWS_FINDING_ACCOUNT_ID_PATTERN.test(normalizedValue)
+      ) {
+        scope.accountID ??= normalizedValue;
+      }
+      if (
+        normalizedKey &&
+        ['region', 'awsregion'].includes(normalizedKey) &&
+        AWS_FINDING_REGION_PATTERN.test(normalizedValue)
+      ) {
+        scope.region ??= normalizedValue;
+      }
+      if (normalizedValue.startsWith('arn:')) {
+        const arnParts = normalizedValue.split(':');
+        if (arnParts.length >= 6) {
+          const accountID = arnParts[4];
+          const region = arnParts[3];
+          if (AWS_FINDING_ACCOUNT_ID_PATTERN.test(accountID)) {
+            scope.accountID ??= accountID;
+          }
+          if (AWS_FINDING_REGION_PATTERN.test(region)) {
+            scope.region ??= region;
+          }
+        }
+      }
+      return;
+    }
+
+    if (!value || typeof value !== 'object' || visited.has(value)) {
+      return;
+    }
+    visited.add(value);
+    for (const [childKey, childValue] of Object.entries(value)) {
+      inspect(childValue, childKey);
+    }
+  };
+
+  inspect(finding.evidence);
+  for (const pathPart of finding.path ?? []) {
+    inspect(pathPart);
+  }
+  return scope;
+}
+
 function awsPersistedFindingRiskOperationRow(
   finding: ApiFinding,
   connection: AWSConnectionStatus | null
 ): AWSRiskOperationTableRow {
   const status = awsPersistedFindingStatus(finding);
   const path = finding.path?.filter(Boolean).join(' → ');
-  const account = connection?.account_id ?? 'Connected AWS account';
-  const region = connection?.region ?? 'Connected region';
+  const findingScope = awsPersistedFindingScope(finding);
+  const account = findingScope.accountID ? `Account ${findingScope.accountID}` : 'Account unknown';
+  const region = findingScope.region ? `Region ${findingScope.region}` : 'Region unknown';
   const evidence = awsPersistedFindingEvidence(finding);
   return {
     id: finding.id,
@@ -18195,8 +18262,8 @@ function awsPersistedFindingRiskOperationRow(
     stage: awsPersistedFindingStage(finding),
     filters: {
       severity: normalizeValue(finding.severity).toLowerCase() || 'unknown',
-      account: 'connected',
-      region: 'current',
+      account: findingScope.accountID && findingScope.accountID === connection?.account_id ? 'connected' : 'unknown',
+      region: findingScope.region && findingScope.region === connection?.region ? 'current' : 'unknown',
       evidence: Object.keys(finding.evidence ?? {}).length > 0 ? 'inventory-backed' : 'unavailable',
       status
     },
@@ -18205,6 +18272,8 @@ function awsPersistedFindingRiskOperationRow(
       finding.type,
       finding.human_summary,
       finding.remediation,
+      findingScope.accountID,
+      findingScope.region,
       ...(finding.path ?? [])
     ])
   };
@@ -18301,10 +18370,20 @@ function AWSFindingsContent({
           getRowKey={(row) => row.id}
           emptyState={
             <DomainEmptyState
-              eyebrow={showingPersistedScan && (persistedScanPartial || persistedScanCoverageUnknown) ? 'Evidence incomplete' : 'Empty'}
-              title={showingPersistedScan ? 'No findings in this AWS scan' : findings?.status === 'degraded' ? 'Live AWS findings are not available yet' : 'No AWS findings'}
+              eyebrow={showingPersistedScan && rows.length > 0 && displayedRows.length === 0 ? 'Filtered' : showingPersistedScan && (persistedScanPartial || persistedScanCoverageUnknown) ? 'Evidence incomplete' : 'Empty'}
+              title={
+                showingPersistedScan && rows.length > 0 && displayedRows.length === 0
+                  ? 'No findings match these filters'
+                  : showingPersistedScan
+                    ? 'No findings in this AWS scan'
+                    : findings?.status === 'degraded'
+                      ? 'Live AWS findings are not available yet'
+                      : 'No AWS findings'
+              }
               body={
-                showingPersistedScan
+                showingPersistedScan && rows.length > 0 && displayedRows.length === 0
+                  ? 'This scan contains findings, but none match the selected filters. Clear or adjust the filters to see them.'
+                  : showingPersistedScan
                   ? persistedScanPartial
                     ? 'The scan returned no findings from the sources that were available. Resolve the coverage gaps and run discovery again for a complete result.'
                     : persistedScanCoverageUnknown

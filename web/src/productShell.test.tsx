@@ -8485,6 +8485,7 @@ describe('Domain-first app routes', () => {
           title: 'Historical IAM finding',
           human_summary: 'A persisted finding from the completed scan.',
           remediation: 'Review the role policy.',
+          evidence: { account_id: '999999999999', region: 'us-west-2' },
           created_at: '2026-08-20T20:03:00Z'
         }
       ]
@@ -8503,6 +8504,11 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByText('Showing findings from this AWS scan')).toBeInTheDocument();
     expect(await screen.findByText('Historical IAM finding')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), { target: { value: 'unknown' } });
+    expect(await screen.findByText('Historical IAM finding')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), { target: { value: 'connected' } });
+    expect(await screen.findByText('No findings match these filters')).toBeInTheDocument();
   });
 
   it('rejects persisted AWS findings until the scan reaches a terminal result', async () => {
