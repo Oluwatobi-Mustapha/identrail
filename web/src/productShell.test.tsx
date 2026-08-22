@@ -8425,6 +8425,34 @@ describe('Domain-first app routes', () => {
                 lifecycle_status: 'fixed'
               },
               {
+                id: 'finding-aws-lambda-colon-resource',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_lambda_function',
+                severity: 'low',
+                title: 'Lambda resource label',
+                human_summary: 'A Lambda finding with a colon-form ARN resource.',
+                path: ['arn:aws:lambda:us-east-1:123456789012:function:shared-function-colon'],
+                owner: 'AWS scanner',
+                evidence: { source: 'lambda-policy' },
+                remediation: 'Review the function policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
+                id: 'finding-aws-secret-colon-resource',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_secretsmanager_secret',
+                severity: 'low',
+                title: 'Secret resource label',
+                human_summary: 'A Secrets Manager finding with a colon-form ARN resource.',
+                path: ['arn:aws:secretsmanager:us-east-1:123456789012:secret:database-password-abc123'],
+                owner: 'AWS scanner',
+                evidence: { source: 'secret-policy' },
+                remediation: 'Review the secret policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
                 id: 'finding-aws-gov',
                 scan_id: 'scan-aws-complete',
                 type: 'aws_iam_partition_role',
@@ -8658,8 +8686,10 @@ describe('Domain-first app routes', () => {
     expect(within(findingsTable).getByText('Blocked')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Suppressed')).toBeInTheDocument();
     expect(within(findingsTable).queryByText(/Region unknown/i)).not.toBeInTheDocument();
-    expect(within(findingsTable).getByText(/shared-function.*Region us-east-1/)).toBeInTheDocument();
-    expect(within(findingsTable).getByText(/shared-function.*Region eu-west-1/)).toBeInTheDocument();
+    expect(within(findingsTable).getByText('shared-function · Lambda function · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('shared-function · Lambda function · Account 123456789012 · Region eu-west-1 · 1 evidence node')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('shared-function-colon · Lambda function · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('database-password-abc123 · Secrets Manager secret · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
 
     for (const [title, href] of [
       ['Gov IAM role', 'https://console.amazonaws-us-gov.com/iam/home#/roles/gov-role'],

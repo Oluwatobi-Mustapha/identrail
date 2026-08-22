@@ -18587,7 +18587,8 @@ function awsFindingEvidenceStrings(finding: ApiFinding): string[] {
 
 function awsFindingResourceName(resource: string): string {
   const normalized = decodeAWSFindingValue(resource).replace(/^\//, '');
-  const name = normalized.split('/').pop() || normalized.split(':').pop() || normalized;
+  const lastSeparator = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf(':'));
+  const name = lastSeparator >= 0 ? normalized.slice(lastSeparator + 1) : normalized;
   return name.length > 100 ? `${name.slice(0, 97)}...` : name;
 }
 
