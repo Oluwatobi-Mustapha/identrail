@@ -922,13 +922,20 @@ x-identrail-action-role-grants:
     - read
     - write
     - admin
+    - owner
+    - analyst
+    - viewer
   findings.triage:
     - write
     - admin
+    - owner
   graph.read:
     - read
     - write
     - admin
+    - owner
+    - analyst
+    - viewer
   me.read:
     - authenticated
     - read

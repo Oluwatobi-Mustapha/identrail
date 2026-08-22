@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -109,6 +110,25 @@ func TestDefaultRoutePolicyBundleUsesRepoScansReadForRepoFindingsTrends(t *testi
 	}
 }
 
+func TestDefaultRouteActionRoleGrantsAllowWorkspaceFindingsAccess(t *testing.T) {
+	grants := defaultRouteActionRoleGrants()
+
+	for _, test := range []struct {
+		action string
+		roles  []string
+	}{
+		{action: policyActionFindingsRead, roles: []string{"owner", "analyst", "viewer"}},
+		{action: policyActionFindingsTriage, roles: []string{"owner", "admin"}},
+		{action: policyActionGraphRead, roles: []string{"owner", "analyst", "viewer"}},
+	} {
+		for _, role := range test.roles {
+			if !containsString(grants[test.action], role) {
+				t.Fatalf("expected role %q to be granted %s, got %v", role, test.action, grants[test.action])
+			}
+		}
+	}
+}
+
 func TestDefaultRoutePolicyBundleUsesRepoScansRunForDeleteRepoFinding(t *testing.T) {
 	compiled, err := compileRouteAuthorizationPolicyBundle(defaultBuiltInRouteAuthorizationPolicyBundle())
 	if err != nil {
@@ -202,23 +222,7 @@ func TestCentralPolicyRuntimeResolverUsesPersistedActiveVersion(t *testing.T) {
 		t.Fatalf("upsert policy set: %v", err)
 	}
 
-	bundle := routeAuthorizationPolicyBundle{
-		SchemaVersion: routeAuthorizationPolicyBundleSchemaV1,
-		RoutePolicies: []routePolicyDefinition{{
-			Method:       "GET",
-			Path:         "/v1/findings",
-			Action:       policyActionFindingsRead,
-			ResourceType: "finding",
-		}},
-		RBACActionRole: map[string][]string{
-			policyActionFindingsRead: {scopeRead, scopeWrite, scopeAdmin},
-		},
-		ABACPolicies: map[string]abacActionPolicy{
-			policyActionFindingsRead: {
-				AnyOf: []abacClause{{}},
-			},
-		},
-	}
+	bundle := legacyDefaultRouteAuthorizationPolicyBundle()
 	bundleBytes, err := json.Marshal(bundle)
 	if err != nil {
 		t.Fatalf("marshal policy bundle: %v", err)
@@ -261,6 +265,100 @@ func TestCentralPolicyRuntimeResolverUsesPersistedActiveVersion(t *testing.T) {
 	}
 	if policy.Action != policyActionFindingsRead {
 		t.Fatalf("expected persisted action %q, got %q", policyActionFindingsRead, policy.Action)
+	}
+	for _, test := range []struct {
+		action string
+		role   string
+	}{
+		{action: policyActionFindingsRead, role: "owner"},
+		{action: policyActionFindingsRead, role: "viewer"},
+	} {
+		decision, err := runtimePolicy.Engine.Decide(ctx, PolicyInput{
+			Subject: PolicySubject{
+				TenantID:    "tenant-a",
+				WorkspaceID: "workspace-a",
+				Roles:       []string{test.role},
+			},
+			Action: test.action,
+		})
+		if err != nil {
+			t.Fatalf("decide persisted %s for role %s: %v", test.action, test.role, err)
+		}
+		if !decision.Allowed {
+			t.Fatalf("expected legacy persisted policy to allow %s for role %s, got %+v", test.action, test.role, decision)
+		}
+	}
+}
+
+func TestCentralPolicyRuntimeResolverDoesNotBroadenCustomLegacyRoleGrants(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := testAuthzPolicyScopeContext()
+	resolver := newCentralPolicyRuntimeResolverWithPolicySet(store, defaultCentralPolicySetID)
+
+	if err := store.UpsertAuthzPolicySet(ctx, db.AuthzPolicySet{
+		PolicySetID: defaultCentralPolicySetID,
+		DisplayName: "Central Authorization",
+		CreatedBy:   "test",
+	}); err != nil {
+		t.Fatalf("upsert policy set: %v", err)
+	}
+
+	customBundle := routeAuthorizationPolicyBundle{
+		SchemaVersion: routeAuthorizationPolicyBundleSchemaV1,
+		RoutePolicies: []routePolicyDefinition{{
+			Method:       http.MethodGet,
+			Path:         "/v1/findings",
+			Action:       policyActionFindingsRead,
+			ResourceType: "finding",
+		}},
+		RBACActionRole: map[string][]string{
+			policyActionFindingsRead: {scopeRead, scopeWrite, scopeAdmin},
+		},
+		ABACPolicies: map[string]abacActionPolicy{
+			policyActionFindingsRead: {AnyOf: []abacClause{{}}},
+		},
+	}
+	bundleBytes, err := json.Marshal(customBundle)
+	if err != nil {
+		t.Fatalf("marshal custom policy bundle: %v", err)
+	}
+	version, err := store.CreateAuthzPolicyVersion(ctx, db.AuthzPolicyVersion{
+		PolicySetID: defaultCentralPolicySetID,
+		Version:     1,
+		Bundle:      string(bundleBytes),
+		CreatedBy:   "test",
+	})
+	if err != nil {
+		t.Fatalf("create custom policy version: %v", err)
+	}
+	if err := store.UpsertAuthzPolicyRollout(ctx, db.AuthzPolicyRollout{
+		PolicySetID:       defaultCentralPolicySetID,
+		ActiveVersion:     &version.Version,
+		Mode:              db.AuthzPolicyRolloutModeEnforce,
+		ValidatedVersions: []int{version.Version},
+		CanaryPercentage:  100,
+		UpdatedBy:         "test",
+	}); err != nil {
+		t.Fatalf("upsert policy rollout: %v", err)
+	}
+
+	runtimePolicy, err := resolver.Resolve(ctx)
+	if err != nil {
+		t.Fatalf("resolve custom policy version: %v", err)
+	}
+	decision, err := runtimePolicy.Engine.Decide(ctx, PolicyInput{
+		Subject: PolicySubject{
+			TenantID:    "tenant-a",
+			WorkspaceID: "workspace-a",
+			Roles:       []string{"owner"},
+		},
+		Action: policyActionFindingsRead,
+	})
+	if err != nil {
+		t.Fatalf("decide custom policy for owner: %v", err)
+	}
+	if decision.Allowed {
+		t.Fatalf("expected custom legacy role grant to remain narrow, got %+v", decision)
 	}
 }
 

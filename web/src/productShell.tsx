@@ -2380,6 +2380,36 @@ function formatAPIError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function formatAWSFindingsError(
+  error: unknown,
+  fallback: string,
+  source: 'live' | 'scan' = 'scan'
+): string {
+  const apiLike = error instanceof Error || (typeof error === 'object' && error !== null)
+    ? (error as { status?: number; detail?: string; message?: string })
+    : null;
+  const detail = normalizeValue(apiLike?.detail);
+  if (detail && !['forbidden', 'unauthorized'].includes(detail.toLowerCase())) {
+    return detail;
+  }
+  if (apiLike?.status === 401) {
+    return 'Your Identrail session has expired. Sign in again, then retry loading AWS findings.';
+  }
+  if (apiLike?.status === 403) {
+    return 'Identrail denied the findings request for this workspace. Your AWS connection is separate from this access check. Refresh and retry; if it continues, verify the selected workspace or contact your Identrail administrator.';
+  }
+  if (apiLike?.status === 404) {
+    return source === 'live'
+      ? 'Identrail could not load live AWS secret-to-permission evidence. Verify the AWS connection and retry.'
+      : 'This AWS scan is no longer available. Run AWS discovery again to create a fresh findings result.';
+  }
+  const message = normalizeValue(formatAPIError(error, ''));
+  if (message) {
+    return message;
+  }
+  return fallback;
+}
+
 function formatAWSConnectorSetupError(error: unknown): string {
   const apiLike = error instanceof Error || (typeof error === 'object' && error !== null)
     ? (error as { status?: number; detail?: string; message?: string })
@@ -20593,7 +20623,11 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       if (requestID !== secretPermissionEquivalenceRequestRef.current) {
         return;
       }
-      setSecretPermissionEquivalenceError(formatAPIError(error, 'Unable to load AWS secret-to-permission equivalence.'));
+      setSecretPermissionEquivalenceError(formatAWSFindingsError(
+        error,
+        'Unable to load AWS secret-to-permission equivalence.',
+        'live'
+      ));
     } finally {
       if (requestID === secretPermissionEquivalenceRequestRef.current) {
         setSecretPermissionEquivalenceLoading(false);
@@ -20674,7 +20708,7 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       if (requestID !== persistedFindingsRequestRef.current) {
         return;
       }
-      setPersistedFindingsError(formatAPIError(requestError, 'Unable to load findings from this AWS scan.'));
+      setPersistedFindingsError(formatAWSFindingsError(requestError, 'Unable to load findings from this AWS scan.'));
     } finally {
       if (requestID === persistedFindingsRequestRef.current) {
         setPersistedFindingsLoading(false);

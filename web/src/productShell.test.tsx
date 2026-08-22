@@ -8741,7 +8741,9 @@ describe('Domain-first app routes', () => {
       ]
     });
     vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
-    vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockRejectedValue(new Error('AWS inventory request failed'));
+    vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockRejectedValue(
+      new api.ApiError('forbidden', 403, { detail: 'forbidden' })
+    );
 
     const { ProductAWSFindingsPage } = await import('./productShell');
 
@@ -8754,8 +8756,43 @@ describe('Domain-first app routes', () => {
     );
 
     expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load AWS findings");
-    expect(screen.getByText('AWS inventory request failed')).toBeInTheDocument();
+    expect(screen.getByText(/Identrail denied the findings request for this workspace/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^forbidden$/i)).not.toBeInTheDocument();
     expect(screen.queryByText('No AWS findings')).not.toBeInTheDocument();
+  });
+
+  it('uses a live-evidence message for a 404 from the current AWS findings endpoint', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'production',
+        name: 'Production',
+        slug: 'production',
+        description: 'Production AWS boundary.',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockRejectedValue(
+      new api.ApiError('Request failed (404)', 404)
+    );
+
+    const { ProductAWSFindingsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load AWS findings");
+    expect(screen.getByText(/could not load live AWS secret-to-permission evidence/i)).toBeInTheDocument();
+    expect(screen.queryByText(/This AWS scan is no longer available/i)).not.toBeInTheDocument();
   });
 
   it('does not show findings as loading when the AWS connector is not ready', async () => {
