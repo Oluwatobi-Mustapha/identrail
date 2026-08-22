@@ -17779,6 +17779,7 @@ function awsSecretPermissionEquivalenceRegionFilterToken(
     case 'current':
       return connection?.region || undefined;
     case 'unknown':
+    case 'other':
       return undefined;
     default:
       return awsSecretPermissionEquivalenceFilterToken(value);
@@ -17789,14 +17790,18 @@ function awsSecretPermissionEquivalenceFindingsQuery(
   filters: AWSInventoryFilterState,
   connection: AWSConnectionStatus | null
 ): Partial<AWSSecretPermissionEquivalenceQuery> {
-  return {
+  const query: Partial<AWSSecretPermissionEquivalenceQuery> = {
     accountID: awsSecretPermissionEquivalenceAccountFilterToken(filters.account, connection),
-    region: awsSecretPermissionEquivalenceRegionFilterToken(filters.region, connection),
     evidence: awsSecretPermissionEquivalenceFilterToken(filters.evidence),
     search: normalizeFilterValue(filters.search ?? '') || undefined,
     severity: awsSecretPermissionEquivalenceFilterToken(filters.severity),
     status: awsSecretPermissionEquivalenceStatusFilterToken(filters.status)
   };
+  const region = awsSecretPermissionEquivalenceRegionFilterToken(filters.region, connection);
+  if (region) {
+    query.region = region;
+  }
+  return query;
 }
 
 function awsGovernanceAuditReportingQueryFromFilters(filters: AWSInventoryFilterState): Partial<AWSGovernanceAuditReportingQuery> {
@@ -18142,11 +18147,13 @@ function awsFindingSeverityRank(value: string): number {
 }
 
 function awsFindingAggregateStatus(rows: AWSRiskOperationTableRow[]): string {
-  if (rows.some((row) => row.status === 'open')) return 'open';
-  if (rows.some((row) => row.status === 'ack')) return 'ack';
-  if (rows.some((row) => row.status === 'queued')) return 'queued';
-  if (rows.some((row) => row.status === 'blocked')) return 'blocked';
-  if (rows.some((row) => row.status === 'resolved')) return 'resolved';
+  const statuses = new Set(rows.map((row) => normalizeValue(row.status).toLowerCase()));
+  if (statuses.has('open') || statuses.has('action_required')) return 'open';
+  if (statuses.has('ack')) return 'ack';
+  if (statuses.has('suppressed')) return 'suppressed';
+  if (statuses.has('queued') || statuses.has('review')) return 'queued';
+  if (statuses.has('blocked')) return 'blocked';
+  if (statuses.has('resolved')) return 'resolved';
   return rows[0]?.status || 'unavailable';
 }
 
@@ -18189,10 +18196,16 @@ function AWSFindingDetailsDrawer({
   scope: ProductSession | null;
   onClose: () => void;
 }) {
-  const representative = row?.relatedRows?.[0] ?? row;
+  const relatedRows = row?.relatedRows ?? (row ? [row] : []);
+  const [selectedRelatedRowID, setSelectedRelatedRowID] = useState<string | null>(null);
   const [history, setHistory] = useState<FindingTriageEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyUnavailable, setHistoryUnavailable] = useState(false);
+  const representative = relatedRows.find((relatedRow) => relatedRow.id === selectedRelatedRowID) ?? relatedRows[0] ?? null;
+
+  useEffect(() => {
+    setSelectedRelatedRowID(relatedRows[0]?.id ?? null);
+  }, [open, row?.id]);
 
   useEffect(() => {
     let active = true;
@@ -18233,8 +18246,8 @@ function AWSFindingDetailsDrawer({
       {row && representative ? (
         <div className="idt-aws-finding-detail">
           <div className="idt-aws-finding-detail-heading">
-            <h4>{row.title}</h4>
-            <AWSInventoryPill stage={row.stage} label={showingPersistedScan ? awsPersistedFindingStatusLabel(row.status) : formatTokenLabel(row.status)} />
+            <h4>{representative.title}</h4>
+            <AWSInventoryPill stage={representative.stage} label={showingPersistedScan ? awsPersistedFindingStatusLabel(representative.status) : formatTokenLabel(representative.status)} />
           </div>
           <section>
             <h5>Why it matters</h5>
@@ -18253,12 +18266,23 @@ function AWSFindingDetailsDrawer({
             <h5>Recommended action</h5>
             <p>{representative.nextAction}</p>
           </section>
-          {row.relatedRows && row.relatedRows.length > 1 ? (
+          {relatedRows.length > 1 ? (
             <section>
-              <h5>Related risks ({row.relatedRows.length})</h5>
+              <h5>Related risks ({relatedRows.length})</h5>
               <ul className="idt-aws-finding-related-list">
-                {row.relatedRows.map((relatedRow) => (
-                  <li key={relatedRow.id}><strong>{relatedRow.title}</strong><span>{relatedRow.category} · {formatTokenLabel(relatedRow.status)}</span></li>
+                {relatedRows.map((relatedRow) => (
+                  <li key={relatedRow.id}>
+                    <button
+                      type="button"
+                      className="idt-aws-finding-related-button"
+                      aria-label={`View details for ${relatedRow.title}`}
+                      aria-pressed={relatedRow.id === representative.id}
+                      onClick={() => setSelectedRelatedRowID(relatedRow.id)}
+                    >
+                      <strong>{relatedRow.title}</strong>
+                      <span>{relatedRow.category} · {formatTokenLabel(relatedRow.status)}</span>
+                    </button>
+                  </li>
                 ))}
               </ul>
             </section>
@@ -18274,14 +18298,14 @@ function AWSFindingDetailsDrawer({
               <div><dt>Observed</dt><dd>{representative.observedAt || 'Unavailable'}</dd></div>
               {representative.evidenceBoundary ? <div><dt>Boundary</dt><dd>{representative.evidenceBoundary}</dd></div> : null}
             </dl>
-            {(row.relatedRows ?? [representative]).map((evidenceRow) => (
-              <details key={evidenceRow.id} className="idt-aws-finding-technical-evidence">
-                <summary>Technical evidence ({evidenceRow.technicalEvidence?.length ?? 0} refs)</summary>
-                {evidenceRow.technicalEvidence?.length ? (
-                  <ul>{evidenceRow.technicalEvidence.map((ref, index) => <li key={`${ref}-${index}`}><code>{ref}</code></li>)}</ul>
-                ) : <p>No raw path or evidence references were returned.</p>}
-              </details>
-            ))}
+            <details className="idt-aws-finding-technical-evidence">
+              <summary>Technical evidence ({representative.technicalEvidence?.length ?? 0} refs)</summary>
+              {representative.technicalEvidence?.length ? (
+                <ul>{representative.technicalEvidence.map((ref, index) => <li key={`${ref}-${index}`}><code>{ref}</code></li>)}</ul>
+              ) : (
+                <p>No raw path or evidence references were returned.</p>
+              )}
+            </details>
           </section>
           <section>
             <h5>Ownership &amp; resolution</h5>
@@ -18590,22 +18614,47 @@ function awsFindingResourceType(service: string, resource: string, findingType: 
   return serviceLabels[service] || (service ? `${formatTokenLabel(service)} resource` : 'AWS resource');
 }
 
+type AWSConsolePartition = 'aws' | 'aws-us-gov' | 'aws-cn' | 'aws-iso' | 'aws-iso-b';
+
+const AWS_CONSOLE_HOSTS: Record<AWSConsolePartition, string> = {
+  aws: 'console.aws.amazon.com',
+  'aws-us-gov': 'console.amazonaws-us-gov.com',
+  'aws-cn': 'console.amazonaws.cn',
+  'aws-iso': 'console.c2s.ic.gov',
+  'aws-iso-b': 'console.sc2s.sgov.gov'
+};
+
+const AWS_S3_CONSOLE_HOSTS: Record<AWSConsolePartition, string> = {
+  aws: 's3.console.aws.amazon.com',
+  'aws-us-gov': 's3.console.amazonaws-us-gov.com',
+  'aws-cn': 's3.console.amazonaws.cn',
+  'aws-iso': 'console.c2s.ic.gov',
+  'aws-iso-b': 'console.sc2s.sgov.gov'
+};
+
+function awsConsolePartition(arn: string): AWSConsolePartition | undefined {
+  const partition = arn.split(':')[1] as AWSConsolePartition | undefined;
+  return partition && Object.prototype.hasOwnProperty.call(AWS_CONSOLE_HOSTS, partition) ? partition : undefined;
+}
+
 function awsFindingConsoleLink(arn: string | undefined, region: string | undefined): string | undefined {
   if (!arn) return undefined;
   const parts = arn.split(':');
   if (parts.length < 6) return undefined;
+  const partition = awsConsolePartition(arn);
+  if (!partition) return undefined;
   const service = parts[2];
   const resource = parts.slice(5).join(':');
   const name = resource.split('/').slice(1).join('/') || resource.split(':').pop();
   if (!name) return undefined;
   if (service === 'iam' && resource.startsWith('role/')) {
-    return `https://console.aws.amazon.com/iam/home#/roles/${encodeURIComponent(name)}`;
+    return `https://${AWS_CONSOLE_HOSTS[partition]}/iam/home#/roles/${encodeURIComponent(name)}`;
   }
   if (service === 'iam' && resource.startsWith('user/')) {
-    return `https://console.aws.amazon.com/iam/home#/users/${encodeURIComponent(name)}`;
+    return `https://${AWS_CONSOLE_HOSTS[partition]}/iam/home#/users/${encodeURIComponent(name)}`;
   }
   if (service === 's3') {
-    return `https://s3.console.aws.amazon.com/s3/buckets/${encodeURIComponent(name)}${region ? `?region=${encodeURIComponent(region)}` : ''}`;
+    return `https://${AWS_S3_CONSOLE_HOSTS[partition]}/s3/buckets/${encodeURIComponent(name)}${region ? `?region=${encodeURIComponent(region)}` : ''}`;
   }
   return undefined;
 }
@@ -18666,7 +18715,7 @@ function awsPersistedFindingScope(finding: ApiFinding): AWSPersistedFindingScope
     resourceType,
     identityKey:
       resourceLabel !== 'Resource unavailable' && resourceLabel !== 'IAM identity'
-        ? `${accountID || 'account-unavailable'}:${resourceType}:${resourceLabel}`.toLowerCase()
+        ? `${accountID || 'account-unavailable'}:${resourceType}:${resourceLabel}:${global ? 'global' : region || 'region-unavailable'}`.toLowerCase()
         : resourceARN,
     scopeLabel,
     consoleLink: awsFindingConsoleLinkForResource(resourceARN, resourceType, resourceLabel, region)

@@ -33450,6 +33450,26 @@ html[data-theme='light'] .idt-danger-modal-typed input {
   gap: 0.15rem;
 }
 
+.idt-aws-finding-related-button {
+  display: grid;
+  gap: 0.15rem;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 0.35rem;
+  padding: 0.35rem 0.45rem;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.idt-aws-finding-related-button:hover,
+.idt-aws-finding-related-button:focus-visible,
+.idt-aws-finding-related-button[aria-pressed='true'] {
+  border-color: rgba(174, 161, 255, 0.65);
+  background: rgba(111, 89, 255, 0.16);
+}
+
 .idt-aws-finding-related-list span,
 .idt-aws-finding-history span {
   color: var(--idt-text-muted, #aeb8c9);
