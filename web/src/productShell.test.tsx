@@ -8387,7 +8387,7 @@ describe('Domain-first app routes', () => {
         started_at: '2026-08-20T20:00:00Z',
         finished_at: '2026-08-20T20:03:00Z',
         asset_count: 12,
-        finding_count: 4
+        finding_count: 5
       }
     });
     const listFindings = vi.spyOn(api.apiClient, 'listFindings').mockImplementation(async (filters = {}) =>
@@ -8447,7 +8447,7 @@ describe('Domain-first app routes', () => {
                 severity: 'high',
                 title: 'Overprivileged IAM role',
                 human_summary: 'The role grants more permissions than this workload requires.',
-                path: ['production-role', 'aws%3Aaccess%3Aiam%3AGetRole%20-%3E%20aws%3Aaccess%3Aiam%3AListRoles'],
+                path: ['arn:aws:iam::123456789012:role/production-role', 'aws%3Aaccess%3Aiam%3AGetRole%20-%3E%20aws%3Aaccess%3Aiam%3AListRoles'],
                 owner: 'AWS scanner',
                 adapter_source: 'iam-policy collector',
                 confidence_score: 0.88,
@@ -8457,11 +8457,28 @@ describe('Domain-first app routes', () => {
                 created_at: '2026-08-20T20:03:00Z',
                 lifecycle_status: 'open',
                 triage: { status: 'suppressed' }
+              },
+              {
+                id: 'finding-aws-5',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_ownerless_role',
+                severity: 'medium',
+                title: 'Ownerless IAM role',
+                human_summary: 'No accountable owner was detected for the role.',
+                path: ['production-role'],
+                adapter_source: 'iam-policy collector',
+                confidence_score: 0.82,
+                first_seen_at: '2026-08-20T20:01:00Z',
+                evidence: { source: 'iam-policy', account_id: '123456789012', region: 'us-east-1' },
+                remediation: 'Assign an accountable owner to the role.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
               }
             ],
             next_cursor: 'aws-findings-page-2'
           }
     );
+    vi.spyOn(api.apiClient, 'listFindingHistory').mockResolvedValue({ items: [] });
     vi.spyOn(api.apiClient, 'listScanEvents').mockRejectedValue(new Error('scan events unavailable'));
     const getSecretPermissionEquivalence = vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence');
 
@@ -8478,16 +8495,28 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText('Showing findings from this AWS scan')).toBeInTheDocument();
     expect(screen.getByText(/could not verify source completeness/i)).toBeInTheDocument();
     const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
-    expect(within(findingsTable).getByText('Overprivileged IAM role')).toBeInTheDocument();
-    const overprivilegedRow = within(findingsTable).getByText('Overprivileged IAM role').closest('tr');
+    expect(within(findingsTable).getByText('production-role', { exact: true })).toBeInTheDocument();
+    const overprivilegedRow = within(findingsTable).getByText('production-role', { exact: true }).closest('tr');
     expect(overprivilegedRow).not.toBeNull();
-    expect(within(overprivilegedRow as HTMLElement).getByText('Account 123456789012 · Region us-east-1 · IAM permission path · 2 evidence nodes')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('production-role · IAM role · Account 123456789012 · Global')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('2 related risks detected for this identity.')).toBeInTheDocument();
     expect(within(overprivilegedRow as HTMLElement).getByText('Source: iam-policy collector · Confidence: 88% · Completeness: Unknown')).toBeInTheDocument();
-    expect(within(overprivilegedRow as HTMLElement).getByText('Technical evidence (2 refs)')).toBeInTheDocument();
-    expect(within(overprivilegedRow as HTMLElement).getByText('scan-aws-complete')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).queryByText('Technical evidence (2 refs)')).not.toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).queryByText('scan-aws-complete')).not.toBeInTheDocument();
+    fireEvent.click(within(overprivilegedRow as HTMLElement).getByRole('button', { name: 'View details' }));
+    const findingDrawer = await screen.findByRole('dialog', { name: 'Finding details' });
+    expect(within(findingDrawer).getByText('Related risks (2)')).toBeInTheDocument();
+    expect(within(findingDrawer).getByText('Technical evidence (2 refs)')).toBeInTheDocument();
+    expect(within(findingDrawer).getByText('scan-aws-complete')).toBeInTheDocument();
+    expect(within(findingDrawer).getByRole('link', { name: 'Open in AWS Console' })).toHaveAttribute(
+      'href',
+      'https://console.aws.amazon.com/iam/home#/roles/production-role'
+    );
+    fireEvent.click(within(findingDrawer).getByRole('button', { name: 'Close detail drawer' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Finding details' })).not.toBeInTheDocument());
     expect(within(findingsTable).getByText('Public S3 bucket')).toBeInTheDocument();
     expect(within(findingsTable).getByText('High')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('Suppressed')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Open')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Acknowledged')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Resolved')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Blocked')).toBeInTheDocument();

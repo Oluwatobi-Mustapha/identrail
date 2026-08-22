@@ -33360,6 +33360,126 @@ html[data-theme='light'] .idt-danger-modal-typed input {
   line-height: 1.35;
 }
 
+.idt-aws-finding-view-details {
+  border: 1px solid rgba(145, 126, 255, 0.65);
+  border-radius: 0.35rem;
+  padding: 0.35rem 0.55rem;
+  background: rgba(111, 89, 255, 0.12);
+  color: var(--idt-text, #f6f7f8);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.idt-aws-finding-view-details:hover,
+.idt-aws-finding-view-details:focus-visible {
+  border-color: rgba(174, 161, 255, 0.95);
+  background: rgba(111, 89, 255, 0.24);
+}
+
+.idt-aws-finding-detail {
+  display: grid;
+  gap: 1rem;
+}
+
+.idt-aws-finding-detail-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.idt-aws-finding-detail-heading h4,
+.idt-aws-finding-detail h5 {
+  margin: 0;
+}
+
+.idt-aws-finding-detail section {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+}
+
+.idt-aws-finding-detail section > p {
+  margin: 0;
+  color: var(--idt-text-muted, #aeb8c9);
+  line-height: 1.5;
+}
+
+.idt-aws-finding-detail dl {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+}
+
+.idt-aws-finding-detail dl div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.idt-aws-finding-detail dt {
+  color: var(--idt-text-muted, #aeb8c9);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.idt-aws-finding-detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.idt-aws-finding-detail code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.idt-aws-finding-related-list,
+.idt-aws-finding-history {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding-left: 1.15rem;
+}
+
+.idt-aws-finding-related-list li,
+.idt-aws-finding-history li {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.idt-aws-finding-related-list span,
+.idt-aws-finding-history span {
+  color: var(--idt-text-muted, #aeb8c9);
+  font-size: 0.76rem;
+}
+
+.idt-aws-finding-history p {
+  margin: 0.15rem 0 0;
+  color: var(--idt-text-muted, #aeb8c9);
+}
+
+.idt-aws-finding-console-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: fit-content;
+  border-radius: 0.35rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--idt-accent, #7c63ff);
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.idt-aws-finding-console-link:hover,
+.idt-aws-finding-console-link:focus-visible {
+  filter: brightness(1.1);
+}
+
 .idt-aws-finding-technical-evidence {
   border: 1px solid rgba(154, 164, 190, 0.28);
   border-radius: 0.35rem;
