@@ -31,18 +31,7 @@ func TestRouterAuthzPolicySimulationTargetVersionReturnsDecisionAndTrace(t *test
 		t.Fatalf("upsert policy set: %v", err)
 	}
 
-	bundle := routeAuthorizationPolicyBundle{
-		SchemaVersion: routeAuthorizationPolicyBundleSchemaV1,
-		RoutePolicies: []routePolicyDefinition{
-			{Method: "GET", Path: "/v1/findings", Action: policyActionFindingsRead, ResourceType: "finding"},
-		},
-		RBACActionRole: map[string][]string{
-			policyActionFindingsRead: {scopeRead, scopeAdmin},
-		},
-		ABACPolicies: map[string]abacActionPolicy{
-			policyActionFindingsRead: {AnyOf: []abacClause{{}}},
-		},
-	}
+	bundle := legacyDefaultRouteAuthorizationPolicyBundle()
 	bundleBytes, err := json.Marshal(bundle)
 	if err != nil {
 		t.Fatalf("marshal policy bundle: %v", err)
@@ -65,7 +54,7 @@ func TestRouterAuthzPolicySimulationTargetVersionReturnsDecisionAndTrace(t *test
 	})
 
 	requestBody := `{
-		"subject":{"type":"subject","id":"user-1","tenant_id":"default","workspace_id":"default","roles":["admin"]},
+		"subject":{"type":"subject","id":"user-1","tenant_id":"default","workspace_id":"default","roles":["owner"]},
 		"action":"findings.read",
 		"resource":{"type":"finding","id":"finding-1","tenant_id":"default","workspace_id":"default"},
 		"context":{"request_path":"/v1/findings","request_method":"GET"},

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -59,6 +60,10 @@ type resolvedCentralPolicyRuntime struct {
 
 type centralPolicyRuntimeResolver interface {
 	Resolve(ctx context.Context) (resolvedCentralPolicyRuntime, error)
+}
+
+type centralPolicyVersionCompiler interface {
+	compiledVersion(version db.AuthzPolicyVersion) (compiledRouteAuthorizationPolicy, error)
 }
 
 type storeBackedCentralPolicyRuntimeResolver struct {
@@ -285,10 +290,10 @@ func (r *storeBackedCentralPolicyRuntimeResolver) compiledVersion(version db.Aut
 		return compiledRouteAuthorizationPolicy{}, fmt.Errorf("compile policy version %d: %w", version.Version, err)
 	}
 	// Versions created from the former built-in defaults can remain active
-	// after an upgrade. Refresh only those exact legacy grants so the primary
-	// workspace user is not stranded behind a stale persisted policy. Custom
-	// role grants remain authoritative and are never broadened here.
-	if strings.EqualFold(strings.TrimSpace(r.policySet), defaultCentralPolicySetID) {
+	// after an upgrade. Refresh only a complete, semantically exact copy of
+	// that legacy built-in bundle. A custom bundle that happens to use the old
+	// role names remains authoritative and is never broadened here.
+	if strings.EqualFold(strings.TrimSpace(r.policySet), defaultCentralPolicySetID) && isLegacyDefaultRouteAuthorizationPolicy(compiled) {
 		compiled = upgradeLegacyDefaultRoleGrants(compiled, r.fallback)
 	}
 	// Persisted policy bundles are immutable and may predate newly shipped
@@ -306,6 +311,26 @@ func (r *storeBackedCentralPolicyRuntimeResolver) compiledVersion(version db.Aut
 		r.cacheByKey.Store(cacheKey, compiled)
 	}
 	return compiled, nil
+}
+
+func isLegacyDefaultRouteAuthorizationPolicy(compiled compiledRouteAuthorizationPolicy) bool {
+	legacy, err := compileRouteAuthorizationPolicyBundle(legacyDefaultRouteAuthorizationPolicyBundle())
+	if err != nil {
+		return false
+	}
+	return reflect.DeepEqual(compiled, legacy)
+}
+
+func legacyDefaultRouteAuthorizationPolicyBundle() routeAuthorizationPolicyBundle {
+	bundle := defaultBuiltInRouteAuthorizationPolicyBundle()
+	bundle.RBACActionRole = make(map[string][]string, len(bundle.RBACActionRole))
+	for action, roles := range defaultRouteActionRoleGrants() {
+		bundle.RBACActionRole[action] = append([]string(nil), roles...)
+	}
+	bundle.RBACActionRole[policyActionFindingsRead] = []string{scopeRead, scopeWrite, scopeAdmin}
+	bundle.RBACActionRole[policyActionFindingsTriage] = []string{scopeWrite, scopeAdmin}
+	bundle.RBACActionRole[policyActionGraphRead] = []string{scopeRead, scopeWrite, scopeAdmin}
+	return bundle
 }
 
 func upgradeLegacyDefaultRoleGrants(base compiledRouteAuthorizationPolicy, fallback compiledRouteAuthorizationPolicy) compiledRouteAuthorizationPolicy {

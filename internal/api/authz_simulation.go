@@ -220,7 +220,15 @@ func resolveSimulationRuntime(c *gin.Context, store db.Store, resolver centralPo
 	if err != nil {
 		return resolvedCentralPolicyRuntime{}, err
 	}
-	compiled, err := compileRouteAuthorizationPolicyBundleJSON(version.Bundle)
+	if resolver == nil {
+		resolver = newCentralPolicyRuntimeResolverWithPolicySet(store, policySetID)
+	}
+	var compiled compiledRouteAuthorizationPolicy
+	if versionCompiler, ok := resolver.(centralPolicyVersionCompiler); ok {
+		compiled, err = versionCompiler.compiledVersion(version)
+	} else {
+		compiled, err = compileRouteAuthorizationPolicyBundleJSON(version.Bundle)
+	}
 	if err != nil {
 		return resolvedCentralPolicyRuntime{}, fmt.Errorf("compile target policy version: %w", err)
 	}
