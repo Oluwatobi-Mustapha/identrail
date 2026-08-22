@@ -8118,7 +8118,13 @@ describe('Domain-first app routes', () => {
         caveats: [],
         failure_reasons: [],
         remediation_hints: [],
-        coverage_gaps: [],
+        coverage_gaps: [
+          {
+            capability: 'secret_value_collection',
+            status: 'unsupported',
+            reason: 'Secret values are intentionally excluded.'
+          }
+        ],
         diagnostics: []
       } as any
     });
@@ -8135,6 +8141,7 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Findings' })).toBeInTheDocument();
     const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
+    expect(within(findingsTable).getByText(/Completeness: Complete/i)).toBeInTheDocument();
     expect(within(findingsTable).getByRole('link', { name: /Agent provider key equivalence/i })).toHaveAttribute(
       'href',
       '/app/tenant-a/workspace-a/aws/agents/detail?environment=production&agent=case-triage-id&tab=secrets'
@@ -8147,6 +8154,53 @@ describe('Domain-first app routes', () => {
         'workspace-a',
         'production',
         expect.objectContaining({ connectorID: 'aws-connector-1' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+
+    getSecretPermissionEquivalence.mockResolvedValue({
+      findings: {
+        status: 'degraded',
+        findings: [equivalenceFinding],
+        summary: {
+          external_provider_key_count: 0,
+          aws_managed_secret_count: 0,
+          runtime_observed_count: 0,
+          kms_backed_count: 0
+        },
+        caveats: [],
+        failure_reasons: [],
+        remediation_hints: [],
+        coverage_gaps: [
+          {
+            capability: 'secrets_manager_runtime',
+            status: 'partial',
+            reason: 'Runtime delivery evidence is unavailable.'
+          }
+        ],
+        diagnostics: []
+      } as any
+    });
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Findings search' }), { target: { value: 'openai' } });
+    await waitFor(() =>
+      expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1', search: 'openai' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    await waitFor(() =>
+      expect(within(screen.getByRole('table', { name: 'AWS findings' })).getByText(/Completeness: Partial/i)).toBeInTheDocument()
+    );
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Findings search' }), { target: { value: '' } });
+    await waitFor(() =>
+      expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1', search: undefined }),
         expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
       )
     );
@@ -8393,9 +8447,12 @@ describe('Domain-first app routes', () => {
                 severity: 'high',
                 title: 'Overprivileged IAM role',
                 human_summary: 'The role grants more permissions than this workload requires.',
-                path: ['production-role', 'AdministratorAccess'],
+                path: ['production-role', 'aws%3Aaccess%3Aiam%3AGetRole%20-%3E%20aws%3Aaccess%3Aiam%3AListRoles'],
                 owner: 'AWS scanner',
-                evidence: { source: 'iam-policy' },
+                adapter_source: 'iam-policy collector',
+                confidence_score: 0.88,
+                first_seen_at: '2026-08-20T20:01:00Z',
+                evidence: { source: 'iam-policy', account_id: '123456789012', region: 'us-east-1' },
                 remediation: 'Reduce the role policy to the required actions.',
                 created_at: '2026-08-20T20:03:00Z',
                 lifecycle_status: 'open',
@@ -8422,6 +8479,12 @@ describe('Domain-first app routes', () => {
     expect(screen.getByText(/could not verify source completeness/i)).toBeInTheDocument();
     const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
     expect(within(findingsTable).getByText('Overprivileged IAM role')).toBeInTheDocument();
+    const overprivilegedRow = within(findingsTable).getByText('Overprivileged IAM role').closest('tr');
+    expect(overprivilegedRow).not.toBeNull();
+    expect(within(overprivilegedRow as HTMLElement).getByText('Account 123456789012 · Region us-east-1 · IAM permission path · 2 evidence nodes')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('Source: iam-policy collector · Confidence: 88% · Completeness: Unknown')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('Technical evidence (2 refs)')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('scan-aws-complete')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Public S3 bucket')).toBeInTheDocument();
     expect(within(findingsTable).getByText('High')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Suppressed')).toBeInTheDocument();
