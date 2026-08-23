@@ -368,6 +368,27 @@ describe('DomainFoundation', () => {
     expect(document.activeElement).toBe(approveButton);
   });
 
+  it('does not trap focus on a hidden resize handle', () => {
+    render(
+      <DomainDetailDrawer open title="Identity detail" onClose={() => undefined} resizable footer={<button type="button">Approve</button>}>
+        <a href="/inventory">View inventory</a>
+      </DomainDetailDrawer>
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Identity detail' });
+    const closeButton = screen.getByRole('button', { name: 'Close detail drawer' });
+    const approveButton = screen.getByRole('button', { name: 'Approve' });
+    const resizeHandle = screen.getByRole('button', { name: 'Resize detail drawer' });
+    resizeHandle.style.display = 'none';
+
+    approveButton.focus();
+    fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(document.activeElement).toBe(closeButton);
+
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(approveButton);
+  });
+
   it('restores focus to the prior element when the drawer closes', () => {
     function Host() {
       const [open, setOpen] = useState(false);
@@ -391,6 +412,45 @@ describe('DomainFoundation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Close detail drawer' }));
     expect(document.activeElement).toBe(opener);
+  });
+
+  it('supports expanding and keyboard resizing the detail drawer', () => {
+    const { unmount } = render(
+      <DomainDetailDrawer open title="Identity detail" onClose={() => undefined} resizable expandable>
+        <p>Identity payload</p>
+      </DomainDetailDrawer>
+    );
+
+    const drawer = screen.getByText('Identity payload').closest<HTMLElement>('.idt-domain-drawer')!;
+    const expandButton = screen.getByRole('button', { name: 'Expand detail drawer' });
+    expect(drawer).not.toHaveClass('is-expanded');
+    expect(document.body.style.overflow).toBe('hidden');
+
+    Object.defineProperty(drawer, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ width: 448 } as DOMRect)
+    });
+
+    const resizeHandle = screen.getByRole('button', { name: 'Resize detail drawer' });
+    fireEvent.keyDown(resizeHandle, { key: 'ArrowLeft' });
+    expect(drawer.style.getPropertyValue('--idt-domain-drawer-width')).toBe('472px');
+
+    fireEvent.click(expandButton);
+    expect(drawer).toHaveClass('is-expanded');
+    expect(drawer.style.getPropertyValue('--idt-domain-drawer-width')).toBe('');
+    expect(screen.getByRole('button', { name: 'Restore detail drawer' })).toBeInTheDocument();
+
+    fireEvent.keyDown(resizeHandle, { key: 'ArrowLeft' });
+    expect(drawer.style.getPropertyValue('--idt-domain-drawer-width')).toBe('472px');
+    fireEvent.keyDown(resizeHandle, { key: 'ArrowRight' });
+    expect(drawer.style.getPropertyValue('--idt-domain-drawer-width')).toBe('448px');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restore detail drawer' }));
+    expect(drawer).not.toHaveClass('is-expanded');
+    expect(drawer.style.getPropertyValue('--idt-domain-drawer-width')).toBe('472px');
+
+    unmount();
+    expect(document.body.style.overflow).toBe('');
   });
 
   it('closes the drawer when swiped off screen on touch devices', () => {
