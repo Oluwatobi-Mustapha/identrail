@@ -8105,10 +8105,24 @@ describe('Domain-first app routes', () => {
       evidence: [],
       next_action: 'Review the provider credential scope.'
     } as any;
+    const actionableEquivalenceFinding = {
+      ...equivalenceFinding,
+      finding_id: 'aws-secret-permission-equivalence:findings-route-actionable',
+      status: 'action_required'
+    };
+    const sameNameDifferentIdentityFinding = {
+      ...equivalenceFinding,
+      finding_id: 'aws-secret-permission-equivalence:findings-route-different-identity',
+      region: 'eu-west-1',
+      identity_node_id: 'aws:identity:case-triage-eu',
+      agent_id: 'case-triage-id-eu',
+      secret_node_id: 'aws:resource:secret:anthropic-api-key',
+      secret_label: 'anthropic/api-key'
+    };
     const getSecretPermissionEquivalence = vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockResolvedValue({
       findings: {
         status: 'ready',
-        findings: [equivalenceFinding],
+        findings: [equivalenceFinding, actionableEquivalenceFinding, sameNameDifferentIdentityFinding],
         summary: {
           external_provider_key_count: 0,
           aws_managed_secret_count: 0,
@@ -8141,13 +8155,22 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Findings' })).toBeInTheDocument();
     const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
-    expect(within(findingsTable).getByText(/Completeness: Complete/i)).toBeInTheDocument();
-    expect(within(findingsTable).getByRole('link', { name: /Agent provider key equivalence/i })).toHaveAttribute(
+    expect(within(findingsTable).getAllByText(/Completeness: Complete/i)).toHaveLength(2);
+    expect(within(findingsTable).getByRole('link', { name: /openai\/api-key/i })).toHaveAttribute(
       'href',
       '/app/tenant-a/workspace-a/aws/agents/detail?environment=production&agent=case-triage-id&tab=secrets'
     );
-    expect(within(findingsTable).getByText('High')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('Review')).toBeInTheDocument();
+    const liveFindingRow = within(findingsTable).getByRole('link', { name: /openai\/api-key/i }).closest('tr');
+    expect(liveFindingRow).not.toBeNull();
+    expect(within(liveFindingRow as HTMLElement).getByText(/Case Triage · openai\/api-key · Secret · Account 123456789012 · Region us-east-1/)).toBeInTheDocument();
+    expect(within(findingsTable).getByText(/Case Triage · anthropic\/api-key · Secret · Account 123456789012 · Region eu-west-1/)).toBeInTheDocument();
+    fireEvent.click(within(liveFindingRow as HTMLElement).getByRole('button', { name: 'View details' }));
+    const liveFindingDrawer = await screen.findByRole('dialog', { name: 'Finding details' });
+    expect(within(liveFindingDrawer).getByText('Case Triage', { exact: true })).toBeInTheDocument();
+    fireEvent.click(within(liveFindingDrawer).getByRole('button', { name: 'Close detail drawer' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Finding details' })).not.toBeInTheDocument());
+    expect(within(findingsTable).getAllByText('High')).toHaveLength(2);
+    expect(within(findingsTable).getByText('Open')).toBeInTheDocument();
     expect(screen.queryByRole('table', { name: 'AWS secret-to-permission equivalence findings' })).not.toBeInTheDocument();
     await waitFor(() =>
       expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
@@ -8217,6 +8240,17 @@ describe('Domain-first app routes', () => {
     expect(getSecretPermissionEquivalence.mock.lastCall?.[2]?.accountID).toBeUndefined();
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Region' }), { target: { value: 'unknown' } });
+    await waitFor(() =>
+      expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
+        'workspace-a',
+        'production',
+        expect.objectContaining({ connectorID: 'aws-connector-1' }),
+        expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+      )
+    );
+    expect(getSecretPermissionEquivalence.mock.lastCall?.[2]?.region).toBeUndefined();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Region' }), { target: { value: 'other' } });
     await waitFor(() =>
       expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
         'workspace-a',
@@ -8387,7 +8421,7 @@ describe('Domain-first app routes', () => {
         started_at: '2026-08-20T20:00:00Z',
         finished_at: '2026-08-20T20:03:00Z',
         asset_count: 12,
-        finding_count: 4
+        finding_count: 5
       }
     });
     const listFindings = vi.spyOn(api.apiClient, 'listFindings').mockImplementation(async (filters = {}) =>
@@ -8407,6 +8441,202 @@ describe('Domain-first app routes', () => {
                 remediation: 'Restrict the bucket policy to approved principals.',
                 created_at: '2026-08-20T20:03:00Z',
                 lifecycle_status: 'fixed'
+              },
+              {
+                id: 'finding-aws-lambda-colon-resource',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_lambda_function',
+                severity: 'low',
+                title: 'Lambda resource label',
+                human_summary: 'A Lambda finding with a colon-form ARN resource.',
+                path: ['arn:aws:lambda:us-east-1:123456789012:function:shared-function-colon'],
+                owner: 'AWS scanner',
+                evidence: { source: 'lambda-policy' },
+                remediation: 'Review the function policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
+                id: 'finding-aws-lambda-qualified-resource',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_lambda_function',
+                severity: 'low',
+                title: 'Qualified Lambda resource label',
+                human_summary: 'A Lambda finding with a qualified ARN resource.',
+                path: ['arn:aws:lambda:us-east-1:123456789012:function:payments:42'],
+                owner: 'AWS scanner',
+                evidence: { source: 'lambda-policy' },
+                remediation: 'Review the function policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
+                id: 'finding-aws-secret-colon-resource',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_secretsmanager_secret',
+                severity: 'low',
+                title: 'Secret resource label',
+                human_summary: 'A Secrets Manager finding with a colon-form ARN resource.',
+                path: ['arn:aws:secretsmanager:us-east-1:123456789012:secret:database-password-abc123'],
+                owner: 'AWS scanner',
+                evidence: { source: 'secret-policy' },
+                remediation: 'Review the secret policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
+                id: 'finding-aws-secret-prod-path',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_secretsmanager_secret',
+                severity: 'low',
+                title: 'Production database secret',
+                human_summary: 'A path-qualified production secret.',
+                path: ['arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db'],
+                owner: 'AWS scanner',
+                evidence: { source: 'secret-policy' },
+                remediation: 'Review the production secret policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
+                id: 'finding-aws-secret-staging-path',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_secretsmanager_secret',
+                severity: 'low',
+                title: 'Staging database secret',
+                human_summary: 'A path-qualified staging secret.',
+                path: ['arn:aws:secretsmanager:us-east-1:123456789012:secret:staging/db'],
+                owner: 'AWS scanner',
+                evidence: { source: 'secret-policy' },
+                remediation: 'Review the staging secret policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
+                id: 'finding-aws-iam-path-role',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_partition_role',
+                severity: 'low',
+                title: 'IAM path role',
+                human_summary: 'An IAM role with a service path.',
+                path: ['arn:aws:iam::123456789012:role/service-role/payments'],
+                owner: 'AWS scanner',
+                evidence: { source: 'iam-policy' },
+                remediation: 'Review the role policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
+                id: 'finding-aws-gov',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_partition_role',
+                severity: 'low',
+                title: 'Gov IAM role',
+                human_summary: 'A role in the AWS GovCloud partition.',
+                path: ['arn:aws-us-gov:iam::123456789012:role/gov-role'],
+                owner: 'AWS scanner',
+                evidence: { source: 'iam-policy' },
+                remediation: 'Review the role policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
+                id: 'finding-aws-cn',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_partition_role',
+                severity: 'low',
+                title: 'China IAM role',
+                human_summary: 'A role in the AWS China partition.',
+                path: ['arn:aws-cn:iam::123456789012:role/cn-role'],
+                owner: 'AWS scanner',
+                evidence: { source: 'iam-policy' },
+                remediation: 'Review the role policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
+                id: 'finding-aws-iso',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_partition_role',
+                severity: 'low',
+                title: 'ISO IAM role',
+                human_summary: 'A role in the AWS ISO partition.',
+                path: ['arn:aws-iso:iam::123456789012:role/iso-role'],
+                owner: 'AWS scanner',
+                evidence: { source: 'iam-policy' },
+                remediation: 'Review the role policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
+                id: 'finding-aws-iso-b',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_partition_role',
+                severity: 'low',
+                title: 'ISO-B IAM role',
+                human_summary: 'A role in the AWS ISO-B partition.',
+                path: ['arn:aws-iso-b:iam::123456789012:role/iso-b-role'],
+                owner: 'AWS scanner',
+                evidence: { source: 'iam-policy' },
+                remediation: 'Review the role policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
+                id: 'finding-aws-lifecycle-suppressed',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_lifecycle_role',
+                severity: 'medium',
+                title: 'Suppressed lifecycle role',
+                human_summary: 'The role has a suppressed finding.',
+                path: ['arn:aws:iam::123456789012:role/lifecycle-role'],
+                owner: 'AWS scanner',
+                evidence: { source: 'iam-policy' },
+                remediation: 'Review the suppression decision.',
+                created_at: '2026-08-20T20:03:00Z',
+                triage: { status: 'suppressed' }
+              },
+              {
+                id: 'finding-aws-lifecycle-resolved',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_lifecycle_role',
+                severity: 'low',
+                title: 'Resolved lifecycle role',
+                human_summary: 'The role has a resolved finding.',
+                path: ['arn:aws:iam::123456789012:role/lifecycle-role'],
+                owner: 'AWS scanner',
+                evidence: { source: 'iam-policy' },
+                remediation: 'No remediation is pending.',
+                created_at: '2026-08-20T20:03:00Z',
+                triage: { status: 'resolved' }
+              },
+              {
+                id: 'finding-aws-east-function',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_lambda_function',
+                severity: 'low',
+                title: 'East Lambda function',
+                human_summary: 'A regional Lambda finding.',
+                path: ['arn:aws:lambda:us-east-1:123456789012:function/shared-function'],
+                owner: 'AWS scanner',
+                evidence: { source: 'lambda-policy' },
+                remediation: 'Review the function policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
+                id: 'finding-aws-west-function',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_lambda_function',
+                severity: 'low',
+                title: 'West Lambda function',
+                human_summary: 'A regional Lambda finding.',
+                path: ['arn:aws:lambda:eu-west-1:123456789012:function/shared-function'],
+                owner: 'AWS scanner',
+                evidence: { source: 'lambda-policy' },
+                remediation: 'Review the function policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
               },
               {
                 id: 'finding-aws-3',
@@ -8447,7 +8677,7 @@ describe('Domain-first app routes', () => {
                 severity: 'high',
                 title: 'Overprivileged IAM role',
                 human_summary: 'The role grants more permissions than this workload requires.',
-                path: ['production-role', 'aws%3Aaccess%3Aiam%3AGetRole%20-%3E%20aws%3Aaccess%3Aiam%3AListRoles'],
+                path: ['arn:aws:iam::123456789012:role/production-role', 'aws%3Aaccess%3Aiam%3AGetRole%20-%3E%20aws%3Aaccess%3Aiam%3AListRoles'],
                 owner: 'AWS scanner',
                 adapter_source: 'iam-policy collector',
                 confidence_score: 0.88,
@@ -8457,11 +8687,28 @@ describe('Domain-first app routes', () => {
                 created_at: '2026-08-20T20:03:00Z',
                 lifecycle_status: 'open',
                 triage: { status: 'suppressed' }
+              },
+              {
+                id: 'finding-aws-5',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_ownerless_role',
+                severity: 'medium',
+                title: 'Ownerless IAM role',
+                human_summary: 'No accountable owner was detected for the role.',
+                path: ['production-role'],
+                adapter_source: 'iam-policy collector',
+                confidence_score: 0.82,
+                first_seen_at: '2026-08-20T20:01:00Z',
+                evidence: { source: 'iam-policy', account_id: '123456789012', region: 'us-east-1' },
+                remediation: 'Assign an accountable owner to the role.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
               }
             ],
             next_cursor: 'aws-findings-page-2'
           }
     );
+    vi.spyOn(api.apiClient, 'listFindingHistory').mockResolvedValue({ items: [] });
     vi.spyOn(api.apiClient, 'listScanEvents').mockRejectedValue(new Error('scan events unavailable'));
     const getSecretPermissionEquivalence = vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence');
 
@@ -8478,19 +8725,67 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText('Showing findings from this AWS scan')).toBeInTheDocument();
     expect(screen.getByText(/could not verify source completeness/i)).toBeInTheDocument();
     const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
-    expect(within(findingsTable).getByText('Overprivileged IAM role')).toBeInTheDocument();
-    const overprivilegedRow = within(findingsTable).getByText('Overprivileged IAM role').closest('tr');
+    expect(within(findingsTable).getByText('production-role', { exact: true })).toBeInTheDocument();
+    const overprivilegedRow = within(findingsTable).getByText('production-role', { exact: true }).closest('tr');
     expect(overprivilegedRow).not.toBeNull();
-    expect(within(overprivilegedRow as HTMLElement).getByText('Account 123456789012 · Region us-east-1 · IAM permission path · 2 evidence nodes')).toBeInTheDocument();
-    expect(within(overprivilegedRow as HTMLElement).getByText('Source: iam-policy collector · Confidence: 88% · Completeness: Unknown')).toBeInTheDocument();
-    expect(within(overprivilegedRow as HTMLElement).getByText('Technical evidence (2 refs)')).toBeInTheDocument();
-    expect(within(overprivilegedRow as HTMLElement).getByText('scan-aws-complete')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('production-role · IAM role · Account 123456789012 · Global')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('2 related risks detected for this identity.')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('Source: iam-policy collector · Confidence: 82% · Completeness: Unknown')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).queryByText('Technical evidence (2 refs)')).not.toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).queryByText('scan-aws-complete')).not.toBeInTheDocument();
+    fireEvent.click(within(overprivilegedRow as HTMLElement).getByRole('button', { name: 'View details' }));
+    const findingDrawer = await screen.findByRole('dialog', { name: 'Finding details' });
+    expect(within(findingDrawer).getByText('Related risks (2)')).toBeInTheDocument();
+    expect(within(findingDrawer).getByText('Technical evidence (1 refs)')).toBeInTheDocument();
+    expect(within(findingDrawer).getByText('scan-aws-complete')).toBeInTheDocument();
+    expect(within(findingDrawer).getByRole('link', { name: 'Open in AWS Console' })).toHaveAttribute(
+      'href',
+      'https://console.aws.amazon.com/iam/home#/roles/production-role'
+    );
+    fireEvent.click(within(findingDrawer).getByRole('button', { name: 'View details for Ownerless IAM role' }));
+    await waitFor(() => {
+      expect(within(findingDrawer).getByText('Assign an accountable owner to the role.')).toBeInTheDocument();
+      expect(within(findingDrawer).getByText('Unassigned')).toBeInTheDocument();
+      expect(within(findingDrawer).getByText('Technical evidence (1 refs)')).toBeInTheDocument();
+    });
+    fireEvent.click(within(findingDrawer).getByRole('button', { name: 'View details for Overprivileged IAM role' }));
+    await waitFor(() => {
+      expect(within(findingDrawer).getByText('Reduce the role policy to the required actions.')).toBeInTheDocument();
+      expect(within(findingDrawer).getByText('Technical evidence (2 refs)')).toBeInTheDocument();
+    });
+    fireEvent.click(within(findingDrawer).getByRole('button', { name: 'Close detail drawer' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Finding details' })).not.toBeInTheDocument());
     expect(within(findingsTable).getByText('Public S3 bucket')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('High')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('Suppressed')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('Medium')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('Open')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Acknowledged')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Resolved')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Blocked')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Suppressed')).toBeInTheDocument();
+    expect(within(findingsTable).queryByText(/Region unknown/i)).not.toBeInTheDocument();
+    expect(within(findingsTable).getByText('shared-function · Lambda function · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('shared-function · Lambda function · Account 123456789012 · Region eu-west-1 · 1 evidence node')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('shared-function-colon · Lambda function · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('payments · Lambda function · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('database-password-abc123 · Secrets Manager secret · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Production database secret', { exact: true })).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Staging database secret', { exact: true })).toBeInTheDocument();
+
+    for (const [title, href] of [
+      ['Gov IAM role', 'https://console.amazonaws-us-gov.com/iam/home#/roles/gov-role'],
+      ['China IAM role', 'https://console.amazonaws.cn/iam/home#/roles/cn-role'],
+      ['ISO IAM role', 'https://console.c2s.ic.gov/iam/home#/roles/iso-role'],
+      ['ISO-B IAM role', 'https://console.sc2s.sgov.gov/iam/home#/roles/iso-b-role'],
+      ['IAM path role', 'https://console.aws.amazon.com/iam/home#/roles/payments']
+    ] as const) {
+      const row = within(findingsTable).getByText(title, { exact: true }).closest('tr');
+      expect(row).not.toBeNull();
+      fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'View details' }));
+      const partitionDrawer = await screen.findByRole('dialog', { name: 'Finding details' });
+      expect(within(partitionDrawer).getByRole('link', { name: 'Open in AWS Console' })).toHaveAttribute('href', href);
+      fireEvent.click(within(partitionDrawer).getByRole('button', { name: 'Close detail drawer' }));
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Finding details' })).not.toBeInTheDocument());
+    }
     fireEvent.change(screen.getByLabelText('Remediation'), { target: { value: 'suppressed' } });
     await waitFor(() => {
       expect(within(findingsTable).getByText('Overprivileged IAM role')).toBeInTheDocument();

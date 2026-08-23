@@ -190,6 +190,7 @@ import {
   type ExecutiveReport,
   type ExecutiveReportDomain,
   type Finding as ApiFinding,
+  type FindingTriageEvent,
   type FindingLifecycleStatus,
   type GitHubConnectorStartResponse,
   type GitHubConnectionStatus,
@@ -232,6 +233,7 @@ import { SessionsList } from './components/auth/SessionsList';
 import { PermissionPreviewModal } from './components/connector/PermissionPreviewModal';
 import { ConfirmDestructiveModal, DangerZone, DangerZoneRow } from './components/settings/DangerZone';
 import {
+  DomainDetailDrawer,
   DomainDetailPanel,
   DomainCoverageCard,
   DomainDataTable,
@@ -12968,7 +12970,9 @@ const AWS_RISK_OPERATION_FILTERS: AWSRiskOperationFilterConfigMap = {
       options: [
         { label: 'All regions', value: 'all' },
         { label: 'Current region', value: 'current' },
-        { label: 'Unknown region', value: 'unknown' }
+        { label: 'Global resources', value: 'global' },
+        { label: 'Other regions', value: 'other' },
+        { label: 'Region unavailable', value: 'unknown' }
       ]
     },
     {
@@ -13135,6 +13139,17 @@ type AWSRiskOperationTableRow = AWSInventoryFilterable & {
   completeness?: string;
   evidenceBoundary?: string;
   technicalEvidence?: string[];
+  identity?: string;
+  resourceARN?: string;
+  resourceLabel?: string;
+  resourceType?: string;
+  scopeLabel?: string;
+  identityKey?: string;
+  consoleLink?: string;
+  triageStatus?: string;
+  triageUpdatedAt?: string;
+  triageUpdatedBy?: string;
+  relatedRows?: AWSRiskOperationTableRow[];
 };
 
 function AWSRiskOperationFilterSet({
@@ -17149,6 +17164,14 @@ function awsSecretPermissionEquivalenceIdentityLabel(finding: AWSSecretPermissio
   );
 }
 
+function awsSecretPermissionEquivalenceIdentityKey(finding: AWSSecretPermissionEquivalenceFinding): string {
+  const stableIdentity =
+    [finding.principal_arn, finding.identity_node_id, finding.agent_id, finding.workload_id]
+      .map(normalizeValue)
+      .find(Boolean) || normalizeValue(finding.finding_id);
+  return [finding.account_id, finding.region, stableIdentity].map(normalizeValue).filter(Boolean).join(':').toLowerCase();
+}
+
 function awsSecretPermissionEquivalencePathLabel(finding: AWSSecretPermissionEquivalenceFinding): string {
   const labels = finding.impacted_path.map((step) => step.label || step.node_id).filter(Boolean);
   if (labels.length >= 2) {
@@ -17765,6 +17788,7 @@ function awsSecretPermissionEquivalenceRegionFilterToken(
     case 'current':
       return connection?.region || undefined;
     case 'unknown':
+    case 'other':
       return undefined;
     default:
       return awsSecretPermissionEquivalenceFilterToken(value);
@@ -17775,14 +17799,18 @@ function awsSecretPermissionEquivalenceFindingsQuery(
   filters: AWSInventoryFilterState,
   connection: AWSConnectionStatus | null
 ): Partial<AWSSecretPermissionEquivalenceQuery> {
-  return {
+  const query: Partial<AWSSecretPermissionEquivalenceQuery> = {
     accountID: awsSecretPermissionEquivalenceAccountFilterToken(filters.account, connection),
-    region: awsSecretPermissionEquivalenceRegionFilterToken(filters.region, connection),
     evidence: awsSecretPermissionEquivalenceFilterToken(filters.evidence),
     search: normalizeFilterValue(filters.search ?? '') || undefined,
     severity: awsSecretPermissionEquivalenceFilterToken(filters.severity),
     status: awsSecretPermissionEquivalenceStatusFilterToken(filters.status)
   };
+  const region = awsSecretPermissionEquivalenceRegionFilterToken(filters.region, connection);
+  if (region) {
+    query.region = region;
+  }
+  return query;
 }
 
 function awsGovernanceAuditReportingQueryFromFilters(filters: AWSInventoryFilterState): Partial<AWSGovernanceAuditReportingQuery> {
@@ -18103,66 +18131,6 @@ function AWSGraphEvidenceDrawer({ refs }: { refs: string[] }) {
   );
 }
 
-function AWSFindingTechnicalEvidenceDrawer({ row }: { row: AWSRiskOperationTableRow }) {
-  const refs = row.technicalEvidence?.filter(Boolean) ?? [];
-  return (
-    <details className="idt-aws-finding-technical-evidence">
-      <summary>Technical evidence{refs.length > 0 ? ` (${refs.length} refs)` : ''}</summary>
-      <dl>
-        <div>
-          <dt>Finding ID</dt>
-          <dd><code>{row.findingID || row.id}</code></dd>
-        </div>
-        <div>
-          <dt>Scan ID</dt>
-          <dd><code>{row.scanID || 'Unavailable'}</code></dd>
-        </div>
-        <div>
-          <dt>Scope</dt>
-          <dd>{row.accountID || 'Account unknown'} · {row.region || 'Region unknown'}</dd>
-        </div>
-        <div>
-          <dt>Observed</dt>
-          <dd>{row.observedAt || 'Unavailable'}</dd>
-        </div>
-        <div>
-          <dt>Provenance</dt>
-          <dd>{row.provenance || 'Unknown'}</dd>
-        </div>
-        <div>
-          <dt>Completeness</dt>
-          <dd>{awsPersistedFindingCompletenessLabel(row.completeness || 'unknown')}</dd>
-        </div>
-        {row.source ? (
-          <div>
-            <dt>Source</dt>
-            <dd>{row.source}</dd>
-          </div>
-        ) : null}
-        {row.evidenceBoundary ? (
-          <div>
-            <dt>Evidence boundary</dt>
-            <dd>{row.evidenceBoundary}</dd>
-          </div>
-        ) : null}
-        {row.confidence !== undefined ? (
-          <div>
-            <dt>Confidence</dt>
-            <dd>{formatConfidenceScore(row.confidence)}</dd>
-          </div>
-        ) : null}
-      </dl>
-      {refs.length > 0 ? (
-        <ul>
-          {refs.map((ref, index) => (
-            <li key={`${ref}-${index}`}><code>{ref}</code></li>
-          ))}
-        </ul>
-      ) : <p>No raw path or evidence references were returned.</p>}
-    </details>
-  );
-}
-
 function AWSFindingEvidenceCell({ row }: { row: AWSRiskOperationTableRow }) {
   const metadata = [
     row.source ? `Source: ${row.source}` : undefined,
@@ -18173,8 +18141,221 @@ function AWSFindingEvidenceCell({ row }: { row: AWSRiskOperationTableRow }) {
     <div className="idt-aws-finding-evidence-cell">
       <span>{row.evidence}</span>
       {metadata.length > 0 ? <small>{metadata.join(' · ')}</small> : null}
-      <AWSFindingTechnicalEvidenceDrawer row={row} />
     </div>
+  );
+}
+
+function awsFindingSeverityRank(value: string): number {
+  switch (normalizeValue(value).toLowerCase()) {
+    case 'critical': return 4;
+    case 'high': return 3;
+    case 'medium': return 2;
+    case 'low': return 1;
+    default: return 0;
+  }
+}
+
+function awsFindingAggregateStatus(rows: AWSRiskOperationTableRow[]): string {
+  const statuses = new Set(rows.map((row) => normalizeValue(row.status).toLowerCase()));
+  if (statuses.has('open') || statuses.has('action_required')) return 'open';
+  if (statuses.has('ack')) return 'ack';
+  if (statuses.has('suppressed')) return 'suppressed';
+  if (statuses.has('queued') || statuses.has('review')) return 'queued';
+  if (statuses.has('blocked')) return 'blocked';
+  if (statuses.has('resolved')) return 'resolved';
+  return rows[0]?.status || 'unavailable';
+}
+
+function awsFindingStatusContributesToAggregate(status: string, aggregateStatus: string): boolean {
+  const normalizedStatus = normalizeValue(status).toLowerCase();
+  switch (aggregateStatus) {
+    case 'open':
+      return normalizedStatus === 'open' || normalizedStatus === 'action_required';
+    case 'ack':
+      return normalizedStatus === 'ack';
+    case 'suppressed':
+      return normalizedStatus === 'suppressed';
+    case 'queued':
+      return normalizedStatus === 'queued' || normalizedStatus === 'review';
+    case 'blocked':
+      return normalizedStatus === 'blocked';
+    case 'resolved':
+      return normalizedStatus === 'resolved';
+    default:
+      return true;
+  }
+}
+
+function groupAWSFindingRows(rows: AWSRiskOperationTableRow[]): AWSRiskOperationTableRow[] {
+  const groups = new Map<string, AWSRiskOperationTableRow[]>();
+  for (const row of rows) {
+    const key = row.identityKey ? `identity:${row.identityKey}` : `finding:${row.id}`;
+    const group = groups.get(key) ?? [];
+    group.push(row);
+    groups.set(key, group);
+  }
+  return Array.from(groups.entries()).map(([key, group]) => {
+    if (group.length === 1) return group[0];
+    const aggregateStatus = awsFindingAggregateStatus(group);
+    const statusRows = group.filter((row) => awsFindingStatusContributesToAggregate(row.status, aggregateStatus));
+    const primary = [...(statusRows.length > 0 ? statusRows : group)].sort(
+      (left, right) => awsFindingSeverityRank(right.category) - awsFindingSeverityRank(left.category)
+    )[0];
+    const orderedGroup = [primary, ...group.filter((row) => row !== primary)];
+    return {
+      ...primary,
+      id: `aws-identity-group:${key}`,
+      title: primary.resourceLabel || primary.title,
+      evidence: `${group.length} related risks detected for this identity.`,
+      blastRadius: `${primary.identity ? `${primary.identity} · ` : ''}${primary.resourceLabel || primary.title} · ${primary.resourceType || 'AWS resource'} · ${primary.scopeLabel || primary.blastRadius}`,
+      status: aggregateStatus,
+      relatedRows: orderedGroup,
+      technicalEvidence: [],
+      searchText: inventorySearchText(group.flatMap((row) => [row.title, row.resourceLabel, row.resourceARN, row.searchText]))
+    };
+  });
+}
+
+function AWSFindingDetailsDrawer({
+  open,
+  row,
+  showingPersistedScan,
+  scope,
+  onClose
+}: {
+  open: boolean;
+  row: AWSRiskOperationTableRow | null;
+  showingPersistedScan: boolean;
+  scope: ProductSession | null;
+  onClose: () => void;
+}) {
+  const relatedRows = row?.relatedRows ?? (row ? [row] : []);
+  const [selectedRelatedRowID, setSelectedRelatedRowID] = useState<string | null>(null);
+  const [history, setHistory] = useState<FindingTriageEvent[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyUnavailable, setHistoryUnavailable] = useState(false);
+  const representative = relatedRows.find((relatedRow) => relatedRow.id === selectedRelatedRowID) ?? relatedRows[0] ?? null;
+
+  useEffect(() => {
+    setSelectedRelatedRowID(relatedRows[0]?.id ?? null);
+  }, [open, row?.id]);
+
+  useEffect(() => {
+    let active = true;
+    if (!open || !showingPersistedScan || !representative?.findingID || !scope) {
+      setHistory([]);
+      setHistoryLoading(false);
+      setHistoryUnavailable(false);
+      return () => {
+        active = false;
+      };
+    }
+    setHistoryUnavailable(false);
+    setHistoryLoading(true);
+    apiClient
+      .listFindingHistory(representative.findingID, representative.scanID, 20, {
+        tenantID: scope.tenantID,
+        workspaceID: scope.workspaceID
+      })
+      .then((response) => {
+        if (active) setHistory(response.items ?? []);
+      })
+      .catch(() => {
+        if (active) {
+          setHistory([]);
+          setHistoryUnavailable(true);
+        }
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, representative?.findingID, representative?.scanID, scope?.tenantID, scope?.workspaceID, showingPersistedScan]);
+
+  return (
+    <DomainDetailDrawer open={open} title="Finding details" eyebrow="AWS risk" onClose={onClose}>
+      {row && representative ? (
+        <div className="idt-aws-finding-detail">
+          <div className="idt-aws-finding-detail-heading">
+            <h4>{representative.title}</h4>
+            <AWSInventoryPill stage={representative.stage} label={showingPersistedScan ? awsPersistedFindingStatusLabel(representative.status) : formatTokenLabel(representative.status)} />
+          </div>
+          <section>
+            <h5>Why it matters</h5>
+            <p>{representative.evidence}</p>
+          </section>
+          <section>
+            <h5>Affected resource</h5>
+            <dl>
+              <div><dt>Resource</dt><dd>{representative.resourceLabel || representative.title}</dd></div>
+              <div><dt>Type</dt><dd>{representative.resourceType || 'AWS resource'}</dd></div>
+              {representative.identity ? <div><dt>Identity</dt><dd>{representative.identity}</dd></div> : null}
+              <div><dt>Scope</dt><dd>{representative.scopeLabel || representative.blastRadius}</dd></div>
+              {representative.resourceARN ? <div><dt>ARN</dt><dd><code>{representative.resourceARN}</code></dd></div> : null}
+            </dl>
+          </section>
+          <section>
+            <h5>Recommended action</h5>
+            <p>{representative.nextAction}</p>
+          </section>
+          {relatedRows.length > 1 ? (
+            <section>
+              <h5>Related risks ({relatedRows.length})</h5>
+              <ul className="idt-aws-finding-related-list">
+                {relatedRows.map((relatedRow) => (
+                  <li key={relatedRow.id}>
+                    <button
+                      type="button"
+                      className="idt-aws-finding-related-button"
+                      aria-label={`View details for ${relatedRow.title}`}
+                      aria-pressed={relatedRow.id === representative.id}
+                      onClick={() => setSelectedRelatedRowID(relatedRow.id)}
+                    >
+                      <strong>{relatedRow.title}</strong>
+                      <span>{relatedRow.category} · {formatTokenLabel(relatedRow.status)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+          <section>
+            <h5>Evidence</h5>
+            <dl>
+              <div><dt>Finding ID</dt><dd><code>{representative.findingID || representative.id}</code></dd></div>
+              <div><dt>Scan ID</dt><dd><code>{representative.scanID || 'Unavailable'}</code></dd></div>
+              <div><dt>Source</dt><dd>{representative.source || 'Unavailable'}</dd></div>
+              <div><dt>Completeness</dt><dd>{awsPersistedFindingCompletenessLabel(representative.completeness || 'unknown')}</dd></div>
+              {representative.confidence !== undefined ? <div><dt>Confidence</dt><dd>{formatConfidenceScore(representative.confidence)}</dd></div> : null}
+              <div><dt>Observed</dt><dd>{representative.observedAt || 'Unavailable'}</dd></div>
+              {representative.evidenceBoundary ? <div><dt>Boundary</dt><dd>{representative.evidenceBoundary}</dd></div> : null}
+            </dl>
+            <details className="idt-aws-finding-technical-evidence">
+              <summary>Technical evidence ({representative.technicalEvidence?.length ?? 0} refs)</summary>
+              {representative.technicalEvidence?.length ? (
+                <ul>{representative.technicalEvidence.map((ref, index) => <li key={`${ref}-${index}`}><code>{ref}</code></li>)}</ul>
+              ) : (
+                <p>No raw path or evidence references were returned.</p>
+              )}
+            </details>
+          </section>
+          <section>
+            <h5>Ownership &amp; resolution</h5>
+            <dl>
+              <div><dt>Owner</dt><dd>{representative.owner || 'Unassigned'}</dd></div>
+              <div><dt>Status</dt><dd>{showingPersistedScan ? awsPersistedFindingStatusLabel(representative.status) : formatTokenLabel(representative.status)}</dd></div>
+              {representative.triageUpdatedAt ? <div><dt>Last updated</dt><dd>{formatDateLabel(representative.triageUpdatedAt)}{representative.triageUpdatedBy ? ` by ${representative.triageUpdatedBy}` : ''}</dd></div> : null}
+            </dl>
+            {historyLoading ? <p>Loading resolution history…</p> : historyUnavailable ? <p>Resolution history is unavailable for this finding.</p> : history.length > 0 ? (
+              <ol className="idt-aws-finding-history">{history.map((event) => <li key={event.id}><strong>{formatTokenLabel(event.from_status)} → {formatTokenLabel(event.to_status)}</strong><span>{formatDateLabel(event.created_at)}{event.actor ? ` · ${event.actor}` : ''}</span>{event.comment ? <p>{event.comment}</p> : null}</li>)}</ol>
+            ) : <p>No recorded triage changes.</p>}
+          </section>
+          {representative.consoleLink ? <a className="idt-aws-finding-console-link" href={representative.consoleLink} target="_blank" rel="noreferrer">Open in AWS Console <ExternalLink size={15} aria-hidden="true" /></a> : null}
+        </div>
+      ) : null}
+    </DomainDetailDrawer>
   );
 }
 
@@ -18189,13 +18370,15 @@ function awsSecretPermissionEquivalenceRiskOperationRow(
   const secret = finding.secret_label || finding.secret_arn || finding.secret_node_id;
   const evidence = awsSecretPermissionEquivalenceEvidenceLabel(finding);
   const detailLink = awsSecretPermissionEquivalenceDetailLink(scope, environmentID, finding);
+  const scopeLabel = `${finding.account_id ? `Account ${finding.account_id}` : 'Account unavailable'} · ${finding.region ? `Region ${finding.region}` : 'Region unavailable'}`;
   return {
     id: finding.finding_id,
     title: awsSecretPermissionEquivalenceLabel(finding),
     category: formatTokenLabel(finding.severity),
     evidence,
-    owner: identity || 'Unknown identity',
-    blastRadius: `${awsAccountRegionInventoryLabel(finding.account_id, finding.region)} · ${identity || 'Unknown identity'} · ${secret}`,
+    identity,
+    owner: 'Unassigned',
+    blastRadius: `${identity || 'Identity unavailable'} · ${secret} · Secret · ${scopeLabel}`,
     nextAction: finding.next_action,
     status: finding.status,
     stage: awsSecretPermissionEquivalenceStage(finding),
@@ -18209,6 +18392,11 @@ function awsSecretPermissionEquivalenceRiskOperationRow(
     provenance: 'Live AWS analysis',
     completeness: awsSecretPermissionEquivalenceCompleteness(result),
     evidenceBoundary: finding.evidence_boundary,
+    resourceLabel: secret,
+    resourceType: 'Secret',
+    scopeLabel,
+    identityKey: awsSecretPermissionEquivalenceIdentityKey(finding),
+    triageStatus: finding.status,
     technicalEvidence: [
       ...finding.evidence.map((evidence) => evidence.evidence_ref),
       ...finding.impacted_path.map((step) => step.node_id)
@@ -18216,7 +18404,7 @@ function awsSecretPermissionEquivalenceRiskOperationRow(
     filters: {
       severity: finding.severity || 'unknown',
       account: connection?.account_id && connection.account_id === finding.account_id ? 'connected' : 'unknown',
-      region: connection?.region && connection.region === finding.region ? 'current' : 'unknown',
+      region: finding.region ? (connection?.region === finding.region ? 'current' : 'other') : 'unknown',
       evidence: awsSecretPermissionEquivalenceEvidenceFilterToken(finding),
       status: awsSecretPermissionEquivalenceFindingStatusFilterToken(finding.status)
     },
@@ -18360,18 +18548,6 @@ function awsPersistedFindingPathIsSerialized(value: string): boolean {
   return decoded.length > 120 || decoded.includes('aws:access:') || decoded.includes(' -> ') || value.includes('%');
 }
 
-function awsPersistedFindingAffectedResource(finding: ApiFinding): string {
-  const path = finding.path?.map((value) => normalizeValue(value)).filter(Boolean) ?? [];
-  if (path.length === 0) {
-    return 'Resource unavailable';
-  }
-  if (path.some(awsPersistedFindingPathIsSerialized)) {
-    return 'IAM permission path';
-  }
-  const firstPathNode = path[0];
-  return firstPathNode.length > 96 ? `${firstPathNode.slice(0, 93)}...` : firstPathNode;
-}
-
 function awsPersistedFindingCompletenessLabel(value: string): string {
   switch (value) {
     case 'partial':
@@ -18386,67 +18562,208 @@ function awsPersistedFindingCompletenessLabel(value: string): string {
 type AWSPersistedFindingScope = {
   accountID?: string;
   region?: string;
+  global: boolean;
+  resourceARN?: string;
+  resourceLabel: string;
+  resourceType: string;
+  identityKey?: string;
+  scopeLabel: string;
+  consoleLink?: string;
 };
 
 const AWS_FINDING_ACCOUNT_ID_PATTERN = /^\d{12}$/;
 const AWS_FINDING_REGION_PATTERN = /^(?:af|ap|ca|cn|eu|il|me|sa|us|mx|us-gov|us-iso|us-isob|eu-isoe)-[a-z0-9-]+-\d+$/;
 
-function awsPersistedFindingScope(finding: ApiFinding): AWSPersistedFindingScope {
-  const scope: AWSPersistedFindingScope = {};
+function decodeAWSFindingValue(value: string): string {
+  let decoded = value;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) {
+        break;
+      }
+      decoded = next;
+    } catch {
+      break;
+    }
+  }
+  return decoded;
+}
+
+function awsFindingARNFromValue(value: string): string | undefined {
+  const decoded = decodeAWSFindingValue(value);
+  const match = decoded.match(/arn:(?:aws|aws-us-gov|aws-cn|aws-iso|aws-iso-b):[^\s,]+/i);
+  return match?.[0].replace(/[)\],.;]+$/, '');
+}
+
+function awsFindingEvidenceStrings(finding: ApiFinding): string[] {
+  const values: string[] = [];
   const visited = new Set<object>();
-
-  const inspect = (value: unknown, key?: string): void => {
-    if (scope.accountID && scope.region) {
+  const inspect = (value: unknown): void => {
+    const normalized = normalizeValue(value);
+    if (normalized) {
+      values.push(normalized);
       return;
     }
-
-    const normalizedKey = key?.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-    const normalizedValue = normalizeValue(value);
-    if (normalizedValue) {
-      if (
-        normalizedKey &&
-        ['account', 'accountid', 'awsaccountid'].includes(normalizedKey) &&
-        AWS_FINDING_ACCOUNT_ID_PATTERN.test(normalizedValue)
-      ) {
-        scope.accountID ??= normalizedValue;
-      }
-      if (
-        normalizedKey &&
-        ['region', 'awsregion'].includes(normalizedKey) &&
-        AWS_FINDING_REGION_PATTERN.test(normalizedValue)
-      ) {
-        scope.region ??= normalizedValue;
-      }
-      if (normalizedValue.startsWith('arn:')) {
-        const arnParts = normalizedValue.split(':');
-        if (arnParts.length >= 6) {
-          const accountID = arnParts[4];
-          const region = arnParts[3];
-          if (AWS_FINDING_ACCOUNT_ID_PATTERN.test(accountID)) {
-            scope.accountID ??= accountID;
-          }
-          if (AWS_FINDING_REGION_PATTERN.test(region)) {
-            scope.region ??= region;
-          }
-        }
-      }
-      return;
-    }
-
     if (!value || typeof value !== 'object' || visited.has(value)) {
       return;
     }
     visited.add(value);
-    for (const [childKey, childValue] of Object.entries(value)) {
-      inspect(childValue, childKey);
+    for (const childValue of Object.values(value)) {
+      inspect(childValue);
     }
   };
-
   inspect(finding.evidence);
   for (const pathPart of finding.path ?? []) {
     inspect(pathPart);
   }
-  return scope;
+  return values;
+}
+
+function awsFindingResourceName(resource: string, service = ''): string {
+  const normalized = decodeAWSFindingValue(resource).replace(/^\//, '');
+  const name =
+    service === 'lambda' && normalized.toLowerCase().startsWith('function:')
+      ? normalized.slice('function:'.length).split(':')[0]
+      : (() => {
+          const lastSeparator = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf(':'));
+          return lastSeparator >= 0 ? normalized.slice(lastSeparator + 1) : normalized;
+        })();
+  return name.length > 100 ? `${name.slice(0, 97)}...` : name;
+}
+
+function awsFindingResourceType(service: string, resource: string, findingType: string, title = ''): string {
+  const normalizedResource = resource.toLowerCase();
+  const normalizedFindingType = `${findingType} ${title}`.toLowerCase();
+  if (service === 'iam' || normalizedFindingType.includes('iam')) {
+    if (normalizedResource.startsWith('role/')) return 'IAM role';
+    if (normalizedResource.startsWith('user/')) return 'IAM user';
+    if (normalizedResource.startsWith('group/')) return 'IAM group';
+    if (normalizedResource.startsWith('policy/')) return 'IAM policy';
+    if (normalizedFindingType.includes('role') || normalizedFindingType.includes('trust policy') || normalizedResource.includes('awsservicerole')) return 'IAM role';
+    return 'IAM identity';
+  }
+  const serviceLabels: Record<string, string> = {
+    s3: 'S3 bucket',
+    lambda: 'Lambda function',
+    secretsmanager: 'Secrets Manager secret',
+    kms: 'KMS key',
+    ec2: 'EC2 resource',
+    rds: 'RDS resource',
+    dynamodb: 'DynamoDB resource'
+  };
+  return serviceLabels[service] || (service ? `${formatTokenLabel(service)} resource` : 'AWS resource');
+}
+
+type AWSConsolePartition = 'aws' | 'aws-us-gov' | 'aws-cn' | 'aws-iso' | 'aws-iso-b';
+
+const AWS_CONSOLE_HOSTS: Record<AWSConsolePartition, string> = {
+  aws: 'console.aws.amazon.com',
+  'aws-us-gov': 'console.amazonaws-us-gov.com',
+  'aws-cn': 'console.amazonaws.cn',
+  'aws-iso': 'console.c2s.ic.gov',
+  'aws-iso-b': 'console.sc2s.sgov.gov'
+};
+
+const AWS_S3_CONSOLE_HOSTS: Record<AWSConsolePartition, string> = {
+  aws: 's3.console.aws.amazon.com',
+  'aws-us-gov': 's3.console.amazonaws-us-gov.com',
+  'aws-cn': 's3.console.amazonaws.cn',
+  'aws-iso': 'console.c2s.ic.gov',
+  'aws-iso-b': 'console.sc2s.sgov.gov'
+};
+
+function awsConsolePartition(arn: string): AWSConsolePartition | undefined {
+  const partition = arn.split(':')[1] as AWSConsolePartition | undefined;
+  return partition && Object.prototype.hasOwnProperty.call(AWS_CONSOLE_HOSTS, partition) ? partition : undefined;
+}
+
+function awsFindingConsoleLink(arn: string | undefined, region: string | undefined): string | undefined {
+  if (!arn) return undefined;
+  const parts = arn.split(':');
+  if (parts.length < 6) return undefined;
+  const partition = awsConsolePartition(arn);
+  if (!partition) return undefined;
+  const service = parts[2];
+  const resource = parts.slice(5).join(':');
+  const name = resource.split('/').slice(1).join('/') || resource.split(':').pop();
+  if (!name) return undefined;
+  if (service === 'iam' && resource.startsWith('role/')) {
+    const roleName = resource.slice('role/'.length).split('/').pop();
+    return roleName ? `https://${AWS_CONSOLE_HOSTS[partition]}/iam/home#/roles/${encodeURIComponent(roleName)}` : undefined;
+  }
+  if (service === 'iam' && resource.startsWith('user/')) {
+    const userName = resource.slice('user/'.length).split('/').pop();
+    return userName ? `https://${AWS_CONSOLE_HOSTS[partition]}/iam/home#/users/${encodeURIComponent(userName)}` : undefined;
+  }
+  if (service === 's3') {
+    return `https://${AWS_S3_CONSOLE_HOSTS[partition]}/s3/buckets/${encodeURIComponent(name)}${region ? `?region=${encodeURIComponent(region)}` : ''}`;
+  }
+  return undefined;
+}
+
+function awsFindingConsoleLinkForResource(
+  arn: string | undefined,
+  resourceType: string,
+  resourceLabel: string,
+  region: string | undefined
+): string | undefined {
+  const arnLink = awsFindingConsoleLink(arn, region);
+  if (arnLink || !resourceLabel || resourceLabel === 'Resource unavailable' || resourceLabel === 'IAM identity') {
+    return arnLink;
+  }
+  if (resourceType === 'IAM role') {
+    return `https://console.aws.amazon.com/iam/home#/roles/${encodeURIComponent(resourceLabel)}`;
+  }
+  if (resourceType === 'IAM user') {
+    return `https://console.aws.amazon.com/iam/home#/users/${encodeURIComponent(resourceLabel)}`;
+  }
+  if (resourceType === 'S3 bucket') {
+    return `https://s3.console.aws.amazon.com/s3/buckets/${encodeURIComponent(resourceLabel)}${region ? `?region=${encodeURIComponent(region)}` : ''}`;
+  }
+  return undefined;
+}
+
+function awsPersistedFindingScope(finding: ApiFinding): AWSPersistedFindingScope {
+  const values = awsFindingEvidenceStrings(finding);
+  const arns = values.map(awsFindingARNFromValue).filter((value): value is string => Boolean(value));
+  const resourceARN = arns[0];
+  const arnParts = resourceARN?.split(':');
+  const service = arnParts?.[2] || '';
+  const resource = arnParts?.slice(5).join(':') || '';
+  const normalizedType = normalizeValue(finding.type).toLowerCase();
+  const global = service === 'iam' || normalizedType.includes('iam');
+  const accountID =
+    (arnParts?.[4] && AWS_FINDING_ACCOUNT_ID_PATTERN.test(arnParts[4]) ? arnParts[4] : undefined) ||
+    values.map(decodeAWSFindingValue).find((value) => AWS_FINDING_ACCOUNT_ID_PATTERN.test(value));
+  const region = global
+    ? undefined
+    : (arnParts?.[3] && AWS_FINDING_REGION_PATTERN.test(arnParts[3]) ? arnParts[3] : undefined) ||
+      values.map(decodeAWSFindingValue).find((value) => AWS_FINDING_REGION_PATTERN.test(value));
+  const readablePath = (finding.path ?? [])
+    .map((value) => decodeAWSFindingValue(normalizeValue(value)))
+    .map((value) => awsFindingARNFromValue(value) || value)
+    .find((value) => value && !awsPersistedFindingPathIsSerialized(value));
+  const resourceLabel = resourceARN
+    ? awsFindingResourceName(resource, service)
+    : readablePath || (global ? 'IAM identity' : 'Resource unavailable');
+  const resourceType = awsFindingResourceType(service, resource || resourceLabel, finding.type, finding.title);
+  const scopeLabel = `${accountID ? `Account ${accountID}` : 'Account unavailable'} · ${global ? 'Global' : region ? `Region ${region}` : 'Region unavailable'}`;
+  const fallbackIdentityKey =
+    resourceLabel !== 'Resource unavailable' && resourceLabel !== 'IAM identity'
+      ? `${accountID || 'account-unavailable'}:${resourceType}:${resourceLabel}:${global ? 'global' : region || 'region-unavailable'}`.toLowerCase()
+      : undefined;
+  return {
+    accountID,
+    region,
+    global,
+    resourceARN,
+    resourceLabel,
+    resourceType,
+    identityKey: service === 'iam' ? fallbackIdentityKey : resourceARN || fallbackIdentityKey,
+    scopeLabel,
+    consoleLink: awsFindingConsoleLinkForResource(resourceARN, resourceType, resourceLabel, region)
+  };
 }
 
 function awsPersistedFindingRiskOperationRow(
@@ -18457,8 +18774,6 @@ function awsPersistedFindingRiskOperationRow(
 ): AWSRiskOperationTableRow {
   const status = awsPersistedFindingStatus(finding);
   const findingScope = awsPersistedFindingScope(finding);
-  const account = findingScope.accountID ? `Account ${findingScope.accountID}` : 'Account unknown';
-  const region = findingScope.region ? `Region ${findingScope.region}` : 'Region unknown';
   const evidence = awsPersistedFindingEvidence(finding);
   const source = awsPersistedFindingSource(finding);
   const scanID = normalizeValue(finding.scan_id) || normalizeValue(persistedScan?.id);
@@ -18475,8 +18790,8 @@ function awsPersistedFindingRiskOperationRow(
     title: finding.title || formatTokenLabel(finding.type),
     category: formatTokenLabel(finding.severity),
     evidence,
-    owner: finding.owner || source,
-    blastRadius: `${account} · ${region} · ${awsPersistedFindingAffectedResource(finding)}${technicalEvidence.length > 0 ? ` · ${technicalEvidence.length} evidence node${technicalEvidence.length === 1 ? '' : 's'}` : ''}`,
+    owner: finding.triage?.assignee || (finding.owner && finding.owner !== source ? finding.owner : undefined) || 'Unassigned',
+    blastRadius: `${findingScope.resourceLabel} · ${findingScope.resourceType} · ${findingScope.scopeLabel}${technicalEvidence.length > 0 ? ` · ${technicalEvidence.length} evidence node${technicalEvidence.length === 1 ? '' : 's'}` : ''}`,
     nextAction: finding.remediation || 'Review the finding evidence and remediate the affected AWS resource.',
     status,
     stage: awsPersistedFindingStage(finding),
@@ -18491,10 +18806,19 @@ function awsPersistedFindingRiskOperationRow(
     completeness,
     evidenceBoundary,
     technicalEvidence,
+    resourceARN: findingScope.resourceARN,
+    resourceLabel: findingScope.resourceLabel,
+    resourceType: findingScope.resourceType,
+    scopeLabel: findingScope.scopeLabel,
+    identityKey: findingScope.identityKey,
+    consoleLink: findingScope.consoleLink,
+    triageStatus: finding.triage?.status,
+    triageUpdatedAt: finding.triage?.updated_at,
+    triageUpdatedBy: finding.triage?.updated_by,
     filters: {
       severity: normalizeValue(finding.severity).toLowerCase() || 'unknown',
       account: findingScope.accountID && findingScope.accountID === connection?.account_id ? 'connected' : 'unknown',
-      region: findingScope.region && findingScope.region === connection?.region ? 'current' : 'unknown',
+      region: findingScope.global ? 'global' : findingScope.region && findingScope.region === connection?.region ? 'current' : findingScope.region ? 'other' : 'unknown',
       evidence: Object.keys(finding.evidence ?? {}).length > 0 ? 'inventory-backed' : 'unavailable',
       status
     },
@@ -18505,6 +18829,9 @@ function awsPersistedFindingRiskOperationRow(
       finding.remediation,
       findingScope.accountID,
       findingScope.region,
+      findingScope.resourceLabel,
+      findingScope.resourceType,
+      findingScope.resourceARN,
       ...(finding.path ?? [])
     ])
   };
@@ -18559,7 +18886,10 @@ function AWSFindingsContent({
   const rows = showingPersistedScan
     ? persistedFindings?.map((finding) => awsPersistedFindingRiskOperationRow(finding, connection, persistedScan, persistedCompleteness)) ?? []
     : findings?.findings.map((finding) => awsSecretPermissionEquivalenceRiskOperationRow(finding, findings, scope, environmentID, connection)) ?? [];
-  const displayedRows = filterAWSInventoryRows(rows, filters);
+  const filteredRows = filterAWSInventoryRows(rows, filters);
+  const displayedRows = groupAWSFindingRows(filteredRows);
+  const [selectedRowID, setSelectedRowID] = useState<string | null>(null);
+  const selectedRow = displayedRows.find((row) => row.id === selectedRowID) ?? null;
   const persistedScanReadyToLoad = Boolean(scope && environmentID);
   const liveFindingsReadyToLoad = Boolean(scope && environmentID && connection?.connected);
   const isLoading = loading || (showingPersistedScan && persistedScanReadyToLoad && !persistedFindings && !error) || (!showingPersistedScan && liveFindingsReadyToLoad && !findings && !error);
@@ -18632,10 +18962,18 @@ function AWSFindingsContent({
             { key: 'category', header: 'Severity', render: (row) => row.category },
             { key: 'evidence', header: 'Evidence', render: (row) => <AWSFindingEvidenceCell row={row} /> },
             { key: 'blast', header: 'Blast radius', render: (row) => row.blastRadius },
-            { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={showingPersistedScan ? awsPersistedFindingStatusLabel(row.status) : formatTokenLabel(row.status)} /> }
+            { key: 'status', header: 'Status', render: (row) => <AWSInventoryPill stage={row.stage} label={showingPersistedScan ? awsPersistedFindingStatusLabel(row.status) : formatTokenLabel(row.status)} /> },
+            { key: 'action', header: 'Action', render: (row) => <button type="button" className="idt-aws-finding-view-details" onClick={() => setSelectedRowID(row.id)}>View details</button> }
           ]}
         />
       )}
+      <AWSFindingDetailsDrawer
+        open={Boolean(selectedRow)}
+        row={selectedRow}
+        showingPersistedScan={showingPersistedScan}
+        scope={scope}
+        onClose={() => setSelectedRowID(null)}
+      />
     </>
   );
 }
