@@ -8485,6 +8485,34 @@ describe('Domain-first app routes', () => {
                 lifecycle_status: 'open'
               },
               {
+                id: 'finding-aws-secret-prod-path',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_secretsmanager_secret',
+                severity: 'low',
+                title: 'Production database secret',
+                human_summary: 'A path-qualified production secret.',
+                path: ['arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db'],
+                owner: 'AWS scanner',
+                evidence: { source: 'secret-policy' },
+                remediation: 'Review the production secret policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
+                id: 'finding-aws-secret-staging-path',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_secretsmanager_secret',
+                severity: 'low',
+                title: 'Staging database secret',
+                human_summary: 'A path-qualified staging secret.',
+                path: ['arn:aws:secretsmanager:us-east-1:123456789012:secret:staging/db'],
+                owner: 'AWS scanner',
+                evidence: { source: 'secret-policy' },
+                remediation: 'Review the staging secret policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
                 id: 'finding-aws-iam-path-role',
                 scan_id: 'scan-aws-complete',
                 type: 'aws_iam_partition_role',
@@ -8740,6 +8768,8 @@ describe('Domain-first app routes', () => {
     expect(within(findingsTable).getByText('shared-function-colon · Lambda function · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
     expect(within(findingsTable).getByText('payments · Lambda function · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
     expect(within(findingsTable).getByText('database-password-abc123 · Secrets Manager secret · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Production database secret', { exact: true })).toBeInTheDocument();
+    expect(within(findingsTable).getByText('Staging database secret', { exact: true })).toBeInTheDocument();
 
     for (const [title, href] of [
       ['Gov IAM role', 'https://console.amazonaws-us-gov.com/iam/home#/roles/gov-role'],

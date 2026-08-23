@@ -18749,6 +18749,10 @@ function awsPersistedFindingScope(finding: ApiFinding): AWSPersistedFindingScope
     : readablePath || (global ? 'IAM identity' : 'Resource unavailable');
   const resourceType = awsFindingResourceType(service, resource || resourceLabel, finding.type, finding.title);
   const scopeLabel = `${accountID ? `Account ${accountID}` : 'Account unavailable'} · ${global ? 'Global' : region ? `Region ${region}` : 'Region unavailable'}`;
+  const fallbackIdentityKey =
+    resourceLabel !== 'Resource unavailable' && resourceLabel !== 'IAM identity'
+      ? `${accountID || 'account-unavailable'}:${resourceType}:${resourceLabel}:${global ? 'global' : region || 'region-unavailable'}`.toLowerCase()
+      : undefined;
   return {
     accountID,
     region,
@@ -18756,10 +18760,7 @@ function awsPersistedFindingScope(finding: ApiFinding): AWSPersistedFindingScope
     resourceARN,
     resourceLabel,
     resourceType,
-    identityKey:
-      resourceLabel !== 'Resource unavailable' && resourceLabel !== 'IAM identity'
-        ? `${accountID || 'account-unavailable'}:${resourceType}:${resourceLabel}:${global ? 'global' : region || 'region-unavailable'}`.toLowerCase()
-        : resourceARN,
+    identityKey: service === 'iam' ? fallbackIdentityKey : resourceARN || fallbackIdentityKey,
     scopeLabel,
     consoleLink: awsFindingConsoleLinkForResource(resourceARN, resourceType, resourceLabel, region)
   };
