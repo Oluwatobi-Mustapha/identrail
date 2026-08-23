@@ -8110,10 +8110,19 @@ describe('Domain-first app routes', () => {
       finding_id: 'aws-secret-permission-equivalence:findings-route-actionable',
       status: 'action_required'
     };
+    const sameNameDifferentIdentityFinding = {
+      ...equivalenceFinding,
+      finding_id: 'aws-secret-permission-equivalence:findings-route-different-identity',
+      region: 'eu-west-1',
+      identity_node_id: 'aws:identity:case-triage-eu',
+      agent_id: 'case-triage-id-eu',
+      secret_node_id: 'aws:resource:secret:anthropic-api-key',
+      secret_label: 'anthropic/api-key'
+    };
     const getSecretPermissionEquivalence = vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockResolvedValue({
       findings: {
         status: 'ready',
-        findings: [equivalenceFinding, actionableEquivalenceFinding],
+        findings: [equivalenceFinding, actionableEquivalenceFinding, sameNameDifferentIdentityFinding],
         summary: {
           external_provider_key_count: 0,
           aws_managed_secret_count: 0,
@@ -8146,7 +8155,7 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Findings' })).toBeInTheDocument();
     const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
-    expect(within(findingsTable).getByText(/Completeness: Complete/i)).toBeInTheDocument();
+    expect(within(findingsTable).getAllByText(/Completeness: Complete/i)).toHaveLength(2);
     expect(within(findingsTable).getByRole('link', { name: /openai\/api-key/i })).toHaveAttribute(
       'href',
       '/app/tenant-a/workspace-a/aws/agents/detail?environment=production&agent=case-triage-id&tab=secrets'
@@ -8154,12 +8163,13 @@ describe('Domain-first app routes', () => {
     const liveFindingRow = within(findingsTable).getByRole('link', { name: /openai\/api-key/i }).closest('tr');
     expect(liveFindingRow).not.toBeNull();
     expect(within(liveFindingRow as HTMLElement).getByText(/Case Triage · openai\/api-key · Secret · Account 123456789012 · Region us-east-1/)).toBeInTheDocument();
+    expect(within(findingsTable).getByText(/Case Triage · anthropic\/api-key · Secret · Account 123456789012 · Region eu-west-1/)).toBeInTheDocument();
     fireEvent.click(within(liveFindingRow as HTMLElement).getByRole('button', { name: 'View details' }));
     const liveFindingDrawer = await screen.findByRole('dialog', { name: 'Finding details' });
     expect(within(liveFindingDrawer).getByText('Case Triage', { exact: true })).toBeInTheDocument();
     fireEvent.click(within(liveFindingDrawer).getByRole('button', { name: 'Close detail drawer' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Finding details' })).not.toBeInTheDocument());
-    expect(within(findingsTable).getByText('High')).toBeInTheDocument();
+    expect(within(findingsTable).getAllByText('High')).toHaveLength(2);
     expect(within(findingsTable).getByText('Open')).toBeInTheDocument();
     expect(screen.queryByRole('table', { name: 'AWS secret-to-permission equivalence findings' })).not.toBeInTheDocument();
     await waitFor(() =>
@@ -8447,6 +8457,20 @@ describe('Domain-first app routes', () => {
                 lifecycle_status: 'open'
               },
               {
+                id: 'finding-aws-lambda-qualified-resource',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_lambda_function',
+                severity: 'low',
+                title: 'Qualified Lambda resource label',
+                human_summary: 'A Lambda finding with a qualified ARN resource.',
+                path: ['arn:aws:lambda:us-east-1:123456789012:function:payments:42'],
+                owner: 'AWS scanner',
+                evidence: { source: 'lambda-policy' },
+                remediation: 'Review the function policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
                 id: 'finding-aws-secret-colon-resource',
                 scan_id: 'scan-aws-complete',
                 type: 'aws_secretsmanager_secret',
@@ -8457,6 +8481,20 @@ describe('Domain-first app routes', () => {
                 owner: 'AWS scanner',
                 evidence: { source: 'secret-policy' },
                 remediation: 'Review the secret policy.',
+                created_at: '2026-08-20T20:03:00Z',
+                lifecycle_status: 'open'
+              },
+              {
+                id: 'finding-aws-iam-path-role',
+                scan_id: 'scan-aws-complete',
+                type: 'aws_iam_partition_role',
+                severity: 'low',
+                title: 'IAM path role',
+                human_summary: 'An IAM role with a service path.',
+                path: ['arn:aws:iam::123456789012:role/service-role/payments'],
+                owner: 'AWS scanner',
+                evidence: { source: 'iam-policy' },
+                remediation: 'Review the role policy.',
                 created_at: '2026-08-20T20:03:00Z',
                 lifecycle_status: 'open'
               },
@@ -8700,13 +8738,15 @@ describe('Domain-first app routes', () => {
     expect(within(findingsTable).getByText('shared-function · Lambda function · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
     expect(within(findingsTable).getByText('shared-function · Lambda function · Account 123456789012 · Region eu-west-1 · 1 evidence node')).toBeInTheDocument();
     expect(within(findingsTable).getByText('shared-function-colon · Lambda function · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('payments · Lambda function · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
     expect(within(findingsTable).getByText('database-password-abc123 · Secrets Manager secret · Account 123456789012 · Region us-east-1 · 1 evidence node')).toBeInTheDocument();
 
     for (const [title, href] of [
       ['Gov IAM role', 'https://console.amazonaws-us-gov.com/iam/home#/roles/gov-role'],
       ['China IAM role', 'https://console.amazonaws.cn/iam/home#/roles/cn-role'],
       ['ISO IAM role', 'https://console.c2s.ic.gov/iam/home#/roles/iso-role'],
-      ['ISO-B IAM role', 'https://console.sc2s.sgov.gov/iam/home#/roles/iso-b-role']
+      ['ISO-B IAM role', 'https://console.sc2s.sgov.gov/iam/home#/roles/iso-b-role'],
+      ['IAM path role', 'https://console.aws.amazon.com/iam/home#/roles/payments']
     ] as const) {
       const row = within(findingsTable).getByText(title, { exact: true }).closest('tr');
       expect(row).not.toBeNull();

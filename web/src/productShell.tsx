@@ -17164,6 +17164,14 @@ function awsSecretPermissionEquivalenceIdentityLabel(finding: AWSSecretPermissio
   );
 }
 
+function awsSecretPermissionEquivalenceIdentityKey(finding: AWSSecretPermissionEquivalenceFinding): string {
+  const stableIdentity =
+    [finding.principal_arn, finding.identity_node_id, finding.agent_id, finding.workload_id]
+      .map(normalizeValue)
+      .find(Boolean) || normalizeValue(finding.finding_id);
+  return [finding.account_id, finding.region, stableIdentity].map(normalizeValue).filter(Boolean).join(':').toLowerCase();
+}
+
 function awsSecretPermissionEquivalencePathLabel(finding: AWSSecretPermissionEquivalenceFinding): string {
   const labels = finding.impacted_path.map((step) => step.label || step.node_id).filter(Boolean);
   if (labels.length >= 2) {
@@ -18387,7 +18395,7 @@ function awsSecretPermissionEquivalenceRiskOperationRow(
     resourceLabel: secret,
     resourceType: 'Secret',
     scopeLabel,
-    identityKey: identity || secret,
+    identityKey: awsSecretPermissionEquivalenceIdentityKey(finding),
     triageStatus: finding.status,
     technicalEvidence: [
       ...finding.evidence.map((evidence) => evidence.evidence_ref),
@@ -18612,10 +18620,15 @@ function awsFindingEvidenceStrings(finding: ApiFinding): string[] {
   return values;
 }
 
-function awsFindingResourceName(resource: string): string {
+function awsFindingResourceName(resource: string, service = ''): string {
   const normalized = decodeAWSFindingValue(resource).replace(/^\//, '');
-  const lastSeparator = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf(':'));
-  const name = lastSeparator >= 0 ? normalized.slice(lastSeparator + 1) : normalized;
+  const name =
+    service === 'lambda' && normalized.toLowerCase().startsWith('function:')
+      ? normalized.slice('function:'.length).split(':')[0]
+      : (() => {
+          const lastSeparator = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf(':'));
+          return lastSeparator >= 0 ? normalized.slice(lastSeparator + 1) : normalized;
+        })();
   return name.length > 100 ? `${name.slice(0, 97)}...` : name;
 }
 
@@ -18676,10 +18689,12 @@ function awsFindingConsoleLink(arn: string | undefined, region: string | undefin
   const name = resource.split('/').slice(1).join('/') || resource.split(':').pop();
   if (!name) return undefined;
   if (service === 'iam' && resource.startsWith('role/')) {
-    return `https://${AWS_CONSOLE_HOSTS[partition]}/iam/home#/roles/${encodeURIComponent(name)}`;
+    const roleName = resource.slice('role/'.length).split('/').pop();
+    return roleName ? `https://${AWS_CONSOLE_HOSTS[partition]}/iam/home#/roles/${encodeURIComponent(roleName)}` : undefined;
   }
   if (service === 'iam' && resource.startsWith('user/')) {
-    return `https://${AWS_CONSOLE_HOSTS[partition]}/iam/home#/users/${encodeURIComponent(name)}`;
+    const userName = resource.slice('user/'.length).split('/').pop();
+    return userName ? `https://${AWS_CONSOLE_HOSTS[partition]}/iam/home#/users/${encodeURIComponent(userName)}` : undefined;
   }
   if (service === 's3') {
     return `https://${AWS_S3_CONSOLE_HOSTS[partition]}/s3/buckets/${encodeURIComponent(name)}${region ? `?region=${encodeURIComponent(region)}` : ''}`;
@@ -18730,7 +18745,7 @@ function awsPersistedFindingScope(finding: ApiFinding): AWSPersistedFindingScope
     .map((value) => awsFindingARNFromValue(value) || value)
     .find((value) => value && !awsPersistedFindingPathIsSerialized(value));
   const resourceLabel = resourceARN
-    ? awsFindingResourceName(resource)
+    ? awsFindingResourceName(resource, service)
     : readablePath || (global ? 'IAM identity' : 'Resource unavailable');
   const resourceType = awsFindingResourceType(service, resource || resourceLabel, finding.type, finding.title);
   const scopeLabel = `${accountID ? `Account ${accountID}` : 'Account unavailable'} · ${global ? 'Global' : region ? `Region ${region}` : 'Region unavailable'}`;
