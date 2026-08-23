@@ -13139,6 +13139,7 @@ type AWSRiskOperationTableRow = AWSInventoryFilterable & {
   completeness?: string;
   evidenceBoundary?: string;
   technicalEvidence?: string[];
+  identity?: string;
   resourceARN?: string;
   resourceLabel?: string;
   resourceType?: string;
@@ -18157,6 +18158,26 @@ function awsFindingAggregateStatus(rows: AWSRiskOperationTableRow[]): string {
   return rows[0]?.status || 'unavailable';
 }
 
+function awsFindingStatusContributesToAggregate(status: string, aggregateStatus: string): boolean {
+  const normalizedStatus = normalizeValue(status).toLowerCase();
+  switch (aggregateStatus) {
+    case 'open':
+      return normalizedStatus === 'open' || normalizedStatus === 'action_required';
+    case 'ack':
+      return normalizedStatus === 'ack';
+    case 'suppressed':
+      return normalizedStatus === 'suppressed';
+    case 'queued':
+      return normalizedStatus === 'queued' || normalizedStatus === 'review';
+    case 'blocked':
+      return normalizedStatus === 'blocked';
+    case 'resolved':
+      return normalizedStatus === 'resolved';
+    default:
+      return true;
+  }
+}
+
 function groupAWSFindingRows(rows: AWSRiskOperationTableRow[]): AWSRiskOperationTableRow[] {
   const groups = new Map<string, AWSRiskOperationTableRow[]>();
   for (const row of rows) {
@@ -18167,15 +18188,19 @@ function groupAWSFindingRows(rows: AWSRiskOperationTableRow[]): AWSRiskOperation
   }
   return Array.from(groups.entries()).map(([key, group]) => {
     if (group.length === 1) return group[0];
-    const primary = [...group].sort((left, right) => awsFindingSeverityRank(right.category) - awsFindingSeverityRank(left.category))[0];
+    const aggregateStatus = awsFindingAggregateStatus(group);
+    const statusRows = group.filter((row) => awsFindingStatusContributesToAggregate(row.status, aggregateStatus));
+    const primary = [...(statusRows.length > 0 ? statusRows : group)].sort(
+      (left, right) => awsFindingSeverityRank(right.category) - awsFindingSeverityRank(left.category)
+    )[0];
     const orderedGroup = [primary, ...group.filter((row) => row !== primary)];
     return {
       ...primary,
       id: `aws-identity-group:${key}`,
       title: primary.resourceLabel || primary.title,
       evidence: `${group.length} related risks detected for this identity.`,
-      blastRadius: `${primary.resourceLabel || primary.title} · ${primary.resourceType || 'AWS resource'} · ${primary.scopeLabel || primary.blastRadius}`,
-      status: awsFindingAggregateStatus(group),
+      blastRadius: `${primary.identity ? `${primary.identity} · ` : ''}${primary.resourceLabel || primary.title} · ${primary.resourceType || 'AWS resource'} · ${primary.scopeLabel || primary.blastRadius}`,
+      status: aggregateStatus,
       relatedRows: orderedGroup,
       technicalEvidence: [],
       searchText: inventorySearchText(group.flatMap((row) => [row.title, row.resourceLabel, row.resourceARN, row.searchText]))
@@ -18258,6 +18283,7 @@ function AWSFindingDetailsDrawer({
             <dl>
               <div><dt>Resource</dt><dd>{representative.resourceLabel || representative.title}</dd></div>
               <div><dt>Type</dt><dd>{representative.resourceType || 'AWS resource'}</dd></div>
+              {representative.identity ? <div><dt>Identity</dt><dd>{representative.identity}</dd></div> : null}
               <div><dt>Scope</dt><dd>{representative.scopeLabel || representative.blastRadius}</dd></div>
               {representative.resourceARN ? <div><dt>ARN</dt><dd><code>{representative.resourceARN}</code></dd></div> : null}
             </dl>
@@ -18342,8 +18368,9 @@ function awsSecretPermissionEquivalenceRiskOperationRow(
     title: awsSecretPermissionEquivalenceLabel(finding),
     category: formatTokenLabel(finding.severity),
     evidence,
+    identity,
     owner: 'Unassigned',
-    blastRadius: `${secret} · Secret · ${scopeLabel}`,
+    blastRadius: `${identity || 'Identity unavailable'} · ${secret} · Secret · ${scopeLabel}`,
     nextAction: finding.next_action,
     status: finding.status,
     stage: awsSecretPermissionEquivalenceStage(finding),

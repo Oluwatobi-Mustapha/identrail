@@ -8151,6 +8151,14 @@ describe('Domain-first app routes', () => {
       'href',
       '/app/tenant-a/workspace-a/aws/agents/detail?environment=production&agent=case-triage-id&tab=secrets'
     );
+    const liveFindingRow = within(findingsTable).getByRole('link', { name: /openai\/api-key/i }).closest('tr');
+    expect(liveFindingRow).not.toBeNull();
+    expect(within(liveFindingRow as HTMLElement).getByText(/Case Triage · openai\/api-key · Secret · Account 123456789012 · Region us-east-1/)).toBeInTheDocument();
+    fireEvent.click(within(liveFindingRow as HTMLElement).getByRole('button', { name: 'View details' }));
+    const liveFindingDrawer = await screen.findByRole('dialog', { name: 'Finding details' });
+    expect(within(liveFindingDrawer).getByText('Case Triage', { exact: true })).toBeInTheDocument();
+    fireEvent.click(within(liveFindingDrawer).getByRole('button', { name: 'Close detail drawer' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Finding details' })).not.toBeInTheDocument());
     expect(within(findingsTable).getByText('High')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Open')).toBeInTheDocument();
     expect(screen.queryByRole('table', { name: 'AWS secret-to-permission equivalence findings' })).not.toBeInTheDocument();
@@ -8656,13 +8664,13 @@ describe('Domain-first app routes', () => {
     expect(overprivilegedRow).not.toBeNull();
     expect(within(overprivilegedRow as HTMLElement).getByText('production-role · IAM role · Account 123456789012 · Global')).toBeInTheDocument();
     expect(within(overprivilegedRow as HTMLElement).getByText('2 related risks detected for this identity.')).toBeInTheDocument();
-    expect(within(overprivilegedRow as HTMLElement).getByText('Source: iam-policy collector · Confidence: 88% · Completeness: Unknown')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('Source: iam-policy collector · Confidence: 82% · Completeness: Unknown')).toBeInTheDocument();
     expect(within(overprivilegedRow as HTMLElement).queryByText('Technical evidence (2 refs)')).not.toBeInTheDocument();
     expect(within(overprivilegedRow as HTMLElement).queryByText('scan-aws-complete')).not.toBeInTheDocument();
     fireEvent.click(within(overprivilegedRow as HTMLElement).getByRole('button', { name: 'View details' }));
     const findingDrawer = await screen.findByRole('dialog', { name: 'Finding details' });
     expect(within(findingDrawer).getByText('Related risks (2)')).toBeInTheDocument();
-    expect(within(findingDrawer).getByText('Technical evidence (2 refs)')).toBeInTheDocument();
+    expect(within(findingDrawer).getByText('Technical evidence (1 refs)')).toBeInTheDocument();
     expect(within(findingDrawer).getByText('scan-aws-complete')).toBeInTheDocument();
     expect(within(findingDrawer).getByRole('link', { name: 'Open in AWS Console' })).toHaveAttribute(
       'href',
@@ -8675,11 +8683,14 @@ describe('Domain-first app routes', () => {
       expect(within(findingDrawer).getByText('Technical evidence (1 refs)')).toBeInTheDocument();
     });
     fireEvent.click(within(findingDrawer).getByRole('button', { name: 'View details for Overprivileged IAM role' }));
-    await waitFor(() => expect(within(findingDrawer).getByText('Reduce the role policy to the required actions.')).toBeInTheDocument());
+    await waitFor(() => {
+      expect(within(findingDrawer).getByText('Reduce the role policy to the required actions.')).toBeInTheDocument();
+      expect(within(findingDrawer).getByText('Technical evidence (2 refs)')).toBeInTheDocument();
+    });
     fireEvent.click(within(findingDrawer).getByRole('button', { name: 'Close detail drawer' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Finding details' })).not.toBeInTheDocument());
     expect(within(findingsTable).getByText('Public S3 bucket')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('High')).toBeInTheDocument();
+    expect(within(overprivilegedRow as HTMLElement).getByText('Medium')).toBeInTheDocument();
     expect(within(overprivilegedRow as HTMLElement).getByText('Open')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Acknowledged')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Resolved')).toBeInTheDocument();
