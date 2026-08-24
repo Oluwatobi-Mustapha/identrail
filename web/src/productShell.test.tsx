@@ -8573,6 +8573,11 @@ describe('Domain-first app routes', () => {
       expect.anything()
     ));
 
+    const triageCallCountBeforeEmptyResolution = triageFinding.mock.calls.length;
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Mark resolved' }));
+    expect(triageFinding.mock.calls).toHaveLength(triageCallCountBeforeEmptyResolution);
+    expect(within(drawer).getByRole('alert')).toHaveTextContent('Record the verification basis before resolving this finding.');
+
     fireEvent.change(within(drawer).getByLabelText('Resolution verification basis'), { target: { value: 'A follow-up scan confirms only the required actions remain.' } });
     fireEvent.click(within(drawer).getByRole('button', { name: 'Mark resolved' }));
     await waitFor(() => expect(triageFinding).toHaveBeenLastCalledWith(

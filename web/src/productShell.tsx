@@ -18812,7 +18812,7 @@ function AWSFindingDetailsDrawer({
                   <button type="submit" className="idt-btn idt-btn-ghost" disabled={workflowLoading || workflowStatus === 'resolved'}>Suppress finding</button>
                 </form>
                 <form onSubmit={handleResolve}>
-                  <label>Verification basis<textarea aria-label="Resolution verification basis" required value={verificationBasis} onChange={(event) => setVerificationBasis(event.target.value)} rows={3} placeholder="Record the evidence that confirms remediation." /></label>
+                  <label>Verification basis<textarea aria-label="Resolution verification basis" value={verificationBasis} onChange={(event) => setVerificationBasis(event.target.value)} rows={3} placeholder="Record the evidence that confirms remediation." /></label>
                   <button type="submit" className="idt-btn idt-btn-primary" disabled={workflowLoading || workflowStatus === 'resolved'}>Mark resolved</button>
                 </form>
               </div>

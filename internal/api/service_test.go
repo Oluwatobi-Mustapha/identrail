@@ -1725,6 +1725,31 @@ func TestServiceTriageFindingRejectsInvalidRequest(t *testing.T) {
 	); !errors.Is(err, ErrInvalidFindingTriageRequest) {
 		t.Fatalf("expected explicit suppression request without reason to fail, got %v", err)
 	}
+
+	verification := "verified in the follow-up scan"
+	if _, err := svc.TriageFinding(
+		defaultScopeContext(),
+		"finding-1",
+		scan.ID,
+		FindingTriageRequest{Status: &resolved, Comment: verification},
+		"subject:user-1",
+	); err != nil {
+		t.Fatalf("expected resolution with verification basis to pass: %v", err)
+	}
+	resolvedAssignee := "incident-response"
+	updatedResolved, err := svc.TriageFinding(
+		defaultScopeContext(),
+		"finding-1",
+		scan.ID,
+		FindingTriageRequest{Status: &resolved, Assignee: &resolvedAssignee},
+		"subject:user-1",
+	)
+	if err != nil {
+		t.Fatalf("expected resolved finding ownership update without a new basis to pass: %v", err)
+	}
+	if updatedResolved.Triage.Status != domain.FindingLifecycleResolved || updatedResolved.Triage.Assignee != resolvedAssignee {
+		t.Fatalf("expected resolved finding ownership update, got %+v", updatedResolved.Triage)
+	}
 }
 
 func TestServiceExportAndImportFindingBaseline(t *testing.T) {

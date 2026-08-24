@@ -26218,6 +26218,31 @@ components:
             Optional audit comment. A nonblank verification basis is required
             when `status: resolved`; a suppression reason is required when
             `status: suppressed`.
+      oneOf:
+        - title: Resolution transition
+          properties:
+            status:
+              enum: [resolved]
+            comment:
+              type: string
+              pattern: "\\S"
+          required: [status, comment]
+        - title: Suppression transition
+          properties:
+            status:
+              enum: [suppressed]
+            comment:
+              type: string
+              pattern: "\\S"
+          required: [status, comment]
+        - title: Other status transition
+          properties:
+            status:
+              enum: [open, ack]
+          required: [status]
+        - title: Assignment or audit comment update
+          not:
+            required: [status]
     FindingTriageEvent:
       type: object
       properties:
