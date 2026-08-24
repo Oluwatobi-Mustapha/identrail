@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Redesign the AWS findings queue for prioritization and scan coverage (#1826).
+  The summary now exposes open critical/high findings, affected resources,
+  historical scan scope, completeness, and named collector failures. Findings
+  use focused triage columns, retain real historical account and region filters,
+  and stack into labeled rows on narrow screens instead of overflowing.
 - Improve AWS IAM finding signal quality for AWS-managed service-linked roles
   and the Identrail connector role (#1825). Expected Security Lake, Support,
   Trusted Advisor, and Organizations roles no longer emit generic stale,

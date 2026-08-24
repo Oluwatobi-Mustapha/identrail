@@ -8162,9 +8162,15 @@ describe('Domain-first app routes', () => {
     );
     const liveFindingRow = within(findingsTable).getByRole('link', { name: /openai\/api-key/i }).closest('tr');
     expect(liveFindingRow).not.toBeNull();
-    expect(within(liveFindingRow as HTMLElement).getByText(/Case Triage · openai\/api-key · Secret · Account 123456789012 · Region us-east-1/)).toBeInTheDocument();
-    expect(within(findingsTable).getByText(/Case Triage · anthropic\/api-key · Secret · Account 123456789012 · Region eu-west-1/)).toBeInTheDocument();
-    fireEvent.click(within(liveFindingRow as HTMLElement).getByRole('button', { name: 'View details' }));
+    expect(liveFindingRow).toHaveTextContent('openai/api-key');
+    expect(liveFindingRow).toHaveTextContent('Secret · Case Triage');
+    expect(liveFindingRow).toHaveTextContent('Secret');
+    expect(liveFindingRow).toHaveTextContent('Account 123456789012 · Region us-east-1');
+    expect(within(findingsTable).getByText('Account 123456789012 · Region eu-west-1')).toBeInTheDocument();
+    const liveDetailsButton = within(liveFindingRow as HTMLElement).getByRole('button', { name: 'View details' });
+    liveDetailsButton.focus();
+    expect(liveDetailsButton).toHaveFocus();
+    fireEvent.click(liveDetailsButton);
     const liveFindingDrawer = await screen.findByRole('dialog', { name: 'Finding details' });
     expect(within(liveFindingDrawer).getByText('Case Triage', { exact: true })).toBeInTheDocument();
     fireEvent.click(within(liveFindingDrawer).getByRole('button', { name: 'Close detail drawer' }));
@@ -8743,15 +8749,29 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText('AWS findings')).toBeInTheDocument();
     expect(screen.getByText(/source completeness could not be verified/i)).toBeInTheDocument();
     const prioritySummary = await screen.findByRole('region', { name: 'Finding priority summary' });
-    expect(within(prioritySummary).getByText('Unknown')).toBeInTheDocument();
-    expect(within(prioritySummary).getByText('20 risk signals · 18 affected resources')).toBeInTheDocument();
+    expect(within(prioritySummary).getByText('Completeness').closest('div')).toHaveTextContent('Unknown');
+    expect(within(prioritySummary).getByText('20 findings · 1 critical/high open · 18 affected resources')).toBeInTheDocument();
+    expect(within(prioritySummary).getByText(/Scan scan-aws-complete/)).toBeInTheDocument();
+    expect(within(prioritySummary).getByText('Account 123456789012 · 2 regions + Global')).toBeInTheDocument();
+    expect(within(prioritySummary).getByRole('link', { name: 'View coverage details' })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/coverage?environment=production'
+    );
     const findingsTable = await screen.findByRole('table', { name: 'AWS findings' });
-    expect(within(findingsTable).getByText('production-role', { exact: true })).toBeInTheDocument();
-    const overprivilegedRow = within(findingsTable).getByText('production-role', { exact: true }).closest('tr');
+    expect(findingsTable.closest('.idt-domain-table-wrap')).toHaveClass('is-narrow-stack');
+    expect(stylesSource).toContain('.idt-domain-table-wrap.is-narrow-stack .idt-domain-data-table {');
+    expect(stylesSource).toContain('min-width: 0 !important;');
+    expect(stylesSource).toContain('content: attr(data-label);');
+    const [productionRoleFinding] = within(findingsTable).getAllByText('production-role', { exact: true });
+    const overprivilegedRow = productionRoleFinding.closest('tr');
     expect(overprivilegedRow).not.toBeNull();
-    expect(within(overprivilegedRow as HTMLElement).getByText('production-role · IAM role · Account 123456789012 · Global')).toBeInTheDocument();
-    expect(within(overprivilegedRow as HTMLElement).getByText('2 related risks detected for this identity.')).toBeInTheDocument();
-    expect(within(overprivilegedRow as HTMLElement).getByText('Source: iam-policy collector · Confidence: 82% · Completeness: Unknown')).toBeInTheDocument();
+    expect(overprivilegedRow).toHaveTextContent('production-role');
+    expect(overprivilegedRow).toHaveTextContent('IAM role');
+    expect(overprivilegedRow).toHaveTextContent('Account 123456789012 · Global');
+    expect(overprivilegedRow).toHaveTextContent('1 affected resource');
+    expect(overprivilegedRow).toHaveTextContent('2 related risks');
+    expect(overprivilegedRow).toHaveTextContent('iam-policy collector');
+    expect(overprivilegedRow).toHaveTextContent('Confidence: 82% · Completeness: Unknown');
     expect(within(overprivilegedRow as HTMLElement).queryByText('Technical evidence (2 refs)')).not.toBeInTheDocument();
     expect(within(overprivilegedRow as HTMLElement).queryByText('scan-aws-complete')).not.toBeInTheDocument();
     fireEvent.click(within(overprivilegedRow as HTMLElement).getByRole('button', { name: 'View details' }));
@@ -8788,11 +8808,12 @@ describe('Domain-first app routes', () => {
     expect(within(findingsTable).getByText('Blocked')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Suppressed')).toBeInTheDocument();
     expect(within(findingsTable).queryByText(/Region unknown/i)).not.toBeInTheDocument();
-    expect(within(findingsTable).getByText('shared-function · Lambda function · Account 123456789012 · Region us-east-1')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('shared-function · Lambda function · Account 123456789012 · Region eu-west-1')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('shared-function-colon · Lambda function · Account 123456789012 · Region us-east-1')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('payments · Lambda function · Account 123456789012 · Region us-east-1')).toBeInTheDocument();
-    expect(within(findingsTable).getByText('database-password-abc123 · Secrets Manager secret · Account 123456789012 · Region us-east-1')).toBeInTheDocument();
+    expect(within(findingsTable).getAllByText('shared-function')).toHaveLength(2);
+    expect(within(findingsTable).getAllByText('Lambda function').length).toBeGreaterThanOrEqual(4);
+    expect(within(findingsTable).getByText('Account 123456789012 · Region eu-west-1')).toBeInTheDocument();
+    expect(within(findingsTable).getByText('shared-function-colon')).toBeInTheDocument();
+    expect(within(findingsTable).getAllByText('payments')).toHaveLength(2);
+    expect(within(findingsTable).getByText('database-password-abc123')).toBeInTheDocument();
     expect(within(findingsTable).getByText('Production database secret', { exact: true })).toBeInTheDocument();
     expect(within(findingsTable).getByText('Staging database secret', { exact: true })).toBeInTheDocument();
 
@@ -8844,7 +8865,14 @@ describe('Domain-first app routes', () => {
         }
       ]
     });
-    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: { ...disconnectedAWS, connector_id: 'aws-connector-new' } });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({
+      connection: {
+        ...disconnectedAWS,
+        connector_id: 'aws-connector-new',
+        account_id: '123456789012',
+        region: 'us-east-1'
+      }
+    });
     vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
       scan: {
         id: 'scan-aws-history',
@@ -8887,11 +8915,117 @@ describe('Domain-first app routes', () => {
 
     expect(await screen.findByText('AWS findings')).toBeInTheDocument();
     expect(await screen.findByText('Historical IAM finding')).toBeInTheDocument();
+    const prioritySummary = await screen.findByRole('region', { name: 'Finding priority summary' });
+    expect(within(prioritySummary).getByText('Account 999999999999 · Global')).toBeInTheDocument();
+    expect(within(prioritySummary).queryByText(/123456789012/)).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), { target: { value: 'unknown' } });
+    const accountFilter = screen.getByRole('combobox', { name: 'Account' });
+    const regionFilter = screen.getByRole('combobox', { name: 'Region' });
+    expect(within(accountFilter).getByRole('option', { name: '999999999999' })).toHaveValue('999999999999');
+    expect(within(accountFilter).queryByRole('option', { name: '123456789012' })).not.toBeInTheDocument();
+    expect(within(regionFilter).getByRole('option', { name: 'Global resources' })).toHaveValue('global');
+    expect(within(regionFilter).queryByRole('option', { name: 'us-east-1' })).not.toBeInTheDocument();
+    fireEvent.change(accountFilter, { target: { value: '999999999999' } });
     expect(await screen.findByText('Historical IAM finding')).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), { target: { value: 'connected' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Severity' }), { target: { value: 'critical' } });
     expect(await screen.findByText('No findings match these filters')).toBeInTheDocument();
+  });
+
+  it('names unavailable collectors and links partial findings to coverage details', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [
+        {
+          tenant_id: 'tenant-a',
+          workspace_id: 'workspace-a',
+          project_id: 'production',
+          name: 'Production',
+          slug: 'production',
+          description: 'Production AWS boundary.',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
+      scan: {
+        id: 'scan-aws-partial',
+        project_id: 'production',
+        connector_id: 'aws-connector-1',
+        provider: 'aws',
+        status: 'partial',
+        started_at: '2026-08-20T20:00:00Z',
+        finished_at: '2026-08-20T20:03:00Z',
+        asset_count: 1,
+        finding_count: 1
+      }
+    });
+    vi.spyOn(api.apiClient, 'listFindings').mockResolvedValue({
+      items: [
+        {
+          id: 'finding-aws-partial',
+          scan_id: 'scan-aws-partial',
+          type: 'aws_s3_public_bucket',
+          severity: 'high',
+          title: 'Public bucket from partial scan',
+          human_summary: 'The bucket policy allows public access.',
+          remediation: 'Restrict the bucket policy.',
+          path: ['arn:aws:s3:::partial-scan-bucket'],
+          evidence: { account_id: '123456789012', region: 'us-east-1' },
+          created_at: '2026-08-20T20:03:00Z',
+          lifecycle_status: 'open'
+        }
+      ]
+    });
+    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({
+      items: [
+        {
+          id: 'event-aws-partial',
+          scan_id: 'scan-aws-partial',
+          level: 'warning',
+          message: 'Discovery completed with partial sources.',
+          metadata: {
+            state: 'partial',
+            source_error_count: 2,
+            source_errors: [
+              {
+                collector: 'lambda_execution_roles',
+                source_id: '123456789012/us-west-2/lambda',
+                code: 'permission_denied',
+                retryable: true
+              },
+              {
+                collector: 'cloudtrail_activity',
+                code: 'source_unavailable',
+                retryable: false
+              }
+            ]
+          },
+          created_at: '2026-08-20T20:03:00Z'
+        }
+      ]
+    });
+
+    const { ProductAWSFindingsPage } = await import('./productShell');
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-partial']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<ProductAWSFindingsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Public bucket from partial scan')).toBeInTheDocument();
+    const prioritySummary = await screen.findByRole('region', { name: 'Finding priority summary' });
+    expect(within(prioritySummary).getByText('2 unavailable or degraded')).toBeInTheDocument();
+    expect(within(prioritySummary).getByText(/Lambda Execution Roles · 123456789012\/us-west-2\/lambda · Permission Denied · retryable/)).toBeInTheDocument();
+    expect(within(prioritySummary).getByText(/Cloudtrail Activity · Source Unavailable/)).toBeInTheDocument();
+    expect(within(prioritySummary).getByRole('link', { name: 'View coverage details' })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/coverage?environment=production'
+    );
   });
 
   it('rejects persisted AWS findings until the scan reaches a terminal result', async () => {
