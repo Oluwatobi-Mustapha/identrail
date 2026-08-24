@@ -18612,10 +18612,13 @@ function AWSFindingDetailsDrawer({
         representative.scanID,
         { tenantID: scope.tenantID, workspaceID: scope.workspaceID }
       );
+      // The server mutation is durable even if the drawer was closed or the
+      // operator selected another related finding while it was in flight.
+      // Update the parent cache before ignoring stale drawer-local UI work.
+      onFindingUpdated(response.finding);
       if (requestID !== workflowRequestRef.current) {
         return;
       }
-      onFindingUpdated(response.finding);
       setWorkflowMessage(successMessage);
       setHistoryReloadToken((current) => current + 1);
     } catch (requestError) {
