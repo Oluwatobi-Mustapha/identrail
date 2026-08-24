@@ -5544,7 +5544,7 @@ function useAWSInventoryData(): AWSInventoryDataState {
           search: environmentSearch(
             location.search,
             environmentID,
-            location.pathname.endsWith('/aws/findings') ? { omit: ['scan_id'] } : undefined
+            location.pathname.endsWith('/aws/findings') ? { omit: ['scan_id', 'finding_id'] } : undefined
           )
         },
         { replace: false }
@@ -13120,6 +13120,7 @@ const AWS_RISK_OPERATION_FILTERS: AWSRiskOperationFilterConfigMap = {
 type AWSRiskOperationTableRow = AWSInventoryFilterable & {
   id: string;
   title: string;
+  whatHappened?: string;
   category: string;
   maxSeverity?: string;
   evidence: string;
@@ -18464,36 +18465,112 @@ function groupAWSFindingRows(rows: AWSRiskOperationTableRow[]): AWSRiskOperation
 function AWSFindingDetailsDrawer({
   open,
   row,
+  selectedFindingID,
   showingPersistedScan,
   scope,
+  environmentID,
+  coverage,
+  onFindingUpdated,
+  onSelectFinding,
   onClose
 }: {
   open: boolean;
   row: AWSRiskOperationTableRow | null;
+  selectedFindingID: string;
   showingPersistedScan: boolean;
   scope: ProductSession | null;
+  environmentID?: string;
+  coverage: AWSFindingCoverageContext;
+  onFindingUpdated: (finding: ApiFinding) => void;
+  onSelectFinding: (findingID: string) => void;
   onClose: () => void;
 }) {
   const relatedRows = row?.relatedRows ?? (row ? [row] : []);
+  const { me: currentUser, loading: currentUserLoading } = useMe();
   const [selectedRelatedRowID, setSelectedRelatedRowID] = useState<string | null>(null);
   const [history, setHistory] = useState<FindingTriageEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyUnavailable, setHistoryUnavailable] = useState(false);
+  const [historyReloadToken, setHistoryReloadToken] = useState(0);
+  const [assigneeDraft, setAssigneeDraft] = useState('');
+  const [suppressionReason, setSuppressionReason] = useState('');
+  const [suppressionExpiry, setSuppressionExpiry] = useState('');
+  const [verificationBasis, setVerificationBasis] = useState('');
+  const [workflowLoading, setWorkflowLoading] = useState(false);
+  const [workflowError, setWorkflowError] = useState('');
+  const [workflowMessage, setWorkflowMessage] = useState('');
+  const [copiedField, setCopiedField] = useState('');
+  const [copyError, setCopyError] = useState('');
+  const historyRequestRef = useRef(0);
+  const workflowRequestRef = useRef(0);
   const representative = relatedRows.find((relatedRow) => relatedRow.id === selectedRelatedRowID) ?? relatedRows[0] ?? null;
+  const workflowStatus = normalizeFindingStatus(representative?.triageStatus || representative?.status);
+  const canTriage = Boolean(
+    showingPersistedScan &&
+      scope &&
+      currentUser?.workspace_id === scope.workspaceID &&
+      (currentUser.role === 'owner' || currentUser.role === 'admin')
+  );
+  const currentAssignee = representative?.owner === 'Unassigned' ? '' : representative?.owner || '';
+  const assigneeUnchanged = assigneeDraft.trim() === currentAssignee;
+  const evidenceTimestamp = representative?.observedAt ? Date.parse(representative.observedAt) : Number.NaN;
+  const evidenceIsStale = Number.isFinite(evidenceTimestamp) && Date.now() - evidenceTimestamp > 30 * 24 * 60 * 60 * 1000;
+  const evidenceIsIncomplete = normalizeValue(representative?.completeness).toLowerCase() !== 'complete' || coverage.totalCount > 0;
+  const identrailInvestigationLink = representative?.detailLink || (scope && environmentID ? awsRouteLink(scope, 'graph', environmentID) : undefined);
+  const remediationHandoffLink = useMemo(() => {
+    if (!scope || !environmentID || !representative) {
+      return undefined;
+    }
+    // The findings surface is the destination that can load and select this
+    // finding. Keep both identifiers so the persisted scan remains in scope.
+    const base = awsRouteLink(scope, 'findings', environmentID, representative.scanID ? { scanID: representative.scanID } : {});
+    const [path, rawQuery = ''] = base.split('?');
+    const query = new URLSearchParams(rawQuery);
+    query.set('finding_id', representative.findingID || representative.id);
+    return `${path}?${query.toString()}`;
+  }, [environmentID, representative?.findingID, representative?.id, representative?.scanID, scope?.tenantID, scope?.workspaceID]);
+  const remediationHandoff = useMemo(() => {
+    if (!representative) {
+      return '';
+    }
+    return [
+      `Finding: ${representative.title}`,
+      `Finding ID: ${representative.findingID || representative.id}`,
+      representative.scanID ? `Scan ID: ${representative.scanID}` : '',
+      `Severity: ${representative.category}`,
+      `Affected resource: ${representative.resourceLabel || representative.title}`,
+      `Scope: ${representative.scopeLabel || representative.blastRadius}`,
+      `Why it matters: ${representative.evidence}`,
+      `Recommended action: ${representative.nextAction}`,
+      remediationHandoffLink ? `Identrail handoff: ${remediationHandoffLink}` : ''
+    ].filter(Boolean).join('\n');
+  }, [remediationHandoffLink, representative]);
 
   useEffect(() => {
-    setSelectedRelatedRowID(relatedRows[0]?.id ?? null);
-  }, [open, row?.id]);
+    const selectedRelatedRow = relatedRows.find((relatedRow) => (relatedRow.findingID || relatedRow.id) === selectedFindingID);
+    setSelectedRelatedRowID(selectedRelatedRow?.id ?? relatedRows[0]?.id ?? null);
+  }, [open, row?.id, selectedFindingID]);
 
   useEffect(() => {
-    let active = true;
+    workflowRequestRef.current += 1;
+    setAssigneeDraft(representative?.owner === 'Unassigned' ? '' : representative?.owner || '');
+    setSuppressionReason('');
+    setSuppressionExpiry('');
+    setVerificationBasis('');
+    setWorkflowLoading(false);
+    setWorkflowError('');
+    setWorkflowMessage('');
+    setCopiedField('');
+    setCopyError('');
+  }, [open, representative?.findingID, representative?.scanID, scope?.tenantID, scope?.workspaceID]);
+
+  useEffect(() => {
+    const requestID = ++historyRequestRef.current;
     if (!open || !showingPersistedScan || !representative?.findingID || !scope) {
       setHistory([]);
       setHistoryLoading(false);
       setHistoryUnavailable(false);
-      return () => {
-        active = false;
-      };
+      return;
     }
     setHistoryUnavailable(false);
     setHistoryLoading(true);
@@ -18503,21 +18580,113 @@ function AWSFindingDetailsDrawer({
         workspaceID: scope.workspaceID
       })
       .then((response) => {
-        if (active) setHistory(response.items ?? []);
+        if (requestID === historyRequestRef.current) setHistory(response.items ?? []);
       })
       .catch(() => {
-        if (active) {
+        if (requestID === historyRequestRef.current) {
           setHistory([]);
           setHistoryUnavailable(true);
         }
       })
       .finally(() => {
-        if (active) setHistoryLoading(false);
+        if (requestID === historyRequestRef.current) setHistoryLoading(false);
       });
     return () => {
-      active = false;
+      historyRequestRef.current += 1;
     };
-  }, [open, representative?.findingID, representative?.scanID, scope?.tenantID, scope?.workspaceID, showingPersistedScan]);
+  }, [historyReloadToken, open, representative?.findingID, representative?.scanID, scope?.tenantID, scope?.workspaceID, showingPersistedScan]);
+
+  const applyWorkflowUpdate = async (
+    payload: { status?: FindingLifecycleStatus; assignee?: string; suppression_expires_at?: string; comment?: string },
+    successMessage: string
+  ) => {
+    if (!showingPersistedScan || !representative?.findingID || !scope || workflowLoading) {
+      return;
+    }
+    const requestID = ++workflowRequestRef.current;
+    setWorkflowLoading(true);
+    setWorkflowError('');
+    setWorkflowMessage('');
+    try {
+      const response = await apiClient.triageFinding(
+        representative.findingID,
+        payload,
+        representative.scanID,
+        { tenantID: scope.tenantID, workspaceID: scope.workspaceID }
+      );
+      // The server mutation is durable even if the drawer was closed or the
+      // operator selected another related finding while it was in flight.
+      // Update the parent cache before ignoring stale drawer-local UI work.
+      onFindingUpdated(response.finding);
+      if (requestID !== workflowRequestRef.current) {
+        return;
+      }
+      setWorkflowMessage(successMessage);
+      setHistoryReloadToken((current) => current + 1);
+    } catch (requestError) {
+      if (requestID === workflowRequestRef.current) {
+        setWorkflowError(formatAPIError(requestError, 'Unable to update this finding.'));
+      }
+    } finally {
+      if (requestID === workflowRequestRef.current) {
+        setWorkflowLoading(false);
+      }
+    }
+  };
+
+  const handleAssignOwner = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (assigneeUnchanged) {
+      return;
+    }
+    void applyWorkflowUpdate({ assignee: assigneeDraft.trim() }, assigneeDraft.trim() ? 'Finding owner updated.' : 'Finding owner cleared.');
+  };
+
+  const handleSuppress = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const reason = suppressionReason.trim();
+    if (!reason) {
+      setWorkflowError('A suppression reason is required.');
+      return;
+    }
+    let expiry: string | undefined;
+    if (suppressionExpiry) {
+      const parsedExpiry = new Date(suppressionExpiry);
+      if (Number.isNaN(parsedExpiry.getTime())) {
+        setWorkflowError('Enter a valid suppression expiry.');
+        return;
+      }
+      expiry = parsedExpiry.toISOString();
+    }
+    void applyWorkflowUpdate(
+      { status: 'suppressed', comment: reason, ...(expiry ? { suppression_expires_at: expiry } : {}) },
+      'Finding suppressed and the reason was recorded.'
+    );
+  };
+
+  const handleResolve = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const basis = verificationBasis.trim();
+    if (!basis) {
+      setWorkflowError('Record the verification basis before resolving this finding.');
+      return;
+    }
+    void applyWorkflowUpdate({ status: 'resolved', comment: basis }, 'Finding resolved with a recorded verification basis.');
+  };
+
+  const copyText = async (text: string, field: string) => {
+    setCopyError('');
+    if (!text || typeof navigator === 'undefined' || !navigator.clipboard) {
+      setCopyError('Clipboard access is unavailable. Select and copy the displayed text manually.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+    } catch {
+      setCopyError('Clipboard access was denied. Select and copy the displayed text manually.');
+    }
+  };
 
   return (
     <DomainDetailDrawer open={open} title="Finding details" eyebrow="AWS risk" onClose={onClose} resizable expandable>
@@ -18531,6 +18700,10 @@ function AWSFindingDetailsDrawer({
             </div>
           </div>
           <section>
+            <h5>What happened</h5>
+            <p>{representative.whatHappened || representative.title}</p>
+          </section>
+          <section>
             <h5>Why it matters</h5>
             <p>{representative.evidence}</p>
           </section>
@@ -18540,9 +18713,14 @@ function AWSFindingDetailsDrawer({
               <div><dt>Resource</dt><dd>{representative.resourceLabel || representative.title}</dd></div>
               <div><dt>Type</dt><dd>{representative.resourceType || 'AWS resource'}</dd></div>
               {representative.identity ? <div><dt>Identity</dt><dd>{representative.identity}</dd></div> : null}
-              <div><dt>Scope</dt><dd>{representative.scopeLabel || representative.blastRadius}</dd></div>
-              {representative.resourceARN ? <div><dt>ARN</dt><dd><code>{representative.resourceARN}</code></dd></div> : null}
+              <div><dt>Account</dt><dd>{representative.accountID || 'Unavailable'}</dd></div>
+              <div><dt>Region</dt><dd>{representative.region || (representative.resourceType?.startsWith('IAM') ? 'Global' : 'Unavailable')}</dd></div>
             </dl>
+            {identrailInvestigationLink ? <Link to={identrailInvestigationLink}>Investigate in Identrail</Link> : <p>No specific Identrail resource route is available for this reference.</p>}
+          </section>
+          <section>
+            <h5>Blast radius &amp; relationship path</h5>
+            <p>{representative.blastRadius || 'No relationship path was returned for this finding.'}</p>
           </section>
           <section>
             <h5>Recommended action</h5>
@@ -18559,7 +18737,10 @@ function AWSFindingDetailsDrawer({
                       className="idt-aws-finding-related-button"
                       aria-label={`View details for ${relatedRow.title}`}
                       aria-pressed={relatedRow.id === representative.id}
-                      onClick={() => setSelectedRelatedRowID(relatedRow.id)}
+                      onClick={() => {
+                        setSelectedRelatedRowID(relatedRow.id);
+                        onSelectFinding(relatedRow.findingID || relatedRow.id);
+                      }}
                     >
                       <strong>{relatedRow.title}</strong>
                       <span>{relatedRow.category} · {formatTokenLabel(relatedRow.status)}</span>
@@ -18575,32 +18756,97 @@ function AWSFindingDetailsDrawer({
               <div><dt>Finding ID</dt><dd><code>{representative.findingID || representative.id}</code></dd></div>
               <div><dt>Scan ID</dt><dd><code>{representative.scanID || 'Unavailable'}</code></dd></div>
               <div><dt>Source</dt><dd>{representative.source || 'Unavailable'}</dd></div>
+              <div><dt>Provenance</dt><dd>{representative.provenance || 'Unavailable'}</dd></div>
               <div><dt>Completeness</dt><dd>{awsPersistedFindingCompletenessLabel(representative.completeness || 'unknown')}</dd></div>
               {representative.confidence !== undefined ? <div><dt>Confidence</dt><dd>{formatConfidenceScore(representative.confidence)}</dd></div> : null}
               {representative.actionability ? <div><dt>Actionability</dt><dd>{formatTokenLabel(representative.actionability)}</dd></div> : null}
               {representative.exploitability ? <div><dt>Exploitability</dt><dd>{formatTokenLabel(representative.exploitability)}</dd></div> : null}
               <div><dt>Observed</dt><dd>{representative.observedAt || 'Unavailable'}</dd></div>
               {representative.evidenceBoundary ? <div><dt>Boundary</dt><dd>{representative.evidenceBoundary}</dd></div> : null}
+              <div><dt>Freshness</dt><dd>{evidenceIsStale ? 'Stale — refresh discovery before relying on this evidence.' : representative.observedAt ? 'Current within the last 30 days' : 'Unknown'}</dd></div>
             </dl>
             <details className="idt-aws-finding-technical-evidence">
               <summary>Technical evidence ({representative.technicalEvidence?.length ?? 0} refs)</summary>
               {representative.technicalEvidence?.length ? (
-                <ul>{representative.technicalEvidence.map((ref, index) => <li key={`${ref}-${index}`}><code>{ref}</code></li>)}</ul>
+                <>
+                  <button type="button" className="idt-aws-finding-copy-button" onClick={() => void copyText(representative.technicalEvidence?.join('\n') ?? '', 'evidence')}>
+                    {copiedField === 'evidence' ? 'Copied technical evidence' : 'Copy technical evidence'}
+                  </button>
+                  <ul>{representative.technicalEvidence.map((ref, index) => <li key={`${ref}-${index}`}><code>{ref}</code></li>)}</ul>
+                </>
               ) : (
                 <p>No raw path or evidence references were returned.</p>
               )}
             </details>
           </section>
+          <section className={evidenceIsIncomplete ? 'idt-aws-finding-coverage-warning' : undefined}>
+            <h5>Coverage limitations</h5>
+            {evidenceIsIncomplete ? (
+              <>
+                <p>This finding comes from incomplete or unverified evidence. Treat the result as directional until coverage is refreshed.</p>
+                {coverage.issues.length > 0 ? <ul>{coverage.issues.map((issue, index) => <li key={`${issue.collector}-${issue.sourceID || issue.code || index}`}>{formatTokenLabel(issue.collector)}{issue.code ? ` · ${formatTokenLabel(issue.code)}` : ''}{issue.retryable ? ' · Retryable' : ''}</li>)}</ul> : null}
+              </>
+            ) : <p>No coverage gaps were reported for the evidence used by this finding.</p>}
+            {showingPersistedScan ? <p>This is persisted scan evidence. Its original scan scope is preserved even if the current connector or filters have changed.</p> : null}
+          </section>
           <section>
-            <h5>Ownership &amp; resolution</h5>
+            <h5>Investigation workflow</h5>
             <dl>
               <div><dt>Owner</dt><dd>{representative.owner || 'Unassigned'}</dd></div>
               <div><dt>Status</dt><dd>{showingPersistedScan ? awsPersistedFindingStatusLabel(representative.status) : formatTokenLabel(representative.status)}</dd></div>
               {representative.triageUpdatedAt ? <div><dt>Last updated</dt><dd>{formatDateLabel(representative.triageUpdatedAt)}{representative.triageUpdatedBy ? ` by ${representative.triageUpdatedBy}` : ''}</dd></div> : null}
             </dl>
-            {historyLoading ? <p>Loading resolution history…</p> : historyUnavailable ? <p>Resolution history is unavailable for this finding.</p> : history.length > 0 ? (
-              <ol className="idt-aws-finding-history">{history.map((event) => <li key={event.id}><strong>{formatTokenLabel(event.from_status)} → {formatTokenLabel(event.to_status)}</strong><span>{formatDateLabel(event.created_at)}{event.actor ? ` · ${event.actor}` : ''}</span>{event.comment ? <p>{event.comment}</p> : null}</li>)}</ol>
-            ) : <p>No recorded triage changes.</p>}
+            {showingPersistedScan ? currentUserLoading ? (
+              <p>Checking workspace permissions…</p>
+            ) : canTriage ? (
+              <div className="idt-aws-finding-workflow-controls">
+                <p>These controls update Identrail investigation state only. They never change AWS resources.</p>
+                {workflowError ? <div className="idt-app-alert idt-app-alert-error" role="alert">{workflowError}</div> : null}
+                {workflowMessage ? <div className="idt-app-alert idt-app-alert-success" role="status">{workflowMessage}</div> : null}
+                <form onSubmit={handleAssignOwner}>
+                  <label>Owner<input aria-label="Finding owner" value={assigneeDraft} onChange={(event) => setAssigneeDraft(event.target.value)} placeholder="Team or person" /></label>
+                  <button type="submit" className="idt-btn idt-btn-ghost" disabled={workflowLoading || assigneeUnchanged}>Save owner</button>
+                </form>
+                <div className="idt-inline-actions">
+                  <button type="button" className="idt-btn idt-btn-ghost" disabled={workflowLoading || workflowStatus === 'ack' || workflowStatus === 'resolved'} onClick={() => void applyWorkflowUpdate({ status: 'ack' }, 'Finding acknowledged.')}>Acknowledge</button>
+                  {workflowStatus !== 'open' ? <button type="button" className="idt-btn idt-btn-ghost" disabled={workflowLoading} onClick={() => void applyWorkflowUpdate({ status: 'open', comment: 'Reopened for further investigation.' }, 'Finding reopened.')}>Reopen</button> : null}
+                </div>
+                <form onSubmit={handleSuppress}>
+                  <label>Suppression reason<textarea aria-label="Suppression reason" required value={suppressionReason} onChange={(event) => setSuppressionReason(event.target.value)} rows={3} /></label>
+                  <label>Optional expiry<input aria-label="Suppression expiry" type="datetime-local" value={suppressionExpiry} onChange={(event) => setSuppressionExpiry(event.target.value)} /></label>
+                  <button type="submit" className="idt-btn idt-btn-ghost" disabled={workflowLoading || workflowStatus === 'resolved'}>Suppress finding</button>
+                </form>
+                <form onSubmit={handleResolve}>
+                  <label>Verification basis<textarea aria-label="Resolution verification basis" value={verificationBasis} onChange={(event) => setVerificationBasis(event.target.value)} rows={3} placeholder="Record the evidence that confirms remediation." /></label>
+                  <button type="submit" className="idt-btn idt-btn-primary" disabled={workflowLoading || workflowStatus === 'resolved'}>Mark resolved</button>
+                </form>
+              </div>
+            ) : <p>Your workspace role can view this finding but cannot change its investigation state.</p> : <p>Persist this live finding in a discovery scan before changing its investigation status. The live evidence remains read-only.</p>}
+          </section>
+          <section>
+            <h5>Finding history</h5>
+            {historyLoading ? <p>Loading finding history…</p> : historyUnavailable ? <p>Finding history is unavailable for this finding.</p> : history.length > 0 ? (
+              <ol className="idt-aws-finding-history">{history.map((event) => <li key={event.id}><strong>{formatTokenLabel(event.action)}</strong><span>{formatTokenLabel(event.from_status)} → {formatTokenLabel(event.to_status)} · {formatDateLabel(event.created_at)}{event.actor ? ` · ${event.actor}` : ''}</span>{event.assignee ? <p>Owner: {event.assignee}</p> : null}{event.comment ? <p>{event.comment}</p> : null}</li>)}</ol>
+            ) : <p>{showingPersistedScan ? 'No recorded triage changes.' : 'History becomes available after the finding is persisted.'}</p>}
+          </section>
+          <section>
+            <h5>Remediation handoff</h5>
+            <p>Copy a read-only handoff for an owner or continue in Identrail’s finding workflow. No AWS action is performed here.</p>
+            {copyError ? <div className="idt-app-alert idt-app-alert-error" role="alert">{copyError}</div> : null}
+            <div className="idt-inline-actions">
+              <button type="button" className="idt-btn idt-btn-ghost" onClick={() => void copyText(remediationHandoff, 'handoff')}>{copiedField === 'handoff' ? 'Copied handoff' : 'Copy remediation handoff'}</button>
+              {remediationHandoffLink ? <Link className="idt-btn idt-btn-ghost" to={remediationHandoffLink}>Open finding workflow</Link> : null}
+            </div>
+            <label className="idt-aws-finding-handoff-label">
+              Selectable handoff text
+              <textarea
+                aria-label="Remediation handoff text"
+                readOnly
+                rows={8}
+                value={remediationHandoff}
+                onFocus={(event) => event.currentTarget.select()}
+              />
+            </label>
           </section>
           {representative.consoleLink ? (
             <a className="idt-aws-finding-console-link" href={representative.consoleLink} target="_blank" rel="noreferrer">
@@ -18630,6 +18876,7 @@ function awsSecretPermissionEquivalenceRiskOperationRow(
   return {
     id: finding.finding_id,
     title: awsSecretPermissionEquivalenceLabel(finding),
+    whatHappened: finding.rationale || evidence,
     category: formatTokenLabel(finding.severity),
     evidence,
     identity,
@@ -18654,9 +18901,10 @@ function awsSecretPermissionEquivalenceRiskOperationRow(
     identityKey: awsSecretPermissionEquivalenceIdentityKey(finding),
     triageStatus: finding.status,
     technicalEvidence: [
+      finding.secret_arn,
       ...finding.evidence.map((evidence) => evidence.evidence_ref),
       ...finding.impacted_path.map((step) => step.node_id)
-    ].filter(Boolean),
+    ].filter((value): value is string => Boolean(value)),
     filters: {
       severity: finding.severity || 'unknown',
       account: connection?.account_id && connection.account_id === finding.account_id ? 'connected' : 'unknown',
@@ -19088,10 +19336,14 @@ function awsPersistedFindingRiskOperationRow(
   const evidenceBoundary = awsPersistedFindingMetadataValue(finding, ['evidence_boundary', 'coverage', 'coverage_state']);
   const actionability = normalizeValue(finding.actionability) || awsPersistedFindingMetadataValue(finding, ['actionability']);
   const exploitability = normalizeValue(finding.exploitability) || awsPersistedFindingMetadataValue(finding, ['exploitability']);
-  const technicalEvidence = finding.path?.map((value) => normalizeValue(value)).filter(Boolean) ?? [];
+  const technicalEvidence = Array.from(new Set([
+    findingScope.resourceARN,
+    ...(finding.path ?? []).map((value) => normalizeValue(value))
+  ].filter((value): value is string => Boolean(value))));
   return {
     id: finding.id,
     title: finding.title || formatTokenLabel(finding.type),
+    whatHappened: finding.human_summary || evidence,
     category: formatTokenLabel(finding.severity),
     evidence,
     owner: finding.triage?.assignee || (finding.owner && finding.owner !== source ? finding.owner : undefined) || 'Unassigned',
@@ -19172,6 +19424,7 @@ function AWSFindingsContent({
   loading,
   error,
   onRetry,
+  onPersistedFindingUpdate,
   filters,
   onFiltersChange
 }: {
@@ -19188,9 +19441,12 @@ function AWSFindingsContent({
   loading: boolean;
   error: string;
   onRetry: () => void;
+  onPersistedFindingUpdate: (finding: ApiFinding) => void;
   filters: AWSInventoryFilterState;
   onFiltersChange: (nextFilters: AWSInventoryFilterState) => void;
 }) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const showingPersistedScan = Boolean(persistedScanID);
   const persistedCompleteness = persistedScanPartial ? 'partial' : persistedScanCoverageUnknown ? 'unknown' : 'complete';
   const findingCompleteness = showingPersistedScan
@@ -19202,17 +19458,30 @@ function AWSFindingsContent({
   const rows = showingPersistedScan
     ? persistedFindings?.map((finding) => awsPersistedFindingRiskOperationRow(finding, persistedScan, persistedCompleteness)) ?? []
     : findings?.findings.map((finding) => awsSecretPermissionEquivalenceRiskOperationRow(finding, findings, scope, environmentID, connection)) ?? [];
+  const groupedRows = groupAWSFindingRows(rows);
   const filteredRows = filterAWSInventoryRows(rows, filters);
   const displayedRows = groupAWSFindingRows(filteredRows).sort(
     (left, right) => awsFindingSeverityRank(awsFindingDisplaySeverity(right)) - awsFindingSeverityRank(awsFindingDisplaySeverity(left)) || left.title.localeCompare(right.title) || left.id.localeCompare(right.id)
   );
-  const [selectedRowID, setSelectedRowID] = useState<string | null>(null);
-  const selectedRow = displayedRows.find((row) => row.id === selectedRowID) ?? null;
+  const selectedFindingID = useMemo(() => normalizeValue(new URLSearchParams(location.search).get('finding_id')), [location.search]);
+  const selectedRow = groupedRows.find((row) =>
+    (row.findingID || row.id) === selectedFindingID || row.relatedRows?.some((relatedRow) => (relatedRow.findingID || relatedRow.id) === selectedFindingID)
+  ) ?? null;
+  const setSelectedFindingID = (findingID: string) => {
+    const query = new URLSearchParams(location.search);
+    if (findingID) {
+      query.set('finding_id', findingID);
+    } else {
+      query.delete('finding_id');
+    }
+    navigate({ pathname: location.pathname, search: query.size > 0 ? `?${query.toString()}` : '' }, { replace: true });
+  };
   const persistedScanReadyToLoad = Boolean(scope && environmentID);
   const liveFindingsReadyToLoad = Boolean(scope && environmentID && connection?.connected);
   const isLoading = loading || (showingPersistedScan && persistedScanReadyToLoad && !persistedFindings && !error) || (!showingPersistedScan && liveFindingsReadyToLoad && !findings && !error);
   const coveragePath = scope && environmentID ? awsRouteLink(scope, 'coverage', environmentID) : undefined;
   const showSummary = !error && !isLoading && (showingPersistedScan ? Boolean(persistedScan) : Boolean(findings));
+  const missingSelectedFinding = Boolean(selectedFindingID && !selectedRow && !isLoading && !error);
 
   return (
     <>
@@ -19250,6 +19519,13 @@ function AWSFindingsContent({
         onChange={onFiltersChange}
         configs={awsFindingFilterConfigs(rows, showingPersistedScan)}
       />
+      {missingSelectedFinding ? (
+        <DomainErrorState
+          title="Finding reference unavailable"
+          body="This finding is missing from the selected scan or live scope. It may be stale, deleted, or outside the current environment."
+          retryAction={{ label: 'Clear finding reference', onClick: () => setSelectedFindingID('') }}
+        />
+      ) : null}
       {error ? (
         <DomainErrorState
           title="Couldn't load AWS findings"
@@ -19308,7 +19584,7 @@ function AWSFindingsContent({
               render: (row) => (
                 <div className="idt-aws-finding-workflow-cell">
                   <AWSFindingStatusBadge status={row.status} showingPersistedScan={showingPersistedScan} />
-                  <button type="button" className="idt-aws-finding-view-details" onClick={() => setSelectedRowID(row.id)}>View details</button>
+                  <button type="button" className="idt-aws-finding-view-details" onClick={() => setSelectedFindingID(row.relatedRows?.[0]?.findingID || row.findingID || row.id)}>View details</button>
                 </div>
               )
             }
@@ -19318,9 +19594,14 @@ function AWSFindingsContent({
       <AWSFindingDetailsDrawer
         open={Boolean(selectedRow)}
         row={selectedRow}
+        selectedFindingID={selectedFindingID}
         showingPersistedScan={showingPersistedScan}
         scope={scope}
-        onClose={() => setSelectedRowID(null)}
+        environmentID={environmentID}
+        coverage={findingCoverage}
+        onFindingUpdated={onPersistedFindingUpdate}
+        onSelectFinding={setSelectedFindingID}
+        onClose={() => setSelectedFindingID('')}
       />
     </>
   );
@@ -22006,6 +22287,11 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             loading={persistedScanID ? persistedFindingsLoading : secretPermissionEquivalenceLoading}
             error={persistedScanID ? persistedFindingsError : secretPermissionEquivalenceError}
             onRetry={persistedScanID ? loadPersistedAWSFindings : loadSecretPermissionEquivalence}
+            onPersistedFindingUpdate={(updatedFinding) => {
+              setPersistedFindings((current) => current?.map((finding) =>
+                finding.id === updatedFinding.id && finding.scan_id === updatedFinding.scan_id ? updatedFinding : finding
+              ) ?? current);
+            }}
             filters={activeFilters}
             onFiltersChange={onFiltersChange}
           />

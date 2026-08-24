@@ -3954,6 +3954,10 @@ func (s *Service) TriageFinding(ctx context.Context, findingID string, scanID st
 	if (suppressionRequested || enteringSuppression) && comment == "" {
 		return domain.Finding{}, ErrInvalidFindingTriageRequest
 	}
+	enteringResolution := currentState.Status != domain.FindingLifecycleResolved && nextState.Status == domain.FindingLifecycleResolved
+	if enteringResolution && comment == "" {
+		return domain.Finding{}, ErrInvalidFindingTriageRequest
+	}
 	if nextState.Status == domain.FindingLifecycleSuppressed && nextState.SuppressionExpiresAt != nil && !nextState.SuppressionExpiresAt.After(now) {
 		return domain.Finding{}, ErrInvalidFindingTriageRequest
 	}

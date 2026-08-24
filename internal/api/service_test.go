@@ -1187,7 +1187,7 @@ func TestServiceRepoFindingTriageScopesStateToRepoScan(t *testing.T) {
 		defaultScopeContext(),
 		"shared-id",
 		secondScan.ID,
-		FindingTriageRequest{Status: &resolved, Assignee: &secondAssignee},
+		FindingTriageRequest{Status: &resolved, Assignee: &secondAssignee, Comment: "verified in the second scan"},
 		"subject:user-2",
 	); err != nil {
 		t.Fatalf("triage second repo finding: %v", err)
@@ -1640,6 +1640,17 @@ func TestServiceTriageFindingRejectsInvalidRequest(t *testing.T) {
 		t.Fatalf("expected invalid triage request error for empty payload, got %v", err)
 	}
 
+	resolved := string(domain.FindingLifecycleResolved)
+	if _, err := svc.TriageFinding(
+		defaultScopeContext(),
+		"finding-1",
+		scan.ID,
+		FindingTriageRequest{Status: &resolved},
+		"subject:user-1",
+	); !errors.Is(err, ErrInvalidFindingTriageRequest) {
+		t.Fatalf("expected invalid triage request error for resolution without verification basis, got %v", err)
+	}
+
 	suppressed := string(domain.FindingLifecycleSuppressed)
 	if _, err := svc.TriageFinding(
 		defaultScopeContext(),
@@ -1713,6 +1724,31 @@ func TestServiceTriageFindingRejectsInvalidRequest(t *testing.T) {
 		"subject:user-1",
 	); !errors.Is(err, ErrInvalidFindingTriageRequest) {
 		t.Fatalf("expected explicit suppression request without reason to fail, got %v", err)
+	}
+
+	verification := "verified in the follow-up scan"
+	if _, err := svc.TriageFinding(
+		defaultScopeContext(),
+		"finding-1",
+		scan.ID,
+		FindingTriageRequest{Status: &resolved, Comment: verification},
+		"subject:user-1",
+	); err != nil {
+		t.Fatalf("expected resolution with verification basis to pass: %v", err)
+	}
+	resolvedAssignee := "incident-response"
+	updatedResolved, err := svc.TriageFinding(
+		defaultScopeContext(),
+		"finding-1",
+		scan.ID,
+		FindingTriageRequest{Status: &resolved, Assignee: &resolvedAssignee},
+		"subject:user-1",
+	)
+	if err != nil {
+		t.Fatalf("expected resolved finding ownership update without a new basis to pass: %v", err)
+	}
+	if updatedResolved.Triage.Status != domain.FindingLifecycleResolved || updatedResolved.Triage.Assignee != resolvedAssignee {
+		t.Fatalf("expected resolved finding ownership update, got %+v", updatedResolved.Triage)
 	}
 }
 

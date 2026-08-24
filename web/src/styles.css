@@ -33818,6 +33818,22 @@ html[data-theme='light'] .idt-danger-modal-typed input {
   line-height: 1.5;
 }
 
+.idt-aws-finding-coverage-warning {
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 0.45rem;
+  padding: 0.7rem;
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.idt-aws-finding-coverage-warning ul {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--idt-text-muted, #aeb8c9);
+  font-size: 0.78rem;
+}
+
 .idt-aws-finding-detail dl {
   display: grid;
   gap: 0.55rem;
@@ -33892,6 +33908,52 @@ html[data-theme='light'] .idt-danger-modal-typed input {
   color: var(--idt-text-muted, #aeb8c9);
 }
 
+.idt-aws-finding-workflow-controls {
+  display: grid;
+  gap: 0.75rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+  padding-top: 0.75rem;
+}
+
+.idt-aws-finding-workflow-controls > p {
+  margin: 0;
+  color: var(--idt-text-muted, #aeb8c9);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.idt-aws-finding-workflow-controls form {
+  display: grid;
+  gap: 0.5rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 0.45rem;
+  padding: 0.65rem;
+}
+
+.idt-aws-finding-workflow-controls label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--idt-text-muted, #aeb8c9);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.idt-aws-finding-workflow-controls input,
+.idt-aws-finding-workflow-controls textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 0.35rem;
+  padding: 0.5rem 0.55rem;
+  color: inherit;
+  background: rgba(4, 8, 18, 0.36);
+  font: inherit;
+}
+
+.idt-aws-finding-workflow-controls textarea {
+  resize: vertical;
+}
+
 .idt-aws-finding-console-link {
   display: inline-flex;
   align-items: center;
@@ -33923,6 +33985,44 @@ html[data-theme='light'] .idt-danger-modal-typed input {
   cursor: pointer;
   color: var(--idt-text-muted, #aeb8c9);
   font-weight: 600;
+}
+
+.idt-aws-finding-copy-button {
+  margin-top: 0.55rem;
+  border: 1px solid rgba(174, 161, 255, 0.45);
+  border-radius: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  color: inherit;
+  background: rgba(111, 89, 255, 0.12);
+  cursor: pointer;
+}
+
+.idt-aws-finding-copy-button:hover,
+.idt-aws-finding-copy-button:focus-visible {
+  border-color: rgba(174, 161, 255, 0.8);
+  background: rgba(111, 89, 255, 0.2);
+}
+
+.idt-aws-finding-handoff-label {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 0.75rem;
+  color: var(--idt-text-muted, #aeb8c9);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.idt-aws-finding-handoff-label textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 0.35rem;
+  padding: 0.5rem 0.55rem;
+  color: inherit;
+  background: rgba(4, 8, 18, 0.36);
+  font: inherit;
+  line-height: 1.45;
 }
 
 .idt-aws-finding-technical-evidence dl {

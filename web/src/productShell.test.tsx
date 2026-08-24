@@ -31,6 +31,7 @@ import type {
   AWSUnusedDormantAccessResult,
   CurrentUserContext,
   Finding,
+  FindingTriageEvent,
   GitHubConnectionStatus,
   GitHubOrganizationPosture,
   GitHubRepositoryPosture,
@@ -8445,6 +8446,212 @@ describe('Domain-first app routes', () => {
     );
   });
 
+  it('deep-links persisted AWS findings and records guarded workflow changes', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'getMe').mockResolvedValue({ me: loggedInWithWorkspace });
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'production',
+        name: 'Production',
+        slug: 'production',
+        description: 'Production AWS boundary.',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
+      scan: {
+        id: 'scan-aws-workflow',
+        project_id: 'production',
+        connector_id: 'aws-connector-1',
+        provider: 'aws',
+        status: 'succeeded',
+        started_at: '2026-08-20T20:00:00Z',
+        finished_at: '2026-08-20T20:03:00Z',
+        asset_count: 1,
+        finding_count: 1
+      }
+    });
+    let persistedFinding: Finding = {
+      id: 'finding-aws-workflow',
+      scan_id: 'scan-aws-workflow',
+      type: 'aws_iam_overprivileged_role',
+      severity: 'high',
+      title: 'Workflow IAM role',
+      human_summary: 'The role grants permissions beyond the observed workload needs.',
+      path: ['arn:aws:iam::123456789012:role/workflow-role', 'iam:GetRole -> iam:ListRoles'],
+      adapter_source: 'iam-policy collector',
+      confidence_score: 0.91,
+      actionability: 'action_required',
+      evidence_completeness: 'complete',
+      provenance: 'aws_iam_inventory',
+      evidence: { account_id: '123456789012', region: 'us-east-1' },
+      remediation: 'Reduce the role policy and verify the effective permissions.',
+      created_at: '2026-08-20T20:03:00Z',
+      lifecycle_status: 'open',
+      triage: { status: 'open' }
+    };
+    vi.spyOn(api.apiClient, 'listFindings').mockImplementation(async () => ({ items: [persistedFinding] }));
+    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
+    const history: FindingTriageEvent[] = [];
+    const listFindingHistory = vi.spyOn(api.apiClient, 'listFindingHistory').mockImplementation(async () => ({ items: [...history] }));
+    const triageFinding = vi.spyOn(api.apiClient, 'triageFinding').mockImplementation(async (_findingID, payload) => {
+      persistedFinding = {
+        ...persistedFinding,
+        triage: {
+          status: payload.status ?? persistedFinding.triage?.status ?? 'open',
+          assignee: payload.assignee ?? persistedFinding.triage?.assignee,
+          suppression_expires_at: payload.suppression_expires_at,
+          resolved_at: payload.status === 'resolved' ? '2026-08-24T13:00:00Z' : undefined,
+          updated_at: '2026-08-24T13:00:00Z',
+          updated_by: 'subject:security-operator'
+        }
+      };
+      history.unshift({
+        id: `event-${history.length + 1}`,
+        finding_id: persistedFinding.id,
+        action: payload.assignee !== undefined ? 'assigned' : payload.status ?? 'commented',
+        from_status: 'open',
+        to_status: payload.status ?? persistedFinding.triage?.status ?? 'open',
+        assignee: payload.assignee,
+        suppression_expires_at: payload.suppression_expires_at,
+        comment: payload.comment,
+        actor: 'subject:security-operator',
+        created_at: '2026-08-24T13:00:00Z'
+      });
+      return { finding: persistedFinding };
+    });
+
+    const { ProductAWSFindingsPage } = await import('./productShell');
+    function LocationProbe() {
+      const currentLocation = useLocation();
+      return <output data-testid="aws-finding-location">{currentLocation.search}</output>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-workflow&finding_id=finding-aws-workflow']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<><ProductAWSFindingsPage /><LocationProbe /></>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const drawer = await screen.findByRole('dialog', { name: 'Finding details' });
+    expect(within(drawer).getByText('What happened')).toBeInTheDocument();
+    expect(within(drawer).getByText('Blast radius & relationship path')).toBeInTheDocument();
+    expect(within(drawer).getByText('Coverage limitations')).toBeInTheDocument();
+    expect(within(drawer).getByText('Finding history')).toBeInTheDocument();
+    expect(within(drawer).getByLabelText('Remediation handoff text')).toHaveDisplayValue(/Finding ID: finding-aws-workflow/);
+    expect(screen.getByTestId('aws-finding-location')).toHaveTextContent('scan_id=scan-aws-workflow');
+    expect(screen.getByTestId('aws-finding-location')).toHaveTextContent('finding_id=finding-aws-workflow');
+
+    fireEvent.change(within(drawer).getByLabelText('Finding owner'), { target: { value: 'Platform Security' } });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Save owner' }));
+    await waitFor(() => expect(triageFinding).toHaveBeenLastCalledWith(
+      'finding-aws-workflow',
+      { assignee: 'Platform Security' },
+      'scan-aws-workflow',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    ));
+
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Acknowledge' }));
+    await waitFor(() => expect(triageFinding).toHaveBeenLastCalledWith(
+      'finding-aws-workflow',
+      { status: 'ack' },
+      'scan-aws-workflow',
+      expect.anything()
+    ));
+
+    fireEvent.change(within(drawer).getByLabelText('Suppression reason'), { target: { value: 'Approved exception while policy is reviewed.' } });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Suppress finding' }));
+    await waitFor(() => expect(triageFinding).toHaveBeenLastCalledWith(
+      'finding-aws-workflow',
+      { status: 'suppressed', comment: 'Approved exception while policy is reviewed.' },
+      'scan-aws-workflow',
+      expect.anything()
+    ));
+
+    const triageCallCountBeforeEmptyResolution = triageFinding.mock.calls.length;
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Mark resolved' }));
+    expect(triageFinding.mock.calls).toHaveLength(triageCallCountBeforeEmptyResolution);
+    expect(within(drawer).getByRole('alert')).toHaveTextContent('Record the verification basis before resolving this finding.');
+
+    fireEvent.change(within(drawer).getByLabelText('Resolution verification basis'), { target: { value: 'A follow-up scan confirms only the required actions remain.' } });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Mark resolved' }));
+    await waitFor(() => expect(triageFinding).toHaveBeenLastCalledWith(
+      'finding-aws-workflow',
+      { status: 'resolved', comment: 'A follow-up scan confirms only the required actions remain.' },
+      'scan-aws-workflow',
+      expect.anything()
+    ));
+    await waitFor(() => expect(listFindingHistory.mock.calls.length).toBeGreaterThanOrEqual(5));
+    expect(within(drawer).getByText('Finding resolved with a recorded verification basis.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Severity' }), { target: { value: 'critical' } });
+    expect(await screen.findByText('No findings match these filters')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Finding details' })).toBeInTheDocument();
+
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Close detail drawer' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Finding details' })).not.toBeInTheDocument());
+    expect(screen.getByTestId('aws-finding-location')).toHaveTextContent('scan_id=scan-aws-workflow');
+    expect(screen.getByTestId('aws-finding-location')).not.toHaveTextContent('finding_id=');
+  });
+
+  it('handles a missing AWS finding deep link without dropping scan scope', async () => {
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
+      items: [{
+        tenant_id: 'tenant-a',
+        workspace_id: 'workspace-a',
+        project_id: 'production',
+        name: 'Production',
+        slug: 'production',
+        description: 'Production AWS boundary.',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z'
+      }]
+    });
+    vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: connectedAWS });
+    vi.spyOn(api.apiClient, 'getScan').mockResolvedValue({
+      scan: {
+        id: 'scan-aws-empty',
+        project_id: 'production',
+        connector_id: 'aws-connector-1',
+        provider: 'aws',
+        status: 'succeeded',
+        started_at: '2026-08-20T20:00:00Z',
+        finished_at: '2026-08-20T20:03:00Z',
+        asset_count: 1,
+        finding_count: 0
+      }
+    });
+    vi.spyOn(api.apiClient, 'listFindings').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({ items: [] });
+
+    const { ProductAWSFindingsPage } = await import('./productShell');
+    function LocationProbe() {
+      const currentLocation = useLocation();
+      return <output data-testid="missing-aws-finding-location">{currentLocation.search}</output>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-empty&finding_id=missing-finding']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<><ProductAWSFindingsPage /><LocationProbe /></>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Finding reference unavailable')).toBeInTheDocument();
+    expect(screen.getByText(/missing from the selected scan or live scope/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear finding reference' }));
+    await waitFor(() => expect(screen.getByTestId('missing-aws-finding-location')).not.toHaveTextContent('finding_id='));
+    expect(screen.getByTestId('missing-aws-finding-location')).toHaveTextContent('scan_id=scan-aws-empty');
+  });
+
   it('shows findings persisted by the completed AWS discovery scan', async () => {
     const api = await import('./api/client');
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
@@ -9084,6 +9291,12 @@ describe('Domain-first app routes', () => {
       'href',
       '/app/tenant-a/workspace-a/aws/coverage?environment=production'
     );
+    const partialFindingRow = screen.getByText('Public bucket from partial scan').closest('tr');
+    expect(partialFindingRow).not.toBeNull();
+    fireEvent.click(within(partialFindingRow as HTMLElement).getByRole('button', { name: 'View details' }));
+    const partialFindingDrawer = await screen.findByRole('dialog', { name: 'Finding details' });
+    expect(within(partialFindingDrawer).getByText(/incomplete or unverified evidence/i)).toBeInTheDocument();
+    expect(within(partialFindingDrawer).getByText(/Lambda Execution Roles · Permission Denied · Retryable/i)).toBeInTheDocument();
     expect(listScanEvents).toHaveBeenNthCalledWith(
       1,
       'scan-aws-partial',
@@ -9311,7 +9524,7 @@ describe('Domain-first app routes', () => {
     }
 
     render(
-      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-complete&severity=high']}>
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/aws/findings?environment=production&scan_id=scan-aws-complete&finding_id=finding-aws-complete&severity=high']}>
         <Routes>
           <Route path="/app/:tenantID/:workspaceID/aws/findings" element={<><ProductAWSFindingsPage /><LocationProbe /></>} />
         </Routes>
@@ -9321,6 +9534,7 @@ describe('Domain-first app routes', () => {
     fireEvent.change(await screen.findByRole('combobox', { name: 'Environment' }), { target: { value: 'staging' } });
     await waitFor(() => expect(screen.getByTestId('aws-findings-location')).toHaveTextContent('environment=staging&severity=high'));
     expect(screen.getByTestId('aws-findings-location')).not.toHaveTextContent('scan_id=');
+    expect(screen.getByTestId('aws-findings-location')).not.toHaveTextContent('finding_id=');
   });
 
   it('shows AWS findings load errors separately from an empty result', async () => {
