@@ -26214,6 +26214,10 @@ components:
           description: "Optional expiry for suppressed findings. When supplied for `status: suppressed`, it must be in the future; a suppression comment is required as the reason."
         comment:
           type: string
+          description: >-
+            Optional audit comment. A nonblank verification basis is required
+            when `status: resolved`; a suppression reason is required when
+            `status: suppressed`.
     FindingTriageEvent:
       type: object
       properties:

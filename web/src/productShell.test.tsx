@@ -8448,6 +8448,7 @@ describe('Domain-first app routes', () => {
 
   it('deep-links persisted AWS findings and records guarded workflow changes', async () => {
     const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'getMe').mockResolvedValue({ me: loggedInWithWorkspace });
     vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({
       items: [{
         tenant_id: 'tenant-a',

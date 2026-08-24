@@ -18486,6 +18486,7 @@ function AWSFindingDetailsDrawer({
   onClose: () => void;
 }) {
   const relatedRows = row?.relatedRows ?? (row ? [row] : []);
+  const { me: currentUser, loading: currentUserLoading } = useMe();
   const [selectedRelatedRowID, setSelectedRelatedRowID] = useState<string | null>(null);
   const [history, setHistory] = useState<FindingTriageEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -18503,6 +18504,12 @@ function AWSFindingDetailsDrawer({
   const workflowRequestRef = useRef(0);
   const representative = relatedRows.find((relatedRow) => relatedRow.id === selectedRelatedRowID) ?? relatedRows[0] ?? null;
   const workflowStatus = normalizeFindingStatus(representative?.triageStatus || representative?.status);
+  const canTriage = Boolean(
+    showingPersistedScan &&
+      scope &&
+      currentUser?.workspace_id === scope.workspaceID &&
+      (currentUser.role === 'owner' || currentUser.role === 'admin')
+  );
   const currentAssignee = representative?.owner === 'Unassigned' ? '' : representative?.owner || '';
   const assigneeUnchanged = assigneeDraft.trim() === currentAssignee;
   const evidenceTimestamp = representative?.observedAt ? Date.parse(representative.observedAt) : Number.NaN;
@@ -18513,13 +18520,12 @@ function AWSFindingDetailsDrawer({
     if (!scope || !environmentID || !representative) {
       return undefined;
     }
-    const base = awsRemediationCenterPath(scope, environmentID);
+    // The findings surface is the destination that can load and select this
+    // finding. Keep both identifiers so the persisted scan remains in scope.
+    const base = awsRouteLink(scope, 'findings', environmentID, representative.scanID ? { scanID: representative.scanID } : {});
     const [path, rawQuery = ''] = base.split('?');
     const query = new URLSearchParams(rawQuery);
     query.set('finding_id', representative.findingID || representative.id);
-    if (representative.scanID) {
-      query.set('scan_id', representative.scanID);
-    }
     return `${path}?${query.toString()}`;
   }, [environmentID, representative?.findingID, representative?.id, representative?.scanID, scope?.tenantID, scope?.workspaceID]);
   const remediationHandoff = useMemo(() => {
@@ -18785,7 +18791,9 @@ function AWSFindingDetailsDrawer({
               <div><dt>Status</dt><dd>{showingPersistedScan ? awsPersistedFindingStatusLabel(representative.status) : formatTokenLabel(representative.status)}</dd></div>
               {representative.triageUpdatedAt ? <div><dt>Last updated</dt><dd>{formatDateLabel(representative.triageUpdatedAt)}{representative.triageUpdatedBy ? ` by ${representative.triageUpdatedBy}` : ''}</dd></div> : null}
             </dl>
-            {showingPersistedScan ? (
+            {showingPersistedScan ? currentUserLoading ? (
+              <p>Checking workspace permissions…</p>
+            ) : canTriage ? (
               <div className="idt-aws-finding-workflow-controls">
                 <p>These controls update Identrail investigation state only. They never change AWS resources.</p>
                 {workflowError ? <div className="idt-app-alert idt-app-alert-error" role="alert">{workflowError}</div> : null}
@@ -18808,7 +18816,7 @@ function AWSFindingDetailsDrawer({
                   <button type="submit" className="idt-btn idt-btn-primary" disabled={workflowLoading || workflowStatus === 'resolved'}>Mark resolved</button>
                 </form>
               </div>
-            ) : <p>Persist this live finding in a discovery scan before changing its investigation status. The live evidence remains read-only.</p>}
+            ) : <p>Your workspace role can view this finding but cannot change its investigation state.</p> : <p>Persist this live finding in a discovery scan before changing its investigation status. The live evidence remains read-only.</p>}
           </section>
           <section>
             <h5>Finding history</h5>
@@ -18818,10 +18826,10 @@ function AWSFindingDetailsDrawer({
           </section>
           <section>
             <h5>Remediation handoff</h5>
-            <p>Copy a read-only handoff for an owner or continue in Identrail’s remediation center. No AWS action is performed here.</p>
+            <p>Copy a read-only handoff for an owner or continue in Identrail’s finding workflow. No AWS action is performed here.</p>
             <div className="idt-inline-actions">
               <button type="button" className="idt-btn idt-btn-ghost" onClick={() => void copyText(remediationHandoff, 'handoff')}>{copiedField === 'handoff' ? 'Copied handoff' : 'Copy remediation handoff'}</button>
-              {remediationHandoffLink ? <Link className="idt-btn idt-btn-ghost" to={remediationHandoffLink}>Open remediation center</Link> : null}
+              {remediationHandoffLink ? <Link className="idt-btn idt-btn-ghost" to={remediationHandoffLink}>Open finding workflow</Link> : null}
             </div>
           </section>
           {representative.consoleLink ? (
