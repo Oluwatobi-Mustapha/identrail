@@ -67,6 +67,42 @@ func TestRoleNormalizerDecodesURLTrustPolicy(t *testing.T) {
 	}
 }
 
+func TestRoleNormalizerAcceptsServiceOnlyTrustPolicy(t *testing.T) {
+	role := IAMRole{
+		ARN:                      "arn:aws:iam::123456789012:role/aws-service-role/access-analyzer.amazonaws.com/AWSServiceRoleForAccessAnalyzer",
+		Name:                     "AWSServiceRoleForAccessAnalyzer",
+		AssumeRolePolicyDocument: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"access-analyzer.amazonaws.com"},"Action":"sts:AssumeRole"}]}`,
+	}
+	payload, err := json.Marshal(role)
+	if err != nil {
+		t.Fatalf("marshal service-linked role: %v", err)
+	}
+
+	bundle, err := NewRoleNormalizer().Normalize(context.Background(), []providers.RawAsset{{
+		Kind:     "iam_role",
+		SourceID: role.ARN,
+		Payload:  payload,
+	}})
+	if err != nil {
+		t.Fatalf("normalize service-linked role: %v", err)
+	}
+	if err := providers.ValidateNormalizedBundle(bundle); err != nil {
+		t.Fatalf("service-only trust policy should satisfy the normalized contract: %v", err)
+	}
+
+	if len(bundle.Policies) != 1 {
+		t.Fatalf("expected one trust policy, got %d", len(bundle.Policies))
+	}
+	policy := bundle.Policies[0]
+	if principals := parseStringList(policy.Normalized[principalsKey]); len(principals) != 0 {
+		t.Fatalf("service principal should not be treated as an IAM principal: %v", principals)
+	}
+	servicePrincipals := parseStringList(policy.Normalized[servicePrincipalsKey])
+	if len(servicePrincipals) != 1 || servicePrincipals[0] != "access-analyzer.amazonaws.com" {
+		t.Fatalf("unexpected service principals: %v", servicePrincipals)
+	}
+}
+
 func TestRoleNormalizerSkipsUnsupportedAndDeduplicates(t *testing.T) {
 	normalizer := NewRoleNormalizer()
 	asset := loadRawRoleAssetFixture(t, "role_with_policies.json")

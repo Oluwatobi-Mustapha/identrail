@@ -271,7 +271,8 @@ func validatePolicyNormalized(normalized map[string]any, identityIDs map[string]
 		}
 	case "trust":
 		principals := extractStringSlice(normalized["principals"])
-		if len(principals) == 0 {
+		servicePrincipals := extractStringSlice(normalized["service_principals"])
+		if len(principals) == 0 && len(servicePrincipals) == 0 {
 			return fmt.Errorf("missing trust principals")
 		}
 	}
