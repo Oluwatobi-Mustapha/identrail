@@ -122,6 +122,12 @@ func TestSDKIAMAPIListRolesHydratesPolicies(t *testing.T) {
 	if len(role.PermissionPolicies) != 2 {
 		t.Fatalf("expected 2 permission policies, got %d", len(role.PermissionPolicies))
 	}
+	if role.PermissionPolicies[0].AttachmentType != "inline" {
+		t.Fatalf("expected inline policy provenance, got %+v", role.PermissionPolicies[0])
+	}
+	if role.PermissionPolicies[1].AttachmentType != "managed" || role.PermissionPolicies[1].ARN != "arn:aws:iam::aws:policy/ReadOnlyAccess" {
+		t.Fatalf("expected managed policy ARN provenance, got %+v", role.PermissionPolicies[1])
+	}
 	if role.Tags["team"] != "payments" {
 		t.Fatalf("unexpected role tags: %+v", role.Tags)
 	}

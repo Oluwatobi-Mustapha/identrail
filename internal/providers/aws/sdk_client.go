@@ -162,7 +162,7 @@ func (a *SDKIAMAPI) collectPermissionPolicies(ctx context.Context, roleName stri
 		if document == "" {
 			continue
 		}
-		policies = append(policies, IAMPermissionPolicy{Name: name, Document: document})
+		policies = append(policies, IAMPermissionPolicy{Name: name, AttachmentType: "inline", Document: document})
 	}
 
 	attached, err := a.listAttachedPolicies(ctx, roleName)
@@ -217,7 +217,7 @@ func (a *SDKIAMAPI) collectPermissionPolicies(ctx context.Context, roleName stri
 		if document == "" {
 			continue
 		}
-		policies = append(policies, IAMPermissionPolicy{Name: policyName, Document: document})
+		policies = append(policies, IAMPermissionPolicy{Name: policyName, ARN: policyARN, AttachmentType: "managed", Document: document})
 	}
 
 	return dedupePermissionPolicies(policies), nil
@@ -285,16 +285,18 @@ func dedupePermissionPolicies(policies []IAMPermissionPolicy) []IAMPermissionPol
 	result := make([]IAMPermissionPolicy, 0, len(policies))
 	for _, policy := range policies {
 		name := strings.TrimSpace(policy.Name)
+		policyARN := strings.TrimSpace(policy.ARN)
+		attachmentType := strings.TrimSpace(policy.AttachmentType)
 		doc := strings.TrimSpace(policy.Document)
 		if name == "" || doc == "" {
 			continue
 		}
-		key := name + "|" + doc
+		key := name + "|" + policyARN + "|" + attachmentType + "|" + doc
 		if _, exists := seen[key]; exists {
 			continue
 		}
 		seen[key] = struct{}{}
-		result = append(result, IAMPermissionPolicy{Name: name, Document: doc})
+		result = append(result, IAMPermissionPolicy{Name: name, ARN: policyARN, AttachmentType: attachmentType, Document: doc})
 	}
 	return result
 }

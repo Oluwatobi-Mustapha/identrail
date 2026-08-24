@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- Improve AWS IAM finding signal quality for AWS-managed service-linked roles
+  and the Identrail connector role (#1825). Expected Security Lake, Support,
+  Trusted Advisor, and Organizations roles no longer emit generic stale,
+  ownerless, or overprivileged noise, while unexpected trust and customer
+  policy changes remain visible as one correlated anomaly. Connector findings
+  now validate the expected account, external-ID condition, and read-only
+  policy boundary, keep the external ID out of evidence, and report confidence,
+  exploitability, actionability, provenance, and evidence completeness
+  separately from severity.
 - Make the AWS connector release and organization rollout production-ready.
   Hosted releases now pin one `dev` commit across migrations, API, worker, and
   an immutable CloudFormation template, enable the registration provider, and

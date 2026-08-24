@@ -10,6 +10,10 @@ export type Finding = {
   type: string;
   severity: string;
   confidence_score?: number;
+  actionability?: string;
+  exploitability?: string;
+  evidence_completeness?: string;
+  provenance?: string;
   title: string;
   human_summary: string;
   path?: string[];
@@ -390,6 +394,9 @@ export type Identity = {
   id: string;
   provider: string;
   type: string;
+  identity_kind?: 'standard' | 'service_linked' | 'connector' | string;
+  managed_by?: 'customer' | 'aws_service' | 'identrail_connector' | string;
+  actionability?: 'action_required' | 'review' | 'observe_only' | string;
   name: string;
   arn: string;
   owner_hint: string;

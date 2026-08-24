@@ -11,12 +11,15 @@ import (
 )
 
 const (
-	policyTypeKey   = "policy_type"
-	policyTypePerm  = "permission"
-	policyTypeTrust = "trust"
-	identityIDKey   = "identity_id"
-	statementsKey   = "statements"
-	principalsKey   = "principals"
+	policyTypeKey        = "policy_type"
+	policyTypePerm       = "permission"
+	policyTypeTrust      = "trust"
+	identityIDKey        = "identity_id"
+	statementsKey        = "statements"
+	principalsKey        = "principals"
+	servicePrincipalsKey = "service_principals"
+	policyARNKey         = "policy_arn"
+	attachmentTypeKey    = "attachment_type"
 )
 
 // RoleNormalizer transforms raw IAM role assets into provider-agnostic entities.
@@ -309,18 +312,22 @@ func normalizeIAMRoleAsset(asset providers.RawAsset, index int, bundle *provider
 
 	identityID := identityIDFromARN(arn)
 	if _, exists := identitySeen[identityID]; !exists {
+		identityKind, managedBy, actionability := classifyIAMRoleIdentity(role)
 		identitySeen[identityID] = struct{}{}
 		bundle.Identities = append(bundle.Identities, domain.Identity{
-			ID:         identityID,
-			Provider:   domain.ProviderAWS,
-			Type:       domain.IdentityTypeRole,
-			Name:       strings.TrimSpace(role.Name),
-			ARN:        arn,
-			OwnerHint:  ownerHintFromTags(role.Tags),
-			CreatedAt:  derefTimeOrZero(role.CreatedAt),
-			LastUsedAt: role.LastUsedAt,
-			Tags:       copyTags(role.Tags),
-			RawRef:     asset.SourceID,
+			ID:            identityID,
+			Provider:      domain.ProviderAWS,
+			Type:          domain.IdentityTypeRole,
+			IdentityKind:  identityKind,
+			ManagedBy:     managedBy,
+			Actionability: actionability,
+			Name:          strings.TrimSpace(role.Name),
+			ARN:           arn,
+			OwnerHint:     ownerHintFromTags(role.Tags),
+			CreatedAt:     derefTimeOrZero(role.CreatedAt),
+			LastUsedAt:    role.LastUsedAt,
+			Tags:          copyTags(role.Tags),
+			RawRef:        asset.SourceID,
 		})
 	}
 
@@ -1798,9 +1805,11 @@ func normalizePermissionPolicies(identityID string, policies []IAMPermissionPoli
 			Name:     policy.Name,
 			Document: []byte(policy.Document),
 			Normalized: map[string]any{
-				policyTypeKey: policyTypePerm,
-				identityIDKey: identityID,
-				statementsKey: statements,
+				policyTypeKey:     policyTypePerm,
+				identityIDKey:     identityID,
+				statementsKey:     statements,
+				policyARNKey:      strings.TrimSpace(policy.ARN),
+				attachmentTypeKey: strings.TrimSpace(policy.AttachmentType),
 			},
 			RawRef: identityID,
 		})
@@ -1818,14 +1827,17 @@ func normalizeTrustPolicy(identityID, rawTrustDocument string) (*domain.Policy, 
 	}
 
 	principals := make([]string, 0, len(doc.Statement))
+	servicePrincipals := make([]string, 0, len(doc.Statement))
 	for _, statement := range doc.Statement {
 		if !strings.EqualFold(statement.Effect, "allow") {
 			continue
 		}
 		principals = append(principals, parseAWSPrincipals(statement.Principal)...)
+		servicePrincipals = append(servicePrincipals, parsePrincipalType(statement.Principal, "Service")...)
 	}
 	principals = dedupeStrings(principals)
-	if len(principals) == 0 {
+	servicePrincipals = dedupeStrings(servicePrincipals)
+	if len(principals) == 0 && len(servicePrincipals) == 0 {
 		return nil, nil
 	}
 
@@ -1835,9 +1847,10 @@ func normalizeTrustPolicy(identityID, rawTrustDocument string) (*domain.Policy, 
 		Name:     "assume-role-trust",
 		Document: []byte(rawTrustDocument),
 		Normalized: map[string]any{
-			policyTypeKey: policyTypeTrust,
-			identityIDKey: identityID,
-			principalsKey: principals,
+			policyTypeKey:        policyTypeTrust,
+			identityIDKey:        identityID,
+			principalsKey:        principals,
+			servicePrincipalsKey: servicePrincipals,
 		},
 		RawRef: identityID,
 	}, nil

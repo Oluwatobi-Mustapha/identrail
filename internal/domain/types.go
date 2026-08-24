@@ -130,6 +130,44 @@ const (
 	AgentTypeUnknown AgentType = "agent"
 )
 
+// IdentityKind distinguishes customer-controlled identities from identities
+// whose lifecycle is owned by a cloud service or a known connector.
+type IdentityKind string
+
+const (
+	IdentityKindStandard      IdentityKind = "standard"
+	IdentityKindServiceLinked IdentityKind = "service_linked"
+	IdentityKindConnector     IdentityKind = "connector"
+)
+
+// IdentityManagedBy records the control plane responsible for an identity.
+type IdentityManagedBy string
+
+const (
+	IdentityManagedByCustomer   IdentityManagedBy = "customer"
+	IdentityManagedByAWSService IdentityManagedBy = "aws_service"
+	IdentityManagedByIdentrail  IdentityManagedBy = "identrail_connector"
+)
+
+// FindingActionability separates operational next action from impact severity.
+type FindingActionability string
+
+const (
+	FindingActionabilityActionRequired FindingActionability = "action_required"
+	FindingActionabilityReview         FindingActionability = "review"
+	FindingActionabilityObserveOnly    FindingActionability = "observe_only"
+)
+
+// FindingExploitability describes whether evidence demonstrates a usable path.
+type FindingExploitability string
+
+const (
+	FindingExploitabilityConfirmed FindingExploitability = "confirmed"
+	FindingExploitabilityPlausible FindingExploitability = "plausible"
+	FindingExploitabilityUnknown   FindingExploitability = "unknown"
+	FindingExploitabilityNone      FindingExploitability = "none_observed"
+)
+
 // RuntimeEventType identifies observed action semantics during scan execution.
 type RuntimeEventType string
 
@@ -200,16 +238,19 @@ func DefaultFindingTriage() FindingTriage {
 
 // Identity is a normalized machine identity across providers.
 type Identity struct {
-	ID         string            `json:"id"`
-	Provider   Provider          `json:"provider"`
-	Type       IdentityType      `json:"type"`
-	Name       string            `json:"name"`
-	ARN        string            `json:"arn"`
-	OwnerHint  string            `json:"owner_hint"`
-	CreatedAt  time.Time         `json:"created_at"`
-	LastUsedAt *time.Time        `json:"last_used_at,omitempty"`
-	Tags       map[string]string `json:"tags,omitempty"`
-	RawRef     string            `json:"raw_ref"`
+	ID            string               `json:"id"`
+	Provider      Provider             `json:"provider"`
+	Type          IdentityType         `json:"type"`
+	IdentityKind  IdentityKind         `json:"identity_kind,omitempty"`
+	ManagedBy     IdentityManagedBy    `json:"managed_by,omitempty"`
+	Actionability FindingActionability `json:"actionability,omitempty"`
+	Name          string               `json:"name"`
+	ARN           string               `json:"arn"`
+	OwnerHint     string               `json:"owner_hint"`
+	CreatedAt     time.Time            `json:"created_at"`
+	LastUsedAt    *time.Time           `json:"last_used_at,omitempty"`
+	Tags          map[string]string    `json:"tags,omitempty"`
+	RawRef        string               `json:"raw_ref"`
 }
 
 // Workload is a compute entity that can execute with one or more identities.
@@ -313,6 +354,10 @@ type Finding struct {
 	Type                 FindingType                `json:"type"`
 	Severity             FindingSeverity            `json:"severity"`
 	ConfidenceScore      float64                    `json:"confidence_score,omitempty"`
+	Actionability        FindingActionability       `json:"actionability,omitempty"`
+	Exploitability       FindingExploitability      `json:"exploitability,omitempty"`
+	EvidenceCompleteness string                     `json:"evidence_completeness,omitempty"`
+	Provenance           string                     `json:"provenance,omitempty"`
 	Title                string                     `json:"title"`
 	HumanSummary         string                     `json:"human_summary"`
 	Path                 []string                   `json:"path,omitempty"`

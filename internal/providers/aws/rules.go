@@ -35,8 +35,9 @@ type RuleOption func(*RuleSet)
 
 // RuleSet evaluates deterministic risk findings for AWS identities.
 type RuleSet struct {
-	now        func() time.Time
-	staleAfter time.Duration
+	now                  func() time.Time
+	staleAfter           time.Duration
+	connectorExpectation ConnectorRoleExpectation
 }
 
 var _ providers.RiskRuleSet = (*RuleSet)(nil)
@@ -67,6 +68,19 @@ func WithStaleAfter(staleAfter time.Duration) RuleOption {
 	return func(r *RuleSet) {
 		if staleAfter > 0 {
 			r.staleAfter = staleAfter
+		}
+	}
+}
+
+// WithConnectorRoleExpectation supplies the live connector invariants used to
+// validate known connector trust without exposing the external ID in output.
+func WithConnectorRoleExpectation(expectation ConnectorRoleExpectation) RuleOption {
+	return func(r *RuleSet) {
+		r.connectorExpectation = ConnectorRoleExpectation{
+			RoleARN:          strings.TrimSpace(expectation.RoleARN),
+			AccountID:        strings.TrimSpace(expectation.AccountID),
+			TrustedAccountID: strings.TrimSpace(expectation.TrustedAccountID),
+			ExternalID:       strings.TrimSpace(expectation.ExternalID),
 		}
 	}
 }
@@ -126,10 +140,32 @@ func (r *RuleSet) Evaluate(ctx context.Context, bundle providers.NormalizedBundl
 	}
 
 	findings := make([]domain.Finding, 0, len(bundle.Identities)*2)
+	specialIdentity := make(map[string]bool, len(bundle.Identities))
 
 	for _, identity := range sortedIdentities(bundle.Identities) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+
+		if r.isConnectorRole(identity) {
+			specialIdentity[identity.ID] = true
+			signals, completeness := connectorRoleSignals(bundle, identity, r.connectorExpectation)
+			if len(overprivileged[identity.ID]) > 0 && connectorPermissionScopeExpanded(permissionPoliciesForIdentity(bundle, identity.ID)) {
+				signals = append(signals, "unexpected_permission_reachability")
+			}
+			findings = append(findings, connectorTrustReviewFinding(identity, sortedUniqueStrings(signals), completeness, now))
+			continue
+		}
+		if expectation, ok := expectedServiceLinkedRole(identity); ok {
+			specialIdentity[identity.ID] = true
+			signals := expectedServiceLinkedRoleSignals(bundle, identity, expectation, len(overprivileged[identity.ID]) > 0)
+			if len(riskyTrust[identity.ID]) > 0 {
+				signals = append(signals, "unexpected_external_trust")
+			}
+			if len(signals) > 0 {
+				findings = append(findings, managedRoleAnomalyFinding(identity, expectation, sortedUniqueStrings(signals), now))
+			}
+			continue
 		}
 
 		if isIdentityOwnerless(identity) {
@@ -141,6 +177,9 @@ func (r *RuleSet) Evaluate(ctx context.Context, bundle providers.NormalizedBundl
 	}
 
 	for identityID, risks := range overprivileged {
+		if specialIdentity[identityID] {
+			continue
+		}
 		identity, exists := identityByID[identityID]
 		if !exists {
 			continue
@@ -149,6 +188,9 @@ func (r *RuleSet) Evaluate(ctx context.Context, bundle providers.NormalizedBundl
 	}
 
 	for identityID, principals := range riskyTrust {
+		if specialIdentity[identityID] {
+			continue
+		}
 		identity, exists := identityByID[identityID]
 		if !exists {
 			continue
@@ -157,6 +199,9 @@ func (r *RuleSet) Evaluate(ctx context.Context, bundle providers.NormalizedBundl
 	}
 
 	for identityID, principals := range riskyTrust {
+		if specialIdentity[identityID] {
+			continue
+		}
 		risks := sortAccessRisks(overprivileged[identityID])
 		if len(risks) == 0 {
 			continue
@@ -171,6 +216,27 @@ func (r *RuleSet) Evaluate(ctx context.Context, bundle providers.NormalizedBundl
 		findings = append(findings, escalationFinding(identity, dedupeStrings(principals), risks[0], now))
 	}
 
+	for i := range findings {
+		identityID, _ := findings[i].Evidence["identity_id"].(string)
+		identity, exists := identityByID[identityID]
+		if !exists {
+			continue
+		}
+		signals := []string{string(findings[i].Type)}
+		if existing, ok := findings[i].Evidence["contributing_signals"].([]string); ok {
+			signals = existing
+		}
+		switch findings[i].Type {
+		case domain.FindingEscalationPath:
+			findings[i].Exploitability = domain.FindingExploitabilityConfirmed
+		case domain.FindingOverPrivileged, domain.FindingRiskyTrustPolicy:
+			if findings[i].Exploitability == "" {
+				findings[i].Exploitability = domain.FindingExploitabilityPlausible
+			}
+		}
+		decorateAWSFinding(&findings[i], identity, signals, now)
+	}
+
 	sort.Slice(findings, func(i, j int) bool {
 		if findings[i].Severity == findings[j].Severity {
 			if findings[i].Type == findings[j].Type {
@@ -182,6 +248,14 @@ func (r *RuleSet) Evaluate(ctx context.Context, bundle providers.NormalizedBundl
 	})
 
 	return findings, nil
+}
+
+func (r *RuleSet) isConnectorRole(identity domain.Identity) bool {
+	expectedARN := strings.TrimSpace(r.connectorExpectation.RoleARN)
+	if expectedARN != "" && strings.EqualFold(strings.TrimSpace(identity.ARN), expectedARN) {
+		return true
+	}
+	return identity.IdentityKind == domain.IdentityKindConnector || strings.EqualFold(strings.TrimSpace(identity.Name), identrailConnectorRoleName)
 }
 
 func sortedIdentities(identities []domain.Identity) []domain.Identity {

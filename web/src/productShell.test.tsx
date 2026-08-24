@@ -8681,6 +8681,10 @@ describe('Domain-first app routes', () => {
                 owner: 'AWS scanner',
                 adapter_source: 'iam-policy collector',
                 confidence_score: 0.88,
+                actionability: 'action_required',
+                exploitability: 'plausible',
+                evidence_completeness: 'complete',
+                provenance: 'aws_iam_inventory',
                 first_seen_at: '2026-08-20T20:01:00Z',
                 evidence: { source: 'iam-policy', account_id: '123456789012', region: 'us-east-1' },
                 remediation: 'Reduce the role policy to the required actions.',
@@ -8769,6 +8773,9 @@ describe('Domain-first app routes', () => {
     await waitFor(() => {
       expect(within(findingDrawer).getByText('Reduce the role policy to the required actions.')).toBeInTheDocument();
       expect(within(findingDrawer).getByText('Technical evidence (2 refs)')).toBeInTheDocument();
+      expect(within(findingDrawer).getByText('Action Required')).toBeInTheDocument();
+      expect(within(findingDrawer).getByText('Plausible')).toBeInTheDocument();
+      expect(within(findingDrawer).getByText('Complete')).toBeInTheDocument();
     });
     fireEvent.click(within(findingDrawer).getByRole('button', { name: 'Close detail drawer' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Finding details' })).not.toBeInTheDocument());
