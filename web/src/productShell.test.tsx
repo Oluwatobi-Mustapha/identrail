@@ -8544,6 +8544,7 @@ describe('Domain-first app routes', () => {
     expect(within(drawer).getByText('Blast radius & relationship path')).toBeInTheDocument();
     expect(within(drawer).getByText('Coverage limitations')).toBeInTheDocument();
     expect(within(drawer).getByText('Finding history')).toBeInTheDocument();
+    expect(within(drawer).getByLabelText('Remediation handoff text')).toHaveDisplayValue(/Finding ID: finding-aws-workflow/);
     expect(screen.getByTestId('aws-finding-location')).toHaveTextContent('scan_id=scan-aws-workflow');
     expect(screen.getByTestId('aws-finding-location')).toHaveTextContent('finding_id=finding-aws-workflow');
 

@@ -18500,6 +18500,7 @@ function AWSFindingDetailsDrawer({
   const [workflowError, setWorkflowError] = useState('');
   const [workflowMessage, setWorkflowMessage] = useState('');
   const [copiedField, setCopiedField] = useState('');
+  const [copyError, setCopyError] = useState('');
   const historyRequestRef = useRef(0);
   const workflowRequestRef = useRef(0);
   const representative = relatedRows.find((relatedRow) => relatedRow.id === selectedRelatedRowID) ?? relatedRows[0] ?? null;
@@ -18560,6 +18561,7 @@ function AWSFindingDetailsDrawer({
     setWorkflowError('');
     setWorkflowMessage('');
     setCopiedField('');
+    setCopyError('');
   }, [open, representative?.findingID, representative?.scanID, scope?.tenantID, scope?.workspaceID]);
 
   useEffect(() => {
@@ -18673,16 +18675,16 @@ function AWSFindingDetailsDrawer({
   };
 
   const copyText = async (text: string, field: string) => {
-    setWorkflowError('');
+    setCopyError('');
     if (!text || typeof navigator === 'undefined' || !navigator.clipboard) {
-      setWorkflowError('Clipboard access is unavailable. Select and copy the text manually.');
+      setCopyError('Clipboard access is unavailable. Select and copy the displayed text manually.');
       return;
     }
     try {
       await navigator.clipboard.writeText(text);
       setCopiedField(field);
     } catch {
-      setWorkflowError('Clipboard access was denied. Select and copy the text manually.');
+      setCopyError('Clipboard access was denied. Select and copy the displayed text manually.');
     }
   };
 
@@ -18830,10 +18832,21 @@ function AWSFindingDetailsDrawer({
           <section>
             <h5>Remediation handoff</h5>
             <p>Copy a read-only handoff for an owner or continue in Identrail’s finding workflow. No AWS action is performed here.</p>
+            {copyError ? <div className="idt-app-alert idt-app-alert-error" role="alert">{copyError}</div> : null}
             <div className="idt-inline-actions">
               <button type="button" className="idt-btn idt-btn-ghost" onClick={() => void copyText(remediationHandoff, 'handoff')}>{copiedField === 'handoff' ? 'Copied handoff' : 'Copy remediation handoff'}</button>
               {remediationHandoffLink ? <Link className="idt-btn idt-btn-ghost" to={remediationHandoffLink}>Open finding workflow</Link> : null}
             </div>
+            <label className="idt-aws-finding-handoff-label">
+              Selectable handoff text
+              <textarea
+                aria-label="Remediation handoff text"
+                readOnly
+                rows={8}
+                value={remediationHandoff}
+                onFocus={(event) => event.currentTarget.select()}
+              />
+            </label>
           </section>
           {representative.consoleLink ? (
             <a className="idt-aws-finding-console-link" href={representative.consoleLink} target="_blank" rel="noreferrer">

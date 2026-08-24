@@ -34003,6 +34003,28 @@ html[data-theme='light'] .idt-danger-modal-typed input {
   background: rgba(111, 89, 255, 0.2);
 }
 
+.idt-aws-finding-handoff-label {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 0.75rem;
+  color: var(--idt-text-muted, #aeb8c9);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.idt-aws-finding-handoff-label textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 0.35rem;
+  padding: 0.5rem 0.55rem;
+  color: inherit;
+  background: rgba(4, 8, 18, 0.36);
+  font: inherit;
+  line-height: 1.45;
+}
+
 .idt-aws-finding-technical-evidence dl {
   display: grid;
   gap: 0.25rem;
