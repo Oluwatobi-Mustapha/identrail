@@ -18172,10 +18172,12 @@ function AWSFindingAffectedResourceCell({ row }: { row: AWSRiskOperationTableRow
 }
 
 function AWSFindingBlastRadiusCell({ row }: { row: AWSRiskOperationTableRow }) {
-  const relatedRiskCount = row.relatedRows?.length ?? 1;
+  const relatedRows = row.relatedRows ?? [row];
+  const relatedRiskCount = relatedRows.length;
+  const affectedResourceCount = awsFindingDistinctResourceCount(relatedRows);
   return (
     <div className="idt-aws-finding-blast-cell">
-      <strong>1 affected resource</strong>
+      <strong>{affectedResourceCount} affected resource{affectedResourceCount === 1 ? '' : 's'}</strong>
       <small>{relatedRiskCount} related risk{relatedRiskCount === 1 ? '' : 's'}</small>
     </div>
   );
@@ -18225,10 +18227,11 @@ function awsFindingQueueScopeLabel(
     return normalizeValue(row.scopeLabel).toLowerCase().includes('global') ? ['Global'] : [];
   }))];
   if (!showingPersistedScan) {
+    const hasFindingAccount = accounts.length > 0;
     const currentAccount = normalizeValue(connection?.account_id);
     const currentRegion = normalizeValue(connection?.region);
     if (accounts.length === 0 && currentAccount) accounts.push(currentAccount);
-    if (scopes.length === 0 && currentRegion) scopes.push(currentRegion);
+    if (scopes.length === 0 && !hasFindingAccount && currentRegion) scopes.push(currentRegion);
   }
   const accountLabel = accounts.length === 0 ? 'Account unavailable' : accounts.length === 1 ? `Account ${accounts[0]}` : `${accounts.length} accounts`;
   const includesGlobal = scopes.includes('Global');
@@ -18305,9 +18308,9 @@ function AWSFindingSeveritySummary({
       return normalized === severity || (severity === 'unknown' && !['critical', 'high', 'medium', 'low'].includes(normalized));
     }).length
   }));
-  const criticalHighOpen = groupAWSFindingRows(rows).filter((row) => {
-    const severity = normalizeValue(awsFindingDisplaySeverity(row)).toLowerCase();
-    return (severity === 'critical' || severity === 'high') && normalizeValue(row.status).toLowerCase() === 'open';
+  const criticalHighOpen = rows.filter((row) => {
+    const severity = normalizeValue(row.category).toLowerCase();
+    return (severity === 'critical' || severity === 'high') && normalizeValue(row.filters.status).toLowerCase() === 'open';
   }).length;
   const scanTimestamp = normalizeValue(persistedScan?.finished_at) || normalizeValue(persistedScan?.started_at);
   const scanLabel = showingPersistedScan
@@ -18666,6 +18669,31 @@ function awsSecretPermissionEquivalenceCompleteness(result: AWSSecretPermissionE
   return 'complete';
 }
 
+function awsSecretPermissionEquivalenceCoverage(
+  result: AWSSecretPermissionEquivalenceResult | null
+): AWSFindingCoverageContext {
+  if (!result || result.status === 'ready') {
+    return { totalCount: 0, issues: [] };
+  }
+  const diagnosticIssues = result.diagnostics.map((diagnostic) => ({
+    collector: diagnostic.collector || 'Unknown collector',
+    sourceID: diagnostic.source_id,
+    code: diagnostic.code,
+    retryable: diagnostic.retryable
+  }));
+  const issues = diagnosticIssues.length > 0
+    ? diagnosticIssues
+    : result.coverage_gaps.map((gap) => ({
+        collector: gap.capability || 'Unknown capability',
+        code: gap.status,
+        retryable: false
+      }));
+  return {
+    totalCount: Math.max(issues.length, 1),
+    issues: issues.slice(0, 8)
+  };
+}
+
 function awsPersistedFindingStage(finding: ApiFinding): AWSCapabilityStage {
   const severity = normalizeValue(finding.severity).toLowerCase();
   if (severity === 'critical') {
@@ -18709,6 +18737,7 @@ function awsPersistedFindingStatusLabel(status: string): string {
 }
 
 const AWS_PERSISTED_FINDINGS_PAGE_LIMIT = 500;
+const AWS_SCAN_EVENTS_PAGE_LIMIT = 500;
 
 async function listAllAWSScanFindings(scanID: string, auth: RequestAuthContext): Promise<ApiFinding[]> {
   const findings: ApiFinding[] = [];
@@ -18732,6 +18761,27 @@ async function listAllAWSScanFindings(scanID: string, auth: RequestAuthContext):
     }
     if (seenCursors.has(nextCursor)) {
       throw new Error('AWS findings pagination returned a repeated cursor.');
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+}
+
+async function listAllAWSScanEvents(scanID: string, auth: RequestAuthContext): Promise<ScanEvent[]> {
+  const events: ScanEvent[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+
+  while (true) {
+    const response = await apiClient.listScanEvents(scanID, undefined, AWS_SCAN_EVENTS_PAGE_LIMIT, auth, cursor);
+    events.push(...response.items);
+
+    const nextCursor = normalizeValue(response.next_cursor);
+    if (!nextCursor) {
+      return events;
+    }
+    if (seenCursors.has(nextCursor)) {
+      throw new Error('AWS scan event pagination returned a repeated cursor.');
     }
     seenCursors.add(nextCursor);
     cursor = nextCursor;
@@ -19134,6 +19184,12 @@ function AWSFindingsContent({
 }) {
   const showingPersistedScan = Boolean(persistedScanID);
   const persistedCompleteness = persistedScanPartial ? 'partial' : persistedScanCoverageUnknown ? 'unknown' : 'complete';
+  const findingCompleteness = showingPersistedScan
+    ? persistedCompleteness
+    : findings ? awsSecretPermissionEquivalenceCompleteness(findings) : 'unknown';
+  const findingCoverage = showingPersistedScan
+    ? persistedScanCoverage
+    : awsSecretPermissionEquivalenceCoverage(findings);
   const rows = showingPersistedScan
     ? persistedFindings?.map((finding) => awsPersistedFindingRiskOperationRow(finding, persistedScan, persistedCompleteness)) ?? []
     : findings?.findings.map((finding) => awsSecretPermissionEquivalenceRiskOperationRow(finding, findings, scope, environmentID, connection)) ?? [];
@@ -19173,8 +19229,8 @@ function AWSFindingsContent({
           resourceCount={awsFindingDistinctResourceCount(rows)}
           persistedScan={persistedScan}
           showingPersistedScan={showingPersistedScan}
-          completeness={persistedCompleteness}
-          coverage={persistedScanCoverage}
+          completeness={findingCompleteness}
+          coverage={findingCoverage}
           coveragePath={coveragePath}
           connection={connection}
         />
@@ -21503,8 +21559,8 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       const [scanResponse, findingsResponse, eventsResponse] = await Promise.all([
         apiClient.getScan(persistedScanID, auth),
         listAllAWSScanFindings(persistedScanID, auth),
-        apiClient.listScanEvents(persistedScanID, undefined, 100, auth)
-          .then((response) => ({ items: response.items, available: true }))
+        listAllAWSScanEvents(persistedScanID, auth)
+          .then((items) => ({ items, available: true }))
           .catch(() => ({ items: [], available: false }))
       ]);
       if (requestID !== persistedFindingsRequestRef.current) {

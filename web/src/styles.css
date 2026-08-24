@@ -33751,6 +33751,12 @@ html[data-theme='light'] .idt-danger-modal-typed input {
     border-bottom: 0;
   }
 
+  .idt-domain-table-wrap.is-narrow-stack .idt-domain-data-table td > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
   .idt-domain-table-wrap.is-narrow-stack .idt-domain-data-table td::before {
     content: attr(data-label);
     color: var(--idt-text-muted, #aeb8c9);

@@ -10826,11 +10826,12 @@ export const apiClient = {
       auth
     );
   },
-  listScanEvents(scanID: string, level?: string, limit = 50, auth?: RequestAuthContext) {
-    return request<{ items: ScanEvent[] }>(
+  listScanEvents(scanID: string, level?: string, limit = 50, auth?: RequestAuthContext, cursor?: string) {
+    return request<{ items: ScanEvent[]; next_cursor?: string }>(
       `/v1/scans/${encodeURIComponent(scanID)}/events${buildQuery({
         level,
         limit,
+        cursor,
         sort_by: 'created_at',
         sort_order: 'desc'
       })}`,

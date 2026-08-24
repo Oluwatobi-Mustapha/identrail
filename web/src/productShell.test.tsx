@@ -8110,6 +8110,13 @@ describe('Domain-first app routes', () => {
       finding_id: 'aws-secret-permission-equivalence:findings-route-actionable',
       status: 'action_required'
     };
+    const sameIdentityDifferentSecretFinding = {
+      ...equivalenceFinding,
+      finding_id: 'aws-secret-permission-equivalence:findings-route-second-secret',
+      secret_node_id: 'aws:resource:secret:github-api-key',
+      secret_label: 'github/api-key',
+      provider: 'github'
+    };
     const sameNameDifferentIdentityFinding = {
       ...equivalenceFinding,
       finding_id: 'aws-secret-permission-equivalence:findings-route-different-identity',
@@ -8122,7 +8129,12 @@ describe('Domain-first app routes', () => {
     const getSecretPermissionEquivalence = vi.spyOn(api.apiClient, 'getAWSProjectSecretPermissionEquivalence').mockResolvedValue({
       findings: {
         status: 'ready',
-        findings: [equivalenceFinding, actionableEquivalenceFinding, sameNameDifferentIdentityFinding],
+        findings: [
+          equivalenceFinding,
+          actionableEquivalenceFinding,
+          sameIdentityDifferentSecretFinding,
+          sameNameDifferentIdentityFinding
+        ],
         summary: {
           external_provider_key_count: 0,
           aws_managed_secret_count: 0,
@@ -8166,7 +8178,14 @@ describe('Domain-first app routes', () => {
     expect(liveFindingRow).toHaveTextContent('Secret · Case Triage');
     expect(liveFindingRow).toHaveTextContent('Secret');
     expect(liveFindingRow).toHaveTextContent('Account 123456789012 · Region us-east-1');
+    expect(liveFindingRow).toHaveTextContent('2 affected resources');
+    expect(liveFindingRow).toHaveTextContent('3 related risks');
     expect(within(findingsTable).getByText('Account 123456789012 · Region eu-west-1')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('region', { name: 'Finding priority summary' })).getByText(
+        '4 findings · 1 critical/high open · 3 affected resources'
+      )
+    ).toBeInTheDocument();
     const liveDetailsButton = within(liveFindingRow as HTMLElement).getByRole('button', { name: 'View details' });
     liveDetailsButton.focus();
     expect(liveDetailsButton).toHaveFocus();
@@ -8187,29 +8206,28 @@ describe('Domain-first app routes', () => {
       )
     );
 
-    getSecretPermissionEquivalence.mockResolvedValue({
-      findings: {
-        status: 'degraded',
-        findings: [equivalenceFinding],
-        summary: {
-          external_provider_key_count: 0,
-          aws_managed_secret_count: 0,
-          runtime_observed_count: 0,
-          kms_backed_count: 0
-        },
-        caveats: [],
-        failure_reasons: [],
-        remediation_hints: [],
-        coverage_gaps: [
-          {
-            capability: 'secrets_manager_runtime',
-            status: 'partial',
-            reason: 'Runtime delivery evidence is unavailable.'
-          }
-        ],
-        diagnostics: []
-      } as any
-    });
+    const degradedEquivalenceResult = {
+      status: 'degraded',
+      findings: [{ ...equivalenceFinding, region: '' }],
+      summary: {
+        external_provider_key_count: 0,
+        aws_managed_secret_count: 0,
+        runtime_observed_count: 0,
+        kms_backed_count: 0
+      },
+      caveats: [],
+      failure_reasons: [],
+      remediation_hints: [],
+      coverage_gaps: [
+        {
+          capability: 'secrets_manager_runtime',
+          status: 'partial',
+          reason: 'Runtime delivery evidence is unavailable.'
+        }
+      ],
+      diagnostics: []
+    } as any;
+    getSecretPermissionEquivalence.mockResolvedValue({ findings: degradedEquivalenceResult });
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Findings search' }), { target: { value: 'openai' } });
     await waitFor(() =>
@@ -8223,7 +8241,15 @@ describe('Domain-first app routes', () => {
     await waitFor(() =>
       expect(within(screen.getByRole('table', { name: 'AWS findings' })).getByText(/Completeness: Partial/i)).toBeInTheDocument()
     );
+    const degradedSummary = screen.getByRole('region', { name: 'Finding priority summary' });
+    expect(within(degradedSummary).getByText('Completeness').closest('div')).toHaveTextContent('Partial');
+    expect(within(degradedSummary).getByText('Source health').closest('div')).toHaveTextContent('1 unavailable or degraded');
+    expect(within(degradedSummary).getByText('Account 123456789012 · Region unavailable')).toBeInTheDocument();
+    expect(within(degradedSummary).getByText('Secrets Manager Runtime · Partial')).toBeInTheDocument();
 
+    getSecretPermissionEquivalence.mockResolvedValue({
+      findings: { ...degradedEquivalenceResult, findings: [equivalenceFinding] }
+    });
     fireEvent.change(screen.getByRole('textbox', { name: 'Findings search' }), { target: { value: '' } });
     await waitFor(() =>
       expect(getSecretPermissionEquivalence).toHaveBeenLastCalledWith(
@@ -8750,7 +8776,7 @@ describe('Domain-first app routes', () => {
     expect(screen.getByText(/source completeness could not be verified/i)).toBeInTheDocument();
     const prioritySummary = await screen.findByRole('region', { name: 'Finding priority summary' });
     expect(within(prioritySummary).getByText('Completeness').closest('div')).toHaveTextContent('Unknown');
-    expect(within(prioritySummary).getByText('20 findings · 1 critical/high open · 18 affected resources')).toBeInTheDocument();
+    expect(within(prioritySummary).getByText('20 findings · 0 critical/high open · 18 affected resources')).toBeInTheDocument();
     expect(within(prioritySummary).getByText(/Scan scan-aws-complete/)).toBeInTheDocument();
     expect(within(prioritySummary).getByText('Account 123456789012 · 2 regions + Global')).toBeInTheDocument();
     expect(within(prioritySummary).getByRole('link', { name: 'View coverage details' })).toHaveAttribute(
@@ -8762,6 +8788,7 @@ describe('Domain-first app routes', () => {
     expect(stylesSource).toContain('.idt-domain-table-wrap.is-narrow-stack .idt-domain-data-table {');
     expect(stylesSource).toContain('min-width: 0 !important;');
     expect(stylesSource).toContain('content: attr(data-label);');
+    expect(stylesSource).toContain('overflow-wrap: anywhere;');
     const [productionRoleFinding] = within(findingsTable).getAllByText('production-role', { exact: true });
     const overprivilegedRow = productionRoleFinding.closest('tr');
     expect(overprivilegedRow).not.toBeNull();
@@ -8978,7 +9005,19 @@ describe('Domain-first app routes', () => {
         }
       ]
     });
-    vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValue({
+    const listScanEvents = vi.spyOn(api.apiClient, 'listScanEvents').mockResolvedValueOnce({
+      items: [
+        {
+          id: 'event-aws-complete',
+          scan_id: 'scan-aws-partial',
+          level: 'info',
+          message: 'Discovery findings persisted.',
+          metadata: { state: 'complete' },
+          created_at: '2026-08-20T20:03:01Z'
+        }
+      ],
+      next_cursor: 'aws-events-page-2'
+    }).mockResolvedValueOnce({
       items: [
         {
           id: 'event-aws-partial',
@@ -9025,6 +9064,22 @@ describe('Domain-first app routes', () => {
     expect(within(prioritySummary).getByRole('link', { name: 'View coverage details' })).toHaveAttribute(
       'href',
       '/app/tenant-a/workspace-a/aws/coverage?environment=production'
+    );
+    expect(listScanEvents).toHaveBeenNthCalledWith(
+      1,
+      'scan-aws-partial',
+      undefined,
+      500,
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' }),
+      undefined
+    );
+    expect(listScanEvents).toHaveBeenNthCalledWith(
+      2,
+      'scan-aws-partial',
+      undefined,
+      500,
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' }),
+      'aws-events-page-2'
     );
   });
 
