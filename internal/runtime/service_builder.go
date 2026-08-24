@@ -396,6 +396,12 @@ func BuildScanServiceWithContext(ctx context.Context, cfg config.Config) (*api.S
 			awsprovider.NewSSMParameterMetadataCollector(ssmAPI),
 			awsprovider.NewECRRepositoryMetadataCollector(ecrAPI),
 		)
+		scanner.RiskRuleSet = awsprovider.NewRuleSet(awsprovider.WithConnectorRoleExpectation(awsprovider.ConnectorRoleExpectation{
+			RoleARN:          connection.RoleARN,
+			AccountID:        connection.AccountID,
+			TrustedAccountID: cfg.AWSAccountID,
+			ExternalID:       connection.ExternalID,
+		}))
 		return scanner, nil
 	}
 	svc.AWSCloudTrailLookupEventsFactory = func(ctx context.Context, connection api.AWSConnectionStatus) (api.AWSCloudTrailRuntimeEventIngester, error) {

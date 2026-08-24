@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"regexp"
@@ -14,6 +16,30 @@ import (
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/providers"
 )
+
+type jsonSubsetMatcher map[string]any
+
+func (m jsonSubsetMatcher) Match(value driver.Value) bool {
+	var encoded []byte
+	switch typed := value.(type) {
+	case []byte:
+		encoded = typed
+	case string:
+		encoded = []byte(typed)
+	default:
+		return false
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		return false
+	}
+	for key, expected := range m {
+		if !reflect.DeepEqual(decoded[key], expected) {
+			return false
+		}
+	}
+	return true
+}
 
 func TestPostgresStoreCreateAndCompleteScan(t *testing.T) {
 	db, mock, err := sqlmock.New()
@@ -105,20 +131,37 @@ func TestPostgresStoreUpsertFindings(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO findings").
-		WithArgs("scan-1", "f1", "risky_trust_policy", "high", "Risky trust", "summary", sqlmock.AnyArg(), sqlmock.AnyArg(), "fix", sqlmock.AnyArg()).
+		WithArgs("scan-1", "f1", "risky_trust_policy", "high", "Risky trust", "summary", sqlmock.AnyArg(), jsonSubsetMatcher{
+			"confidence_score":      0.95,
+			"actionability":         "review",
+			"exploitability":        "plausible",
+			"evidence_completeness": "complete",
+			"provenance":            "aws_iam_inventory",
+			"adapter_source":        "aws_iam_rule_engine",
+			"confidence_state":      "inventory_backed",
+			"evidence_version":      "aws-finding-v2",
+		}, "fix", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
 	findings := []domain.Finding{{
-		ID:           "f1",
-		Type:         domain.FindingRiskyTrustPolicy,
-		Severity:     domain.SeverityHigh,
-		Title:        "Risky trust",
-		HumanSummary: "summary",
-		Path:         []string{"a", "b"},
-		Evidence:     map[string]any{"k": "v"},
-		Remediation:  "fix",
-		CreatedAt:    time.Now(),
+		ID:                   "f1",
+		Type:                 domain.FindingRiskyTrustPolicy,
+		Severity:             domain.SeverityHigh,
+		ConfidenceScore:      0.95,
+		Actionability:        domain.FindingActionabilityReview,
+		Exploitability:       domain.FindingExploitabilityPlausible,
+		EvidenceCompleteness: "complete",
+		Provenance:           "aws_iam_inventory",
+		Title:                "Risky trust",
+		HumanSummary:         "summary",
+		Path:                 []string{"a", "b"},
+		Evidence:             map[string]any{"k": "v"},
+		Remediation:          "fix",
+		CreatedAt:            time.Now(),
+		AdapterSource:        "aws_iam_rule_engine",
+		ConfidenceState:      "inventory_backed",
+		EvidenceVersion:      "aws-finding-v2",
 	}}
 
 	if err := store.UpsertFindings(defaultScopeContext(), "scan-1", findings); err != nil {
@@ -255,7 +298,7 @@ func TestPostgresStoreListScansAndFindings(t *testing.T) {
 	}
 
 	findingsRows := sqlmock.NewRows([]string{"scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at"}).
-		AddRow("scan-1", "f1", "ownerless_identity", "medium", "Ownerless", "summary", []byte("[\"x\"]"), []byte("{\"a\":1}"), "fix", now)
+		AddRow("scan-1", "f1", "ownerless_identity", "medium", "Ownerless", "summary", []byte("[\"x\"]"), []byte(`{"confidence_score":0.95,"actionability":"review","exploitability":"plausible","evidence_completeness":"complete","provenance":"aws_iam_inventory","adapter_source":"aws_iam_rule_engine","confidence_state":"inventory_backed","evidence_version":"aws-finding-v2"}`), "fix", now)
 	mock.ExpectQuery("SELECT f.scan_id, f.finding_id, f.type").WithArgs("default", "default", 100).WillReturnRows(findingsRows)
 
 	findings, err := store.ListFindings(defaultScopeContext(), 100)
@@ -264,6 +307,10 @@ func TestPostgresStoreListScansAndFindings(t *testing.T) {
 	}
 	if len(findings) != 1 || findings[0].ID != "f1" {
 		t.Fatalf("unexpected findings: %+v", findings)
+	}
+	metadata := findings[0]
+	if metadata.ConfidenceScore != 0.95 || metadata.Actionability != domain.FindingActionabilityReview || metadata.Exploitability != domain.FindingExploitabilityPlausible || metadata.EvidenceCompleteness != "complete" || metadata.Provenance != "aws_iam_inventory" || metadata.AdapterSource != "aws_iam_rule_engine" || metadata.ConfidenceState != "inventory_backed" || metadata.EvidenceVersion != "aws-finding-v2" {
+		t.Fatalf("finding metadata did not survive the Postgres row boundary: %+v", metadata)
 	}
 
 	allFindingsRows := sqlmock.NewRows([]string{"scan_id", "finding_id", "type", "severity", "title", "human_summary", "path", "evidence", "remediation", "created_at"}).

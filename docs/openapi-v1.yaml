@@ -26245,6 +26245,19 @@ components:
           type: number
           format: double
           description: Deterministic analyst-facing confidence score for the finding, from 0.0 to 1.0.
+        actionability:
+          type: string
+          enum: [action_required, review, observe_only]
+          description: Operational handling state, kept separate from impact severity.
+        exploitability:
+          type: string
+          enum: [confirmed, plausible, unknown, none_observed]
+        evidence_completeness:
+          type: string
+          description: Completeness of the evidence used to classify the finding.
+        provenance:
+          type: string
+          description: Stable origin of the finding classification.
         title: { type: string }
         human_summary: { type: string }
         path:
@@ -26924,6 +26937,15 @@ components:
         id: { type: string }
         provider: { type: string }
         type: { type: string }
+        identity_kind:
+          type: string
+          enum: [standard, service_linked, connector]
+        managed_by:
+          type: string
+          enum: [customer, aws_service, identrail_connector]
+        actionability:
+          type: string
+          enum: [action_required, review, observe_only]
         name: { type: string }
         arn: { type: string }
         owner_hint: { type: string }

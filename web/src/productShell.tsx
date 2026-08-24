@@ -13136,6 +13136,8 @@ type AWSRiskOperationTableRow = AWSInventoryFilterable & {
   source?: string;
   observedAt?: string;
   confidence?: number;
+  actionability?: string;
+  exploitability?: string;
   provenance?: string;
   completeness?: string;
   evidenceBoundary?: string;
@@ -18408,6 +18410,8 @@ function AWSFindingDetailsDrawer({
               <div><dt>Source</dt><dd>{representative.source || 'Unavailable'}</dd></div>
               <div><dt>Completeness</dt><dd>{awsPersistedFindingCompletenessLabel(representative.completeness || 'unknown')}</dd></div>
               {representative.confidence !== undefined ? <div><dt>Confidence</dt><dd>{formatConfidenceScore(representative.confidence)}</dd></div> : null}
+              {representative.actionability ? <div><dt>Actionability</dt><dd>{formatTokenLabel(representative.actionability)}</dd></div> : null}
+              {representative.exploitability ? <div><dt>Exploitability</dt><dd>{formatTokenLabel(representative.exploitability)}</dd></div> : null}
               <div><dt>Observed</dt><dd>{representative.observedAt || 'Unavailable'}</dd></div>
               {representative.evidenceBoundary ? <div><dt>Boundary</dt><dd>{representative.evidenceBoundary}</dd></div> : null}
             </dl>
@@ -18869,6 +18873,8 @@ function awsPersistedFindingRiskOperationRow(
     normalizeValue(persistedScan?.finished_at) ||
     normalizeValue(persistedScan?.started_at);
   const evidenceBoundary = awsPersistedFindingMetadataValue(finding, ['evidence_boundary', 'coverage', 'coverage_state']);
+  const actionability = normalizeValue(finding.actionability) || awsPersistedFindingMetadataValue(finding, ['actionability']);
+  const exploitability = normalizeValue(finding.exploitability) || awsPersistedFindingMetadataValue(finding, ['exploitability']);
   const technicalEvidence = finding.path?.map((value) => normalizeValue(value)).filter(Boolean) ?? [];
   return {
     id: finding.id,
@@ -18887,8 +18893,10 @@ function awsPersistedFindingRiskOperationRow(
     source,
     observedAt,
     confidence: finding.confidence_score,
-    provenance: 'AWS discovery scan',
-    completeness,
+    actionability,
+    exploitability,
+    provenance: normalizeValue(finding.provenance) || 'AWS discovery scan',
+    completeness: normalizeValue(finding.evidence_completeness) || completeness,
     evidenceBoundary,
     technicalEvidence,
     resourceARN: findingScope.resourceARN,
@@ -18912,6 +18920,8 @@ function awsPersistedFindingRiskOperationRow(
       finding.type,
       finding.human_summary,
       finding.remediation,
+      actionability,
+      exploitability,
       findingScope.accountID,
       findingScope.region,
       findingScope.resourceLabel,

@@ -9,8 +9,10 @@ import (
 
 // IAMPermissionPolicy stores an identity permission policy with provider-native JSON.
 type IAMPermissionPolicy struct {
-	Name     string `json:"name"`
-	Document string `json:"document"`
+	Name           string `json:"name"`
+	ARN            string `json:"arn,omitempty"`
+	AttachmentType string `json:"attachment_type,omitempty"`
+	Document       string `json:"document"`
 }
 
 // iamPolicyDocument models the subset of IAM policy grammar used in phase 1.
@@ -22,10 +24,13 @@ type iamPolicyDocument struct {
 type iamPolicyStatements []iamPolicyStatement
 
 type iamPolicyStatement struct {
-	Effect    string `json:"Effect"`
-	Action    any    `json:"Action,omitempty"`
-	Resource  any    `json:"Resource,omitempty"`
-	Principal any    `json:"Principal,omitempty"`
+	Effect      string         `json:"Effect"`
+	Action      any            `json:"Action,omitempty"`
+	NotAction   any            `json:"NotAction,omitempty"`
+	Resource    any            `json:"Resource,omitempty"`
+	NotResource any            `json:"NotResource,omitempty"`
+	Principal   any            `json:"Principal,omitempty"`
+	Condition   map[string]any `json:"Condition,omitempty"`
 }
 
 func (s *iamPolicyStatements) UnmarshalJSON(data []byte) error {
@@ -156,4 +161,17 @@ func parseAWSPrincipals(principal any) []string {
 		return nil
 	}
 	return dedupeStrings(parseStringList(values))
+}
+
+func parsePrincipalType(principal any, principalType string) []string {
+	principalMap, ok := principal.(map[string]any)
+	if !ok {
+		return nil
+	}
+	for key, value := range principalMap {
+		if strings.EqualFold(strings.TrimSpace(key), principalType) {
+			return dedupeStrings(parseStringList(value))
+		}
+	}
+	return nil
 }
