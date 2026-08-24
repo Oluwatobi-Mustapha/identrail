@@ -3,6 +3,9 @@ package aws
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/providers"
+	"gopkg.in/yaml.v3"
 )
 
 func TestRuleSetDetectsAllPrimaryRiskTypes(t *testing.T) {
@@ -462,6 +466,89 @@ func TestRuleSetGroupsInvalidConnectorRoleSignals(t *testing.T) {
 	}
 }
 
+func TestRuleSetRequiresExternalIDEqualityOnAssumeRoleBinding(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	principal := map[string]any{"AWS": "arn:aws:iam::210987654321:root"}
+	tests := []struct {
+		name          string
+		trustDocument string
+	}{
+		{
+			name: "rejects StringNotEquals",
+			trustDocument: mustJSON(map[string]any{"Version": "2012-10-17", "Statement": map[string]any{
+				"Effect": "Allow", "Action": "sts:AssumeRole", "Principal": principal,
+				"Condition": map[string]any{"StringNotEquals": map[string]any{"sts:ExternalId": "connector-external-id"}},
+			}}),
+		},
+		{
+			name: "rejects condition from another statement",
+			trustDocument: mustJSON(map[string]any{"Version": "2012-10-17", "Statement": []any{
+				map[string]any{"Effect": "Allow", "Action": "sts:AssumeRole", "Principal": principal},
+				map[string]any{
+					"Effect": "Allow", "Action": "sts:TagSession", "Principal": principal,
+					"Condition": map[string]any{"StringEquals": map[string]any{"sts:ExternalId": "connector-external-id"}},
+				},
+			}}),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			roleARN := "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+			role := IAMRole{
+				ARN:                      roleARN,
+				Name:                     identrailConnectorRoleName,
+				AssumeRolePolicyDocument: tc.trustDocument,
+				PermissionPolicies: []IAMPermissionPolicy{{
+					Name:           "IdentrailReadOnlyCollector",
+					AttachmentType: "inline",
+					Document:       `{"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"iam:ListRoles","Resource":"*"}}`,
+				}},
+			}
+			bundle, relationships := normalizeRoleForRuleTest(t, role)
+			findings, err := NewRuleSet(
+				WithRuleClock(func() time.Time { return now }),
+				WithConnectorRoleExpectation(ConnectorRoleExpectation{RoleARN: roleARN, AccountID: "123456789012", TrustedAccountID: "210987654321", ExternalID: "connector-external-id"}),
+			).Evaluate(context.Background(), bundle, relationships)
+			if err != nil || len(findings) != 1 {
+				t.Fatalf("expected one connector drift finding, findings=%+v err=%v", findings, err)
+			}
+			signals, _ := findings[0].Evidence["contributing_signals"].([]string)
+			if findings[0].Severity != domain.SeverityHigh || !containsString(signals, "external_id_mismatch") {
+				t.Fatalf("unsafe external-ID binding must be actionable drift: %+v", findings[0])
+			}
+		})
+	}
+}
+
+func TestRuleSetRejectsConnectorAllowNotAction(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	roleARN := "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	role := IAMRole{
+		ARN:                      roleARN,
+		Name:                     identrailConnectorRoleName,
+		AssumeRolePolicyDocument: trustPolicyJSON(map[string]any{"AWS": "arn:aws:iam::210987654321:root"}, "connector-external-id"),
+		PermissionPolicies: []IAMPermissionPolicy{
+			{Name: "IdentrailReadOnlyCollector", AttachmentType: "inline", Document: `{"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"iam:ListRoles","Resource":"*"}}`},
+			{Name: "AlmostEverything", AttachmentType: "inline", Document: `{"Version":"2012-10-17","Statement":{"Effect":"Allow","NotAction":"s3:GetObject","Resource":"*"}}`},
+		},
+	}
+	bundle, relationships := normalizeRoleForRuleTest(t, role)
+	if len(permissionPoliciesForIdentity(bundle, bundle.Identities[0].ID)) != 2 {
+		t.Fatalf("NotAction policy must survive normalization: %+v", bundle.Policies)
+	}
+	findings, err := NewRuleSet(
+		WithRuleClock(func() time.Time { return now }),
+		WithConnectorRoleExpectation(ConnectorRoleExpectation{RoleARN: roleARN, AccountID: "123456789012", TrustedAccountID: "210987654321", ExternalID: "connector-external-id"}),
+	).Evaluate(context.Background(), bundle, relationships)
+	if err != nil || len(findings) != 1 {
+		t.Fatalf("expected one connector drift finding, findings=%+v err=%v", findings, err)
+	}
+	signals, _ := findings[0].Evidence["contributing_signals"].([]string)
+	if findings[0].Severity != domain.SeverityHigh || !containsString(signals, "permission_scope_expanded") {
+		t.Fatalf("Allow NotAction must be actionable permission drift: %+v", findings[0])
+	}
+}
+
 func TestConnectorPermissionScopeRejectsOutOfContractReads(t *testing.T) {
 	policy := domain.Policy{Normalized: map[string]any{
 		statementsKey: []map[string]any{{
@@ -480,6 +567,51 @@ func TestConnectorPermissionScopeRejectsOutOfContractReads(t *testing.T) {
 	}}
 	if connectorPermissionScopeExpanded([]domain.Policy{policy}) {
 		t.Fatal("expected canonical Identrail collector actions to remain valid")
+	}
+}
+
+func TestExpectedConnectorPermissionActionsMatchDeployedTemplate(t *testing.T) {
+	templatePath := filepath.Join("..", "..", "..", "deploy", "connectors", "aws", "identrail-readonly.yaml")
+	body, err := os.ReadFile(templatePath)
+	if err != nil {
+		t.Fatalf("read CloudFormation template: %v", err)
+	}
+	var template map[string]any
+	if err := yaml.Unmarshal(body, &template); err != nil {
+		t.Fatalf("parse CloudFormation template: %v", err)
+	}
+	resources := testYAMLMap(t, template, "Resources")
+	role := testYAMLMap(t, resources, "IdentrailReadOnlyRole")
+	properties := testYAMLMap(t, role, "Properties")
+	policies, ok := properties["Policies"].([]any)
+	if !ok || len(policies) != 1 {
+		t.Fatalf("expected one deployed connector policy, got %#v", properties["Policies"])
+	}
+	policy, ok := policies[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected connector policy map, got %#v", policies[0])
+	}
+	policyDocument := testYAMLMap(t, policy, "PolicyDocument")
+	statements, ok := policyDocument["Statement"].([]any)
+	if !ok {
+		t.Fatalf("expected policy statements, got %#v", policyDocument["Statement"])
+	}
+	deployed := map[string]struct{}{}
+	for _, rawStatement := range statements {
+		statement, ok := rawStatement.(map[string]any)
+		if !ok || !strings.EqualFold(strings.TrimSpace(fmt.Sprint(statement["Effect"])), "Allow") {
+			continue
+		}
+		for _, action := range parseStringList(statement["Action"]) {
+			deployed[strings.ToLower(action)] = struct{}{}
+		}
+	}
+	expected, err := expectedConnectorPermissionActions()
+	if err != nil {
+		t.Fatalf("build expected connector actions: %v", err)
+	}
+	if !reflect.DeepEqual(expected, deployed) {
+		t.Fatalf("connector allowlist drifted from deployed template\nexpected: %+v\ndeployed: %+v", expected, deployed)
 	}
 }
 
@@ -561,6 +693,23 @@ func trustPolicyJSON(principal map[string]any, externalID string) string {
 	}
 	document, _ := json.Marshal(map[string]any{"Version": "2012-10-17", "Statement": statement})
 	return string(document)
+}
+
+func mustJSON(value any) string {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return string(payload)
+}
+
+func testYAMLMap(t *testing.T, parent map[string]any, key string) map[string]any {
+	t.Helper()
+	value, ok := parent[key].(map[string]any)
+	if !ok {
+		t.Fatalf("expected %s to be a map, got %#v", key, parent[key])
+	}
+	return value
 }
 
 func timePointer(value time.Time) *time.Time {

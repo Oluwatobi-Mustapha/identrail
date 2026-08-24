@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	connectoraws "github.com/identrail/identrail/internal/connectors/aws"
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/providers"
 )
@@ -110,11 +109,20 @@ func trustPolicyForIdentity(bundle providers.NormalizedBundle, identityID string
 }
 
 type trustPolicyFacts struct {
-	AWSPrincipals     []string
-	ServicePrincipals []string
-	OtherPrincipals   []string
-	ExternalIDs       []string
-	AllowsAssumeRole  bool
+	AWSPrincipals      []string
+	ServicePrincipals  []string
+	OtherPrincipals    []string
+	AllowsAssumeRole   bool
+	AssumeRoleBindings []trustAssumeRoleBinding
+}
+
+type trustAssumeRoleBinding struct {
+	Actions                    []string
+	AWSPrincipals              []string
+	ServicePrincipals          []string
+	OtherPrincipals            []string
+	ExternalIDEquals           []string
+	HasOtherExternalIDOperator bool
 }
 
 func inspectTrustPolicy(policy *domain.Policy) trustPolicyFacts {
@@ -130,38 +138,63 @@ func inspectTrustPolicy(policy *domain.Policy) trustPolicyFacts {
 		if !strings.EqualFold(strings.TrimSpace(statement.Effect), "allow") {
 			continue
 		}
-		for _, action := range parseStringList(statement.Action) {
-			if strings.EqualFold(strings.TrimSpace(action), "sts:AssumeRole") {
-				facts.AllowsAssumeRole = true
-			}
+		actions := sortedUniqueStrings(parseStringList(statement.Action))
+		awsPrincipals := parseAWSPrincipals(statement.Principal)
+		servicePrincipals := parsePrincipalType(statement.Principal, "Service")
+		otherPrincipals := append(parsePrincipalType(statement.Principal, "Federated"), parsePrincipalType(statement.Principal, "CanonicalUser")...)
+		facts.AWSPrincipals = append(facts.AWSPrincipals, awsPrincipals...)
+		facts.ServicePrincipals = append(facts.ServicePrincipals, servicePrincipals...)
+		facts.OtherPrincipals = append(facts.OtherPrincipals, otherPrincipals...)
+		if !actionsAllowAssumeRole(actions) {
+			continue
 		}
-		facts.AWSPrincipals = append(facts.AWSPrincipals, parseAWSPrincipals(statement.Principal)...)
-		facts.ServicePrincipals = append(facts.ServicePrincipals, parsePrincipalType(statement.Principal, "Service")...)
-		facts.OtherPrincipals = append(facts.OtherPrincipals, parsePrincipalType(statement.Principal, "Federated")...)
-		facts.OtherPrincipals = append(facts.OtherPrincipals, parsePrincipalType(statement.Principal, "CanonicalUser")...)
-		facts.ExternalIDs = append(facts.ExternalIDs, conditionValues(statement.Condition, "sts:ExternalId")...)
+		facts.AllowsAssumeRole = true
+		externalIDEquals, hasOtherExternalIDOperator := inspectExternalIDConditions(statement.Condition)
+		facts.AssumeRoleBindings = append(facts.AssumeRoleBindings, trustAssumeRoleBinding{
+			Actions:                    actions,
+			AWSPrincipals:              sortedUniqueStrings(awsPrincipals),
+			ServicePrincipals:          sortedUniqueStrings(servicePrincipals),
+			OtherPrincipals:            sortedUniqueStrings(otherPrincipals),
+			ExternalIDEquals:           externalIDEquals,
+			HasOtherExternalIDOperator: hasOtherExternalIDOperator,
+		})
 	}
 	facts.AWSPrincipals = sortedUniqueStrings(facts.AWSPrincipals)
 	facts.ServicePrincipals = sortedUniqueStrings(facts.ServicePrincipals)
 	facts.OtherPrincipals = sortedUniqueStrings(facts.OtherPrincipals)
-	facts.ExternalIDs = sortedUniqueStrings(facts.ExternalIDs)
 	return facts
 }
 
-func conditionValues(condition map[string]any, wantedKey string) []string {
-	values := []string{}
-	for _, operatorValue := range condition {
+func actionsAllowAssumeRole(actions []string) bool {
+	for _, action := range actions {
+		switch strings.ToLower(strings.TrimSpace(action)) {
+		case "sts:assumerole", "sts:*", "*":
+			return true
+		}
+	}
+	return false
+}
+
+func inspectExternalIDConditions(condition map[string]any) ([]string, bool) {
+	equalsValues := []string{}
+	hasOtherOperator := false
+	for operator, operatorValue := range condition {
 		operatorMap, ok := operatorValue.(map[string]any)
 		if !ok {
 			continue
 		}
 		for key, value := range operatorMap {
-			if strings.EqualFold(strings.TrimSpace(key), wantedKey) {
-				values = append(values, parseStringList(value)...)
+			if !strings.EqualFold(strings.TrimSpace(key), "sts:ExternalId") {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(operator), "StringEquals") {
+				equalsValues = append(equalsValues, parseStringList(value)...)
+			} else {
+				hasOtherOperator = true
 			}
 		}
 	}
-	return sortedUniqueStrings(values)
+	return sortedUniqueStrings(equalsValues), hasOtherOperator
 }
 
 func sortedUniqueStrings(values []string) []string {
@@ -210,18 +243,19 @@ func connectorRoleSignals(bundle providers.NormalizedBundle, identity domain.Ide
 		signals = append(signals, "trust_evidence_missing")
 	} else {
 		expectedTrustedAccount := strings.TrimSpace(expectation.TrustedAccountID)
+		expectedExternalID := strings.TrimSpace(expectation.ExternalID)
+		trustValid, externalIDValid := connectorTrustBindingStatus(facts, expectedTrustedAccount, expectedExternalID)
 		if expectedTrustedAccount == "" {
 			completeness = "partial"
 			signals = append(signals, "trusted_account_expectation_missing")
-		} else if !facts.AllowsAssumeRole || len(facts.AWSPrincipals) != 1 || accountIDFromPrincipal(facts.AWSPrincipals[0]) != expectedTrustedAccount || len(facts.ServicePrincipals) > 0 || len(facts.OtherPrincipals) > 0 {
+		} else if !trustValid {
 			signals = append(signals, "unexpected_trust")
 		}
 
-		expectedExternalID := strings.TrimSpace(expectation.ExternalID)
 		if expectedExternalID == "" {
 			completeness = "partial"
 			signals = append(signals, "external_id_expectation_missing")
-		} else if len(facts.ExternalIDs) != 1 || facts.ExternalIDs[0] != expectedExternalID {
+		} else if !externalIDValid {
 			signals = append(signals, "external_id_mismatch")
 		}
 	}
@@ -234,6 +268,23 @@ func connectorRoleSignals(bundle providers.NormalizedBundle, identity domain.Ide
 		signals = append(signals, "permission_scope_expanded")
 	}
 	return sortedUniqueStrings(signals), completeness
+}
+
+func connectorTrustBindingStatus(facts trustPolicyFacts, trustedAccountID, externalID string) (bool, bool) {
+	if len(facts.AssumeRoleBindings) != 1 {
+		return false, false
+	}
+	binding := facts.AssumeRoleBindings[0]
+	trustValid := len(binding.Actions) == 1 && strings.EqualFold(binding.Actions[0], "sts:AssumeRole") &&
+		len(binding.AWSPrincipals) == 1 && isAccountRootPrincipal(binding.AWSPrincipals[0], trustedAccountID) &&
+		len(binding.ServicePrincipals) == 0 && len(binding.OtherPrincipals) == 0
+	externalIDValid := len(binding.ExternalIDEquals) == 1 && binding.ExternalIDEquals[0] == externalID && !binding.HasOtherExternalIDOperator
+	return trustValid, externalIDValid
+}
+
+func isAccountRootPrincipal(principal, accountID string) bool {
+	parts := strings.Split(strings.TrimSpace(principal), ":")
+	return len(parts) == 6 && parts[0] == "arn" && parts[2] == "iam" && parts[4] == strings.TrimSpace(accountID) && parts[5] == "root"
 }
 
 func connectorPermissionScopeExpanded(policies []domain.Policy) bool {
@@ -251,6 +302,9 @@ func connectorPermissionScopeExpanded(policies []domain.Policy) bool {
 			if !strings.EqualFold(effect, "Allow") {
 				continue
 			}
+			if len(parseStringList(statement[notActionsKey])) > 0 {
+				return true
+			}
 			for _, action := range parseStringList(statement["actions"]) {
 				if _, ok := allowedActions[strings.ToLower(strings.TrimSpace(action))]; !ok {
 					return true
@@ -262,22 +316,49 @@ func connectorPermissionScopeExpanded(policies []domain.Policy) bool {
 }
 
 func expectedConnectorPermissionActions() (map[string]struct{}, error) {
-	document, err := connectoraws.ReadOnlyPolicyDocument()
-	if err != nil {
-		return nil, err
-	}
-	policy, err := parsePolicyDocument(string(document))
-	if err != nil {
-		return nil, err
-	}
 	actions := map[string]struct{}{}
-	for _, statement := range policy.Statement {
-		if !strings.EqualFold(strings.TrimSpace(statement.Effect), "allow") {
-			continue
-		}
-		for _, action := range parseStringList(statement.Action) {
-			actions[strings.ToLower(strings.TrimSpace(action))] = struct{}{}
-		}
+	// This is the deployed CloudFormation role contract, not the broader
+	// collector capability catalog. The template-parity regression test makes
+	// any future action change explicit in both producers and consumers.
+	for _, action := range []string{
+		"iam:GetAccountSummary",
+		"iam:GetPolicy",
+		"iam:GetPolicyVersion",
+		"iam:GetRole",
+		"iam:GetRolePolicy",
+		"iam:ListAccountAliases",
+		"iam:ListAttachedRolePolicies",
+		"iam:ListRolePolicies",
+		"iam:ListRoles",
+		"iam:SimulatePrincipalPolicy",
+		"ec2:DescribeIamInstanceProfileAssociations",
+		"ec2:DescribeInstances",
+		"ec2:DescribeRegions",
+		"s3:GetBucketAcl",
+		"s3:GetBucketPolicy",
+		"s3:GetBucketPublicAccessBlock",
+		"s3:ListAllMyBuckets",
+		"kms:DescribeKey",
+		"kms:GetKeyPolicy",
+		"kms:ListKeys",
+		"sqs:GetQueueAttributes",
+		"sqs:ListQueues",
+		"sqs:ListQueueTags",
+		"sns:GetSubscriptionAttributes",
+		"sns:GetTopicAttributes",
+		"sns:ListSubscriptionsByTopic",
+		"sns:ListTagsForResource",
+		"sns:ListTopics",
+		"sts:GetCallerIdentity",
+		"organizations:DescribeOrganization",
+		"organizations:ListAccountsForParent",
+		"organizations:ListDelegatedAdministrators",
+		"organizations:ListDelegatedServicesForAccount",
+		"organizations:ListOrganizationalUnitsForParent",
+		"organizations:ListRoots",
+		"cloudformation:ListStackInstances",
+	} {
+		actions[strings.ToLower(action)] = struct{}{}
 	}
 	if len(actions) == 0 {
 		return nil, fmt.Errorf("Identrail connector policy has no allowed actions")

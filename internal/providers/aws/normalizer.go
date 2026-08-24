@@ -16,6 +16,7 @@ const (
 	policyTypeTrust      = "trust"
 	identityIDKey        = "identity_id"
 	statementsKey        = "statements"
+	notActionsKey        = "not_actions"
 	principalsKey        = "principals"
 	servicePrincipalsKey = "service_principals"
 	policyARNKey         = "policy_arn"
@@ -1784,13 +1785,17 @@ func normalizePermissionPolicies(identityID string, policies []IAMPermissionPoli
 		statements := make([]map[string]any, 0, len(doc.Statement))
 		for _, statement := range doc.Statement {
 			actions := parseStringList(statement.Action)
+			notActions := parseStringList(statement.NotAction)
 			resources := parseStringList(statement.Resource)
-			if len(actions) == 0 || len(resources) == 0 {
+			if (len(actions) == 0 && len(notActions) == 0) || len(resources) == 0 {
 				continue
 			}
 			normalized, ok := normalizedStatement(statement.Effect, actions, resources)
 			if !ok {
 				continue
+			}
+			if len(notActions) > 0 {
+				normalized[notActionsKey] = dedupeStrings(notActions)
 			}
 			statements = append(statements, normalized)
 		}

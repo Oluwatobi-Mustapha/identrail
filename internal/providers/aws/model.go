@@ -26,6 +26,7 @@ type iamPolicyStatements []iamPolicyStatement
 type iamPolicyStatement struct {
 	Effect    string         `json:"Effect"`
 	Action    any            `json:"Action,omitempty"`
+	NotAction any            `json:"NotAction,omitempty"`
 	Resource  any            `json:"Resource,omitempty"`
 	Principal any            `json:"Principal,omitempty"`
 	Condition map[string]any `json:"Condition,omitempty"`
