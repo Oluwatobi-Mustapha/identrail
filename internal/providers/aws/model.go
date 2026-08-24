@@ -24,12 +24,13 @@ type iamPolicyDocument struct {
 type iamPolicyStatements []iamPolicyStatement
 
 type iamPolicyStatement struct {
-	Effect    string         `json:"Effect"`
-	Action    any            `json:"Action,omitempty"`
-	NotAction any            `json:"NotAction,omitempty"`
-	Resource  any            `json:"Resource,omitempty"`
-	Principal any            `json:"Principal,omitempty"`
-	Condition map[string]any `json:"Condition,omitempty"`
+	Effect      string         `json:"Effect"`
+	Action      any            `json:"Action,omitempty"`
+	NotAction   any            `json:"NotAction,omitempty"`
+	Resource    any            `json:"Resource,omitempty"`
+	NotResource any            `json:"NotResource,omitempty"`
+	Principal   any            `json:"Principal,omitempty"`
+	Condition   map[string]any `json:"Condition,omitempty"`
 }
 
 func (s *iamPolicyStatements) UnmarshalJSON(data []byte) error {

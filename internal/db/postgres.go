@@ -925,7 +925,7 @@ func (p *PostgresStore) UpsertFindings(ctx context.Context, scanID string, findi
 		if err != nil {
 			return fmt.Errorf("marshal finding path: %w", err)
 		}
-		evidenceJSON, err := json.Marshal(finding.Evidence)
+		evidenceJSON, err := json.Marshal(findingEvidenceForPersistence(finding))
 		if err != nil {
 			return fmt.Errorf("marshal finding evidence: %w", err)
 		}
@@ -5556,6 +5556,7 @@ func findingsFromSQLRows(rows rowsScanner) ([]domain.Finding, error) {
 				return nil, fmt.Errorf("decode finding evidence: %w", err)
 			}
 		}
+		hydrateFindingMetadataFromEvidence(&finding)
 		result = append(result, finding)
 	}
 	if err := rows.Err(); err != nil {
@@ -5643,12 +5644,80 @@ func findingsWithTriageFromSQLRows(rows rowsScanner, now time.Time) ([]domain.Fi
 				return nil, fmt.Errorf("decode filtered finding evidence: %w", err)
 			}
 		}
+		hydrateFindingMetadataFromEvidence(&finding)
 		result = append(result, finding)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("filtered finding rows: %w", err)
 	}
 	return result, nil
+}
+
+func findingEvidenceForPersistence(finding domain.Finding) map[string]any {
+	evidence := make(map[string]any, len(finding.Evidence)+8)
+	for key, value := range finding.Evidence {
+		evidence[key] = value
+	}
+	if finding.ConfidenceScore != 0 {
+		evidence["confidence_score"] = finding.ConfidenceScore
+	}
+	if finding.Actionability != "" {
+		evidence["actionability"] = finding.Actionability
+	}
+	if finding.Exploitability != "" {
+		evidence["exploitability"] = finding.Exploitability
+	}
+	if finding.EvidenceCompleteness != "" {
+		evidence["evidence_completeness"] = finding.EvidenceCompleteness
+	}
+	if finding.Provenance != "" {
+		evidence["provenance"] = finding.Provenance
+	}
+	if finding.AdapterSource != "" {
+		evidence["adapter_source"] = finding.AdapterSource
+	}
+	if finding.ConfidenceState != "" {
+		evidence["confidence_state"] = finding.ConfidenceState
+	}
+	if finding.EvidenceVersion != "" {
+		evidence["evidence_version"] = finding.EvidenceVersion
+	}
+	return evidence
+}
+
+func hydrateFindingMetadataFromEvidence(finding *domain.Finding) {
+	if finding == nil || len(finding.Evidence) == 0 {
+		return
+	}
+	if confidence, ok := finding.Evidence["confidence_score"].(float64); ok {
+		finding.ConfidenceScore = confidence
+	} else if confidence, ok := finding.Evidence["confidence"].(float64); ok {
+		// Older AWS rows used the display-oriented evidence key.
+		finding.ConfidenceScore = confidence
+	}
+	if value, ok := finding.Evidence["actionability"].(string); ok {
+		finding.Actionability = domain.FindingActionability(value)
+	}
+	if value, ok := finding.Evidence["exploitability"].(string); ok {
+		finding.Exploitability = domain.FindingExploitability(value)
+	}
+	if value, ok := finding.Evidence["evidence_completeness"].(string); ok {
+		finding.EvidenceCompleteness = value
+	}
+	if value, ok := finding.Evidence["provenance"].(string); ok {
+		finding.Provenance = value
+	}
+	if value, ok := finding.Evidence["adapter_source"].(string); ok {
+		finding.AdapterSource = value
+	} else if value, ok := finding.Evidence["source"].(string); ok {
+		finding.AdapterSource = value
+	}
+	if value, ok := finding.Evidence["confidence_state"].(string); ok {
+		finding.ConfidenceState = value
+	}
+	if value, ok := finding.Evidence["evidence_version"].(string); ok {
+		finding.EvidenceVersion = value
+	}
 }
 
 func findingOrderClause(sortBy string, desc bool) string {

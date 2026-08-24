@@ -252,10 +252,10 @@ func (r *RuleSet) Evaluate(ctx context.Context, bundle providers.NormalizedBundl
 
 func (r *RuleSet) isConnectorRole(identity domain.Identity) bool {
 	expectedARN := strings.TrimSpace(r.connectorExpectation.RoleARN)
-	if expectedARN != "" && strings.EqualFold(strings.TrimSpace(identity.ARN), expectedARN) {
-		return true
-	}
-	return identity.IdentityKind == domain.IdentityKindConnector || strings.EqualFold(strings.TrimSpace(identity.Name), identrailConnectorRoleName)
+	expectedAccountID := strings.TrimSpace(r.connectorExpectation.AccountID)
+	return expectedARN != "" && expectedAccountID != "" &&
+		strings.EqualFold(strings.TrimSpace(identity.ARN), expectedARN) &&
+		accountIDFromARN(identity.ARN) == expectedAccountID
 }
 
 func sortedIdentities(identities []domain.Identity) []domain.Identity {

@@ -17,6 +17,7 @@ const (
 	identityIDKey        = "identity_id"
 	statementsKey        = "statements"
 	notActionsKey        = "not_actions"
+	notResourcesKey      = "not_resources"
 	principalsKey        = "principals"
 	servicePrincipalsKey = "service_principals"
 	policyARNKey         = "policy_arn"
@@ -1787,7 +1788,8 @@ func normalizePermissionPolicies(identityID string, policies []IAMPermissionPoli
 			actions := parseStringList(statement.Action)
 			notActions := parseStringList(statement.NotAction)
 			resources := parseStringList(statement.Resource)
-			if (len(actions) == 0 && len(notActions) == 0) || len(resources) == 0 {
+			notResources := parseStringList(statement.NotResource)
+			if (len(actions) == 0 && len(notActions) == 0) || (len(resources) == 0 && len(notResources) == 0) {
 				continue
 			}
 			normalized, ok := normalizedStatement(statement.Effect, actions, resources)
@@ -1796,6 +1798,9 @@ func normalizePermissionPolicies(identityID string, policies []IAMPermissionPoli
 			}
 			if len(notActions) > 0 {
 				normalized[notActionsKey] = dedupeStrings(notActions)
+			}
+			if len(notResources) > 0 {
+				normalized[notResourcesKey] = dedupeStrings(notResources)
 			}
 			statements = append(statements, normalized)
 		}

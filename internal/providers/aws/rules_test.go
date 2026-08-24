@@ -355,6 +355,41 @@ func TestRuleSetSuppressesDefaultNoiseForExpectedServiceLinkedRoles(t *testing.T
 	}
 }
 
+func TestRuleSetRequiresExpectedServiceLinkedRoleARNPath(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		arn  string
+	}{
+		{name: "name only", arn: "arn:aws:iam::123456789012:role/AWSServiceRoleForSupport"},
+		{name: "wrong service path", arn: "arn:aws:iam::123456789012:role/aws-service-role/ec2.amazonaws.com/AWSServiceRoleForSupport"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			role := IAMRole{
+				ARN:                      tc.arn,
+				Name:                     "AWSServiceRoleForSupport",
+				CreatedAt:                timePointer(now.Add(-400 * 24 * time.Hour)),
+				AssumeRolePolicyDocument: trustPolicyJSON(map[string]any{"Service": "support.amazonaws.com"}, ""),
+				PermissionPolicies: []IAMPermissionPolicy{{
+					Name:           "AWSSupportServiceRolePolicy",
+					ARN:            "arn:aws:iam::aws:policy/aws-service-role/AWSSupportServiceRolePolicy",
+					AttachmentType: "managed",
+					Document:       `{"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"support:*","Resource":"*"}}`,
+				}},
+			}
+			bundle, relationships := normalizeRoleForRuleTest(t, role)
+			findings, err := NewRuleSet(WithRuleClock(func() time.Time { return now })).Evaluate(context.Background(), bundle, relationships)
+			if err != nil {
+				t.Fatalf("evaluate failed: %v", err)
+			}
+			if !containsFindingType(findings, domain.FindingOwnerless) || !containsFindingType(findings, domain.FindingStaleIdentity) {
+				t.Fatalf("spoofed service-linked role must fall through to generic rules: %+v", findingTypes(findings))
+			}
+		})
+	}
+}
+
 func TestRuleSetGroupsServiceLinkedRoleAnomalies(t *testing.T) {
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	role := IAMRole{
@@ -426,6 +461,41 @@ func TestRuleSetEmitsInformationalConnectorTrustReview(t *testing.T) {
 	}
 }
 
+func TestRuleSetRequiresConfiguredConnectorARNAndAccount(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	role := IAMRole{
+		ARN:                      "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+		Name:                     identrailConnectorRoleName,
+		Tags:                     map[string]string{"IdentrailConnectorMode": "read-only"},
+		CreatedAt:                timePointer(now.Add(-400 * 24 * time.Hour)),
+		AssumeRolePolicyDocument: trustPolicyJSON(map[string]any{"AWS": "*"}, ""),
+		PermissionPolicies: []IAMPermissionPolicy{{
+			Name:           "CustomerAdmin",
+			AttachmentType: "inline",
+			Document:       `{"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"iam:*","Resource":"*"}}`,
+		}},
+	}
+	bundle, relationships := normalizeRoleForRuleTest(t, role)
+	if bundle.Identities[0].IdentityKind != domain.IdentityKindConnector {
+		t.Fatalf("test role must exercise the untrusted connector candidate path: %+v", bundle.Identities[0])
+	}
+	findings, err := NewRuleSet(WithRuleClock(func() time.Time { return now })).Evaluate(context.Background(), bundle, relationships)
+	if err != nil {
+		t.Fatalf("evaluate failed: %v", err)
+	}
+	for _, findingType := range []domain.FindingType{
+		domain.FindingOwnerless,
+		domain.FindingStaleIdentity,
+		domain.FindingOverPrivileged,
+		domain.FindingRiskyTrustPolicy,
+		domain.FindingEscalationPath,
+	} {
+		if !containsFindingType(findings, findingType) {
+			t.Fatalf("unconfigured connector candidate must retain %s finding: %+v", findingType, findingTypes(findings))
+		}
+	}
+}
+
 func TestRuleSetGroupsInvalidConnectorRoleSignals(t *testing.T) {
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	role := IAMRole{
@@ -442,8 +512,8 @@ func TestRuleSetGroupsInvalidConnectorRoleSignals(t *testing.T) {
 	findings, err := NewRuleSet(
 		WithRuleClock(func() time.Time { return now }),
 		WithConnectorRoleExpectation(ConnectorRoleExpectation{
-			RoleARN:          "arn:aws:iam::555555555555:role/IdentrailReadOnly",
-			AccountID:        "555555555555",
+			RoleARN:          "arn:aws:iam::123456789012:role/IdentrailReadOnly",
+			AccountID:        "123456789012",
 			TrustedAccountID: "210987654321",
 			ExternalID:       "expected-external-id",
 		}),
@@ -459,7 +529,7 @@ func TestRuleSetGroupsInvalidConnectorRoleSignals(t *testing.T) {
 		t.Fatalf("expected actionable connector drift, got %+v", finding)
 	}
 	signals, _ := finding.Evidence["contributing_signals"].([]string)
-	for _, expected := range []string{"connector_account_mismatch", "connector_role_mismatch", "external_id_mismatch", "permission_scope_expanded", "unexpected_trust"} {
+	for _, expected := range []string{"external_id_mismatch", "permission_scope_expanded", "unexpected_trust"} {
 		if !containsString(signals, expected) {
 			t.Fatalf("expected signal %q in %+v", expected, signals)
 		}
@@ -520,6 +590,40 @@ func TestRuleSetRequiresExternalIDEqualityOnAssumeRoleBinding(t *testing.T) {
 	}
 }
 
+func TestRuleSetRejectsConnectorTrustAllowNotAction(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	roleARN := "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	trustDocument := mustJSON(map[string]any{"Version": "2012-10-17", "Statement": []any{
+		map[string]any{
+			"Effect": "Allow", "Action": "sts:AssumeRole",
+			"Principal": map[string]any{"AWS": "arn:aws:iam::210987654321:root"},
+			"Condition": map[string]any{"StringEquals": map[string]any{"sts:ExternalId": "connector-external-id"}},
+		},
+		map[string]any{"Effect": "Allow", "NotAction": "sts:TagSession", "Principal": "*"},
+	}})
+	role := IAMRole{
+		ARN:                      roleARN,
+		Name:                     identrailConnectorRoleName,
+		AssumeRolePolicyDocument: trustDocument,
+		PermissionPolicies: []IAMPermissionPolicy{{
+			Name: "IdentrailReadOnlyCollector", AttachmentType: "inline",
+			Document: `{"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"iam:ListRoles","Resource":"*"}}`,
+		}},
+	}
+	bundle, relationships := normalizeRoleForRuleTest(t, role)
+	findings, err := NewRuleSet(
+		WithRuleClock(func() time.Time { return now }),
+		WithConnectorRoleExpectation(ConnectorRoleExpectation{RoleARN: roleARN, AccountID: "123456789012", TrustedAccountID: "210987654321", ExternalID: "connector-external-id"}),
+	).Evaluate(context.Background(), bundle, relationships)
+	if err != nil || len(findings) != 1 {
+		t.Fatalf("expected one connector drift finding, findings=%+v err=%v", findings, err)
+	}
+	signals, _ := findings[0].Evidence["contributing_signals"].([]string)
+	if findings[0].Severity != domain.SeverityHigh || !containsString(signals, "unexpected_trust") {
+		t.Fatalf("Allow NotAction trust must be actionable drift: %+v", findings[0])
+	}
+}
+
 func TestRuleSetRejectsConnectorAllowNotAction(t *testing.T) {
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	roleARN := "arn:aws:iam::123456789012:role/IdentrailReadOnly"
@@ -546,6 +650,40 @@ func TestRuleSetRejectsConnectorAllowNotAction(t *testing.T) {
 	signals, _ := findings[0].Evidence["contributing_signals"].([]string)
 	if findings[0].Severity != domain.SeverityHigh || !containsString(signals, "permission_scope_expanded") {
 		t.Fatalf("Allow NotAction must be actionable permission drift: %+v", findings[0])
+	}
+}
+
+func TestRuleSetRejectsConnectorAllowNotResource(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	roleARN := "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	role := IAMRole{
+		ARN:                      roleARN,
+		Name:                     identrailConnectorRoleName,
+		AssumeRolePolicyDocument: trustPolicyJSON(map[string]any{"AWS": "arn:aws:iam::210987654321:root"}, "connector-external-id"),
+		PermissionPolicies: []IAMPermissionPolicy{
+			{Name: "IdentrailReadOnlyCollector", AttachmentType: "inline", Document: `{"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"iam:ListRoles","Resource":"*"}}`},
+			{Name: "AlmostEveryObject", AttachmentType: "inline", Document: `{"Version":"2012-10-17","Statement":{"Effect":"Allow","Action":"s3:GetObject","NotResource":"arn:aws:s3:::public/*"}}`},
+		},
+	}
+	bundle, relationships := normalizeRoleForRuleTest(t, role)
+	policies := permissionPoliciesForIdentity(bundle, bundle.Identities[0].ID)
+	if len(policies) != 2 {
+		t.Fatalf("NotResource policy must survive normalization: %+v", bundle.Policies)
+	}
+	statements, err := parseNormalizedStatements(policies[1].Normalized[statementsKey])
+	if err != nil || len(statements) != 1 || len(parseStringList(statements[0][notResourcesKey])) != 1 {
+		t.Fatalf("NotResource semantics must survive normalization: statements=%+v err=%v", statements, err)
+	}
+	findings, err := NewRuleSet(
+		WithRuleClock(func() time.Time { return now }),
+		WithConnectorRoleExpectation(ConnectorRoleExpectation{RoleARN: roleARN, AccountID: "123456789012", TrustedAccountID: "210987654321", ExternalID: "connector-external-id"}),
+	).Evaluate(context.Background(), bundle, relationships)
+	if err != nil || len(findings) != 1 {
+		t.Fatalf("expected one connector drift finding, findings=%+v err=%v", findings, err)
+	}
+	signals, _ := findings[0].Evidence["contributing_signals"].([]string)
+	if findings[0].Severity != domain.SeverityHigh || !containsString(signals, "permission_scope_expanded") {
+		t.Fatalf("Allow NotResource must be actionable permission drift: %+v", findings[0])
 	}
 }
 

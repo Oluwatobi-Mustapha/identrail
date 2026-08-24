@@ -56,7 +56,7 @@ func classifyIAMRoleIdentity(role IAMRole) (domain.IdentityKind, domain.Identity
 	if isIdentrailConnectorRole(name, role.Tags) {
 		return domain.IdentityKindConnector, domain.IdentityManagedByIdentrail, domain.FindingActionabilityReview
 	}
-	if strings.HasPrefix(strings.ToLower(name), "awsservicerolefor") || strings.Contains(strings.ToLower(strings.TrimSpace(role.Path)), "/aws-service-role/") {
+	if isServiceLinkedRoleARN(role.ARN) {
 		return domain.IdentityKindServiceLinked, domain.IdentityManagedByAWSService, domain.FindingActionabilityObserveOnly
 	}
 	return domain.IdentityKindStandard, domain.IdentityManagedByCustomer, domain.FindingActionabilityActionRequired
@@ -76,7 +76,24 @@ func isIdentrailConnectorRole(name string, tags map[string]string) bool {
 
 func expectedServiceLinkedRole(identity domain.Identity) (serviceLinkedRoleExpectation, bool) {
 	expectation, ok := expectedServiceLinkedRoles[strings.ToLower(strings.TrimSpace(identity.Name))]
-	return expectation, ok
+	if !ok || !matchesExpectedServiceLinkedRoleARN(identity.ARN, expectation) {
+		return serviceLinkedRoleExpectation{}, false
+	}
+	return expectation, true
+}
+
+func isServiceLinkedRoleARN(roleARN string) bool {
+	parts := strings.Split(strings.TrimSpace(roleARN), ":")
+	return len(parts) == 6 && parts[2] == "iam" && strings.HasPrefix(parts[5], "role/aws-service-role/")
+}
+
+func matchesExpectedServiceLinkedRoleARN(roleARN string, expectation serviceLinkedRoleExpectation) bool {
+	parts := strings.Split(strings.TrimSpace(roleARN), ":")
+	if len(parts) != 6 || parts[2] != "iam" || strings.TrimSpace(parts[4]) == "" {
+		return false
+	}
+	expectedResource := "role/aws-service-role/" + expectation.ServicePrincipal + "/" + expectation.RoleName
+	return parts[5] == expectedResource
 }
 
 func isExpectedAWSManagedPolicyARN(policyARN string) bool {
@@ -118,6 +135,7 @@ type trustPolicyFacts struct {
 
 type trustAssumeRoleBinding struct {
 	Actions                    []string
+	NotActions                 []string
 	AWSPrincipals              []string
 	ServicePrincipals          []string
 	OtherPrincipals            []string
@@ -139,19 +157,21 @@ func inspectTrustPolicy(policy *domain.Policy) trustPolicyFacts {
 			continue
 		}
 		actions := sortedUniqueStrings(parseStringList(statement.Action))
+		notActions := sortedUniqueStrings(parseStringList(statement.NotAction))
 		awsPrincipals := parseAWSPrincipals(statement.Principal)
 		servicePrincipals := parsePrincipalType(statement.Principal, "Service")
 		otherPrincipals := append(parsePrincipalType(statement.Principal, "Federated"), parsePrincipalType(statement.Principal, "CanonicalUser")...)
-		facts.AWSPrincipals = append(facts.AWSPrincipals, awsPrincipals...)
-		facts.ServicePrincipals = append(facts.ServicePrincipals, servicePrincipals...)
-		facts.OtherPrincipals = append(facts.OtherPrincipals, otherPrincipals...)
-		if !actionsAllowAssumeRole(actions) {
+		if !statementAllowsAssumeRole(actions, notActions) {
 			continue
 		}
 		facts.AllowsAssumeRole = true
+		facts.AWSPrincipals = append(facts.AWSPrincipals, awsPrincipals...)
+		facts.ServicePrincipals = append(facts.ServicePrincipals, servicePrincipals...)
+		facts.OtherPrincipals = append(facts.OtherPrincipals, otherPrincipals...)
 		externalIDEquals, hasOtherExternalIDOperator := inspectExternalIDConditions(statement.Condition)
 		facts.AssumeRoleBindings = append(facts.AssumeRoleBindings, trustAssumeRoleBinding{
 			Actions:                    actions,
+			NotActions:                 notActions,
 			AWSPrincipals:              sortedUniqueStrings(awsPrincipals),
 			ServicePrincipals:          sortedUniqueStrings(servicePrincipals),
 			OtherPrincipals:            sortedUniqueStrings(otherPrincipals),
@@ -167,12 +187,26 @@ func inspectTrustPolicy(policy *domain.Policy) trustPolicyFacts {
 
 func actionsAllowAssumeRole(actions []string) bool {
 	for _, action := range actions {
-		switch strings.ToLower(strings.TrimSpace(action)) {
-		case "sts:assumerole", "sts:*", "*":
+		if iamActionPatternMatches(strings.ToLower(strings.TrimSpace(action)), "sts:assumerole") {
 			return true
 		}
 	}
 	return false
+}
+
+func statementAllowsAssumeRole(actions, notActions []string) bool {
+	if actionsAllowAssumeRole(actions) {
+		return true
+	}
+	if len(notActions) == 0 {
+		return false
+	}
+	for _, action := range notActions {
+		if iamActionPatternMatches(strings.ToLower(strings.TrimSpace(action)), "sts:assumerole") {
+			return false
+		}
+	}
+	return true
 }
 
 func inspectExternalIDConditions(condition map[string]any) ([]string, bool) {
@@ -275,7 +309,7 @@ func connectorTrustBindingStatus(facts trustPolicyFacts, trustedAccountID, exter
 		return false, false
 	}
 	binding := facts.AssumeRoleBindings[0]
-	trustValid := len(binding.Actions) == 1 && strings.EqualFold(binding.Actions[0], "sts:AssumeRole") &&
+	trustValid := len(binding.Actions) == 1 && len(binding.NotActions) == 0 && strings.EqualFold(binding.Actions[0], "sts:AssumeRole") &&
 		len(binding.AWSPrincipals) == 1 && isAccountRootPrincipal(binding.AWSPrincipals[0], trustedAccountID) &&
 		len(binding.ServicePrincipals) == 0 && len(binding.OtherPrincipals) == 0
 	externalIDValid := len(binding.ExternalIDEquals) == 1 && binding.ExternalIDEquals[0] == externalID && !binding.HasOtherExternalIDOperator
@@ -303,6 +337,9 @@ func connectorPermissionScopeExpanded(policies []domain.Policy) bool {
 				continue
 			}
 			if len(parseStringList(statement[notActionsKey])) > 0 {
+				return true
+			}
+			if len(parseStringList(statement[notResourcesKey])) > 0 {
 				return true
 			}
 			for _, action := range parseStringList(statement["actions"]) {
