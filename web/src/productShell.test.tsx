@@ -8407,7 +8407,15 @@ describe('Domain-first app routes', () => {
         caveats: [],
         remediation_hints: [],
         coverage_gaps: [],
-        diagnostics: []
+        diagnostics: [
+          {
+            collector: 'secret_permission_inventory',
+            source_id: 'production/live',
+            code: 'live_inventory_unavailable',
+            message: 'Live inventory is unavailable.',
+            retryable: true
+          }
+        ]
       } as any
     });
 
@@ -8424,6 +8432,17 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText('Live AWS findings are not available yet')).toBeInTheDocument();
     expect(screen.getByText('live secret-permission inventory is unavailable')).toBeInTheDocument();
     expect(screen.queryByText('No AWS findings')).not.toBeInTheDocument();
+    const prioritySummary = screen.getByRole('region', { name: 'Finding priority summary' });
+    expect(within(prioritySummary).getByText('0 findings · 0 critical/high open · 0 affected resources')).toBeInTheDocument();
+    expect(within(prioritySummary).getByText('Completeness').closest('div')).toHaveTextContent('Partial');
+    expect(within(prioritySummary).getByText('Source health').closest('div')).toHaveTextContent('1 unavailable or degraded');
+    expect(
+      within(prioritySummary).getByText(/Secret Permission Inventory · production\/live · Live Inventory Unavailable · retryable/)
+    ).toBeInTheDocument();
+    expect(within(prioritySummary).getByRole('link', { name: 'View coverage details' })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/coverage?environment=production'
+    );
   });
 
   it('shows findings persisted by the completed AWS discovery scan', async () => {
@@ -9220,6 +9239,14 @@ describe('Domain-first app routes', () => {
     expect(await screen.findByText('No findings in this AWS scan')).toBeInTheDocument();
     expect(screen.getByText('Evidence incomplete')).toBeInTheDocument();
     expect(screen.getByText(/sources that were available/i)).toBeInTheDocument();
+    const prioritySummary = screen.getByRole('region', { name: 'Finding priority summary' });
+    expect(within(prioritySummary).getByText('Completeness').closest('div')).toHaveTextContent('Partial');
+    expect(within(prioritySummary).getByText('Source health').closest('div')).toHaveTextContent('Degraded');
+    expect(within(prioritySummary).getByText(/Collector details were not retained for this partial result/)).toBeInTheDocument();
+    expect(within(prioritySummary).getByRole('link', { name: 'View coverage details' })).toHaveAttribute(
+      'href',
+      '/app/tenant-a/workspace-a/aws/coverage?environment=production'
+    );
   });
 
   it('clears a completed scan context when switching AWS findings environments', async () => {

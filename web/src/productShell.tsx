@@ -18318,6 +18318,9 @@ function AWSFindingSeveritySummary({
     : 'Live collector view';
   const scopeLabel = awsFindingQueueScopeLabel(rows, connection, showingPersistedScan);
   const completenessLabel = awsPersistedFindingCompletenessLabel(completeness);
+  const sourceHealthLabel = coverage.totalCount > 0
+    ? `${coverage.totalCount} unavailable or degraded`
+    : completeness === 'unknown' ? 'Unknown' : completeness === 'partial' ? 'Degraded' : 'Available';
   return (
     <section className="idt-aws-finding-summary" aria-label="Finding priority summary">
       <div className="idt-aws-finding-summary-heading">
@@ -18339,7 +18342,7 @@ function AWSFindingSeveritySummary({
         <div><dt>Scan</dt><dd>{scanLabel}</dd></div>
         <div><dt>Scope</dt><dd>{scopeLabel}</dd></div>
         <div><dt>Completeness</dt><dd>{completenessLabel}</dd></div>
-        <div><dt>Source health</dt><dd>{coverage.totalCount > 0 ? `${coverage.totalCount} unavailable or degraded` : completeness === 'unknown' ? 'Unknown' : 'Available'}</dd></div>
+        <div><dt>Source health</dt><dd>{sourceHealthLabel}</dd></div>
       </dl>
       {coverage.totalCount > 0 ? (
         <div className="idt-aws-finding-coverage-warning" role="status">
@@ -18361,6 +18364,12 @@ function AWSFindingSeveritySummary({
           <strong>Coverage could not be verified</strong>
           <p>Scan source events are unavailable, so this result must not be treated as complete.</p>
           <Link to={coveragePath}>View coverage details</Link>
+        </div>
+      ) : completeness === 'partial' ? (
+        <div className="idt-aws-finding-coverage-warning" role="status">
+          <strong>Coverage needs attention</strong>
+          <p>Collector details were not retained for this partial result, so it must not be treated as complete.</p>
+          {coveragePath ? <Link to={coveragePath}>View coverage details</Link> : null}
         </div>
       ) : null}
     </section>
@@ -19203,7 +19212,7 @@ function AWSFindingsContent({
   const liveFindingsReadyToLoad = Boolean(scope && environmentID && connection?.connected);
   const isLoading = loading || (showingPersistedScan && persistedScanReadyToLoad && !persistedFindings && !error) || (!showingPersistedScan && liveFindingsReadyToLoad && !findings && !error);
   const coveragePath = scope && environmentID ? awsRouteLink(scope, 'coverage', environmentID) : undefined;
-  const showSummary = !error && !isLoading && (rows.length > 0 || Boolean(showingPersistedScan && persistedScan));
+  const showSummary = !error && !isLoading && (showingPersistedScan ? Boolean(persistedScan) : Boolean(findings));
 
   return (
     <>
