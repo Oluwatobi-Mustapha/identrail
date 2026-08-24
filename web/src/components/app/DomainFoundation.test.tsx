@@ -156,6 +156,7 @@ describe('DomainFoundation', () => {
         </DomainFilterBar>
         <DomainDataTable
           label="Identity inventory"
+          stackOnNarrow
           columns={[
             { key: 'name', header: 'Identity', render: (row: { id: string; name: string }) => row.name },
             { key: 'risk', header: 'Risk', align: 'right', render: () => 'High' }
@@ -182,7 +183,11 @@ describe('DomainFoundation', () => {
     expect(screen.getByRole('heading', { name: 'GitHub posture' })).toBeInTheDocument();
     expect(screen.getByText('Webhook delivery is current.')).toBeInTheDocument();
     expect(screen.getByRole('search', { name: 'Filter domain data' })).toBeInTheDocument();
-    expect(within(screen.getByRole('table', { name: 'Identity inventory' })).getByText('Deploy role')).toBeInTheDocument();
+    const identityTable = screen.getByRole('table', { name: 'Identity inventory' });
+    expect(within(identityTable).getByText('Deploy role')).toBeInTheDocument();
+    expect(identityTable.closest('.idt-domain-table-wrap')).toHaveClass('is-narrow-stack');
+    expect(within(identityTable).getByText('Deploy role').closest('td')).toHaveAttribute('data-label', 'Identity');
+    expect(within(identityTable).getByText('High').closest('td')).toHaveAttribute('data-label', 'Risk');
     expect(screen.getByText('No records yet')).toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent('Sync failed');
     expect(screen.getByRole('status')).toHaveTextContent('Loading GitHub repositories');

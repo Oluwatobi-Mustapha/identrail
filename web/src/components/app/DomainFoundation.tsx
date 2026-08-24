@@ -481,16 +481,18 @@ export function DomainDataTable<Row>({
   columns,
   rows,
   getRowKey,
-  emptyState
+  emptyState,
+  stackOnNarrow = false
 }: {
   label: string;
   columns: DomainDataTableColumn<Row>[];
   rows: Row[];
   getRowKey: (row: Row) => string;
   emptyState?: ReactNode;
+  stackOnNarrow?: boolean;
 }) {
   return (
-    <div className="idt-domain-table-wrap">
+    <div className={classNames(['idt-domain-table-wrap', stackOnNarrow ? 'is-narrow-stack' : undefined])}>
       <table className="idt-domain-data-table" aria-label={label}>
         <thead>
           <tr>
@@ -505,7 +507,7 @@ export function DomainDataTable<Row>({
           {rows.map((row) => (
             <tr key={getRowKey(row)}>
               {columns.map((column) => (
-                <td key={column.key} className={column.align === 'right' ? 'is-right' : undefined}>
+                <td key={column.key} data-label={column.header} className={column.align === 'right' ? 'is-right' : undefined}>
                   {column.render(row)}
                 </td>
               ))}

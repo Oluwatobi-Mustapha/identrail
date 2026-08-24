@@ -13155,14 +13155,28 @@ type AWSRiskOperationTableRow = AWSInventoryFilterable & {
   relatedRows?: AWSRiskOperationTableRow[];
 };
 
+type AWSFindingCoverageIssue = {
+  collector: string;
+  sourceID?: string;
+  code?: string;
+  retryable: boolean;
+};
+
+type AWSFindingCoverageContext = {
+  totalCount: number;
+  issues: AWSFindingCoverageIssue[];
+};
+
 function AWSRiskOperationFilterSet({
   routeID,
   filters,
-  onChange
+  onChange,
+  configs
 }: {
   routeID: AWSRiskOperationRouteID;
   filters: AWSInventoryFilterState;
   onChange: (nextFilters: AWSInventoryFilterState) => void;
+  configs?: AWSInventoryFilterConfig[];
 }) {
   const searchPlaceholder: Record<AWSRiskOperationRouteID, string> = {
     runtime: 'Search events',
@@ -13189,7 +13203,7 @@ function AWSRiskOperationFilterSet({
 
   return (
     <DomainFilterBar label={`${AWS_RISK_OPERATION_PAGE_COPY[routeID].title} filters`}>
-      {AWS_RISK_OPERATION_FILTERS[routeID].map((filter) => (
+      {(configs ?? AWS_RISK_OPERATION_FILTERS[routeID]).map((filter) => (
         <label key={filter.label}>
           {filter.label}
           <select value={filters[filter.id] ?? 'all'} onChange={(event) => onFilterChange(filter.id, event.target.value)}>
@@ -18136,14 +18150,35 @@ function AWSGraphEvidenceDrawer({ refs }: { refs: string[] }) {
 
 function AWSFindingEvidenceCell({ row }: { row: AWSRiskOperationTableRow }) {
   const metadata = [
-    row.source ? `Source: ${row.source}` : undefined,
     row.confidence !== undefined ? `Confidence: ${formatConfidenceScore(row.confidence)}` : undefined,
     row.completeness ? `Completeness: ${awsPersistedFindingCompletenessLabel(row.completeness)}` : undefined
   ].filter(Boolean);
   return (
     <div className="idt-aws-finding-evidence-cell">
-      <span>{row.evidence}</span>
+      <span>{row.source || 'AWS scanner'}</span>
       {metadata.length > 0 ? <small>{metadata.join(' · ')}</small> : null}
+    </div>
+  );
+}
+
+function AWSFindingAffectedResourceCell({ row }: { row: AWSRiskOperationTableRow }) {
+  return (
+    <div className="idt-aws-finding-resource-cell">
+      <strong>{row.resourceLabel || row.identity || row.title}</strong>
+      <small>{[row.resourceType, row.identity && row.identity !== row.resourceLabel ? row.identity : undefined].filter(Boolean).join(' · ') || 'AWS resource'}</small>
+      <small>{row.scopeLabel || row.blastRadius}</small>
+    </div>
+  );
+}
+
+function AWSFindingBlastRadiusCell({ row }: { row: AWSRiskOperationTableRow }) {
+  const relatedRows = row.relatedRows ?? [row];
+  const relatedRiskCount = relatedRows.length;
+  const affectedResourceCount = awsFindingDistinctResourceCount(relatedRows);
+  return (
+    <div className="idt-aws-finding-blast-cell">
+      <strong>{affectedResourceCount} affected resource{affectedResourceCount === 1 ? '' : 's'}</strong>
+      <small>{relatedRiskCount} related risk{relatedRiskCount === 1 ? '' : 's'}</small>
     </div>
   );
 }
@@ -18180,7 +18215,92 @@ function awsFindingDistinctResourceCount(rows: AWSRiskOperationTableRow[]): numb
   return new Set(rows.map(awsFindingResourceKey)).size;
 }
 
-function AWSFindingSeveritySummary({ rows, resourceCount }: { rows: AWSRiskOperationTableRow[]; resourceCount: number }) {
+function awsFindingQueueScopeLabel(
+  rows: AWSRiskOperationTableRow[],
+  connection: AWSConnectionStatus | null,
+  showingPersistedScan: boolean
+): string {
+  const accounts = [...new Set(rows.map((row) => normalizeValue(row.accountID)).filter(Boolean))];
+  const scopes = [...new Set(rows.flatMap((row) => {
+    const region = normalizeValue(row.region);
+    if (region) return [region];
+    return normalizeValue(row.scopeLabel).toLowerCase().includes('global') ? ['Global'] : [];
+  }))];
+  if (!showingPersistedScan) {
+    const hasFindingAccount = accounts.length > 0;
+    const currentAccount = normalizeValue(connection?.account_id);
+    const currentRegion = normalizeValue(connection?.region);
+    if (accounts.length === 0 && currentAccount) accounts.push(currentAccount);
+    if (scopes.length === 0 && !hasFindingAccount && currentRegion) scopes.push(currentRegion);
+  }
+  const accountLabel = accounts.length === 0 ? 'Account unavailable' : accounts.length === 1 ? `Account ${accounts[0]}` : `${accounts.length} accounts`;
+  const includesGlobal = scopes.includes('Global');
+  const regions = scopes.filter((scope) => scope !== 'Global');
+  const regionLabel = regions.length === 0
+    ? includesGlobal ? 'Global' : 'Region unavailable'
+    : `${regions.length === 1 ? regions[0] : `${regions.length} regions`}${includesGlobal ? ' + Global' : ''}`;
+  return `${accountLabel} · ${regionLabel}`;
+}
+
+function awsFindingFilterConfigs(
+  rows: AWSRiskOperationTableRow[],
+  showingPersistedScan: boolean
+): AWSInventoryFilterConfig[] | undefined {
+  if (!showingPersistedScan) {
+    return undefined;
+  }
+  const accounts = [...new Set(rows.map((row) => normalizeValue(row.accountID)).filter(Boolean))].sort();
+  const regions = [...new Set(rows.map((row) => normalizeValue(row.region)).filter(Boolean))].sort();
+  const hasGlobalResources = rows.some((row) => normalizeValue(row.scopeLabel).toLowerCase().includes('global'));
+  const hasUnknownAccount = rows.some((row) => !normalizeValue(row.accountID));
+  const hasUnknownRegion = rows.some(
+    (row) => !normalizeValue(row.region) && !normalizeValue(row.scopeLabel).toLowerCase().includes('global')
+  );
+  return AWS_RISK_OPERATION_FILTERS.findings.map((filter) => {
+    if (filter.id === 'account') {
+      return {
+        ...filter,
+        options: [
+          { label: 'All scan accounts', value: 'all' },
+          ...accounts.map((account) => ({ label: account, value: account })),
+          ...(hasUnknownAccount ? [{ label: 'Account unavailable', value: 'unknown' }] : [])
+        ]
+      };
+    }
+    if (filter.id === 'region') {
+      return {
+        ...filter,
+        options: [
+          { label: 'All scan regions', value: 'all' },
+          ...regions.map((region) => ({ label: region, value: region })),
+          ...(hasGlobalResources ? [{ label: 'Global resources', value: 'global' }] : []),
+          ...(hasUnknownRegion ? [{ label: 'Region unavailable', value: 'unknown' }] : [])
+        ]
+      };
+    }
+    return filter;
+  });
+}
+
+function AWSFindingSeveritySummary({
+  rows,
+  resourceCount,
+  persistedScan,
+  showingPersistedScan,
+  completeness,
+  coverage,
+  coveragePath,
+  connection
+}: {
+  rows: AWSRiskOperationTableRow[];
+  resourceCount: number;
+  persistedScan: ScanRecord | null;
+  showingPersistedScan: boolean;
+  completeness: string;
+  coverage: AWSFindingCoverageContext;
+  coveragePath?: string;
+  connection: AWSConnectionStatus | null;
+}) {
   const counts = ['critical', 'high', 'medium', 'low', 'unknown'].map((severity) => ({
     severity,
     count: rows.filter((row) => {
@@ -18188,12 +18308,25 @@ function AWSFindingSeveritySummary({ rows, resourceCount }: { rows: AWSRiskOpera
       return normalized === severity || (severity === 'unknown' && !['critical', 'high', 'medium', 'low'].includes(normalized));
     }).length
   }));
+  const criticalHighOpen = rows.filter((row) => {
+    const severity = normalizeValue(row.category).toLowerCase();
+    return (severity === 'critical' || severity === 'high') && normalizeValue(row.filters.status).toLowerCase() === 'open';
+  }).length;
+  const scanTimestamp = normalizeValue(persistedScan?.finished_at) || normalizeValue(persistedScan?.started_at);
+  const scanLabel = showingPersistedScan
+    ? `${scanTimestamp ? formatDateLabel(scanTimestamp) : 'Time unavailable'} · Scan ${normalizeValue(persistedScan?.id) || 'unavailable'}`
+    : 'Live collector view';
+  const scopeLabel = awsFindingQueueScopeLabel(rows, connection, showingPersistedScan);
+  const completenessLabel = awsPersistedFindingCompletenessLabel(completeness);
+  const sourceHealthLabel = coverage.totalCount > 0
+    ? `${coverage.totalCount} unavailable or degraded`
+    : completeness === 'unknown' ? 'Unknown' : completeness === 'partial' ? 'Degraded' : 'Available';
   return (
     <section className="idt-aws-finding-summary" aria-label="Finding priority summary">
       <div className="idt-aws-finding-summary-heading">
         <div>
           <p className="idt-app-kicker">Priority overview</p>
-          <strong>{rows.length} risk signals · {resourceCount} affected resources</strong>
+          <strong>{rows.length} findings · {criticalHighOpen} critical/high open · {resourceCount} affected resources</strong>
         </div>
         <span className="idt-aws-finding-summary-note">Sorted by severity</span>
       </div>
@@ -18205,6 +18338,40 @@ function AWSFindingSeveritySummary({ rows, resourceCount }: { rows: AWSRiskOpera
           </div>
         ))}
       </div>
+      <dl className="idt-aws-finding-scope-summary">
+        <div><dt>Scan</dt><dd>{scanLabel}</dd></div>
+        <div><dt>Scope</dt><dd>{scopeLabel}</dd></div>
+        <div><dt>Completeness</dt><dd>{completenessLabel}</dd></div>
+        <div><dt>Source health</dt><dd>{sourceHealthLabel}</dd></div>
+      </dl>
+      {coverage.totalCount > 0 ? (
+        <div className="idt-aws-finding-coverage-warning" role="status">
+          <strong>Coverage needs attention</strong>
+          {coverage.issues.length > 0 ? (
+            <ul>
+              {coverage.issues.map((issue) => (
+                <li key={`${issue.collector}:${issue.sourceID ?? ''}:${issue.code ?? ''}`}>
+                  {formatTokenLabel(issue.collector)}{issue.sourceID ? ` · ${issue.sourceID}` : ''}{issue.code ? ` · ${formatTokenLabel(issue.code)}` : ''}{issue.retryable ? ' · retryable' : ''}
+                </li>
+              ))}
+            </ul>
+          ) : <p>Collector details were not retained for this scan.</p>}
+          {coverage.totalCount > coverage.issues.length ? <p>{coverage.totalCount - coverage.issues.length} additional source issue{coverage.totalCount - coverage.issues.length === 1 ? '' : 's'} were not included in the event sample.</p> : null}
+          {coveragePath ? <Link to={coveragePath}>View coverage details</Link> : null}
+        </div>
+      ) : completeness === 'unknown' && coveragePath ? (
+        <div className="idt-aws-finding-coverage-warning" role="status">
+          <strong>Coverage could not be verified</strong>
+          <p>Scan source events are unavailable, so this result must not be treated as complete.</p>
+          <Link to={coveragePath}>View coverage details</Link>
+        </div>
+      ) : completeness === 'partial' ? (
+        <div className="idt-aws-finding-coverage-warning" role="status">
+          <strong>Coverage needs attention</strong>
+          <p>Collector details were not retained for this partial result, so it must not be treated as complete.</p>
+          {coveragePath ? <Link to={coveragePath}>View coverage details</Link> : null}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -18511,6 +18678,31 @@ function awsSecretPermissionEquivalenceCompleteness(result: AWSSecretPermissionE
   return 'complete';
 }
 
+function awsSecretPermissionEquivalenceCoverage(
+  result: AWSSecretPermissionEquivalenceResult | null
+): AWSFindingCoverageContext {
+  if (!result || result.status === 'ready') {
+    return { totalCount: 0, issues: [] };
+  }
+  const diagnosticIssues = result.diagnostics.map((diagnostic) => ({
+    collector: diagnostic.collector || 'Unknown collector',
+    sourceID: diagnostic.source_id,
+    code: diagnostic.code,
+    retryable: diagnostic.retryable
+  }));
+  const issues = diagnosticIssues.length > 0
+    ? diagnosticIssues
+    : result.coverage_gaps.map((gap) => ({
+        collector: gap.capability || 'Unknown capability',
+        code: gap.status,
+        retryable: false
+      }));
+  return {
+    totalCount: Math.max(issues.length, 1),
+    issues: issues.slice(0, 8)
+  };
+}
+
 function awsPersistedFindingStage(finding: ApiFinding): AWSCapabilityStage {
   const severity = normalizeValue(finding.severity).toLowerCase();
   if (severity === 'critical') {
@@ -18554,6 +18746,7 @@ function awsPersistedFindingStatusLabel(status: string): string {
 }
 
 const AWS_PERSISTED_FINDINGS_PAGE_LIMIT = 500;
+const AWS_SCAN_EVENTS_PAGE_LIMIT = 500;
 
 async function listAllAWSScanFindings(scanID: string, auth: RequestAuthContext): Promise<ApiFinding[]> {
   const findings: ApiFinding[] = [];
@@ -18577,6 +18770,27 @@ async function listAllAWSScanFindings(scanID: string, auth: RequestAuthContext):
     }
     if (seenCursors.has(nextCursor)) {
       throw new Error('AWS findings pagination returned a repeated cursor.');
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+}
+
+async function listAllAWSScanEvents(scanID: string, auth: RequestAuthContext): Promise<ScanEvent[]> {
+  const events: ScanEvent[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+
+  while (true) {
+    const response = await apiClient.listScanEvents(scanID, undefined, AWS_SCAN_EVENTS_PAGE_LIMIT, auth, cursor);
+    events.push(...response.items);
+
+    const nextCursor = normalizeValue(response.next_cursor);
+    if (!nextCursor) {
+      return events;
+    }
+    if (seenCursors.has(nextCursor)) {
+      throw new Error('AWS scan event pagination returned a repeated cursor.');
     }
     seenCursors.add(nextCursor);
     cursor = nextCursor;
@@ -18857,7 +19071,6 @@ function awsPersistedFindingScope(finding: ApiFinding): AWSPersistedFindingScope
 
 function awsPersistedFindingRiskOperationRow(
   finding: ApiFinding,
-  connection: AWSConnectionStatus | null,
   persistedScan: ScanRecord | null,
   completeness: string
 ): AWSRiskOperationTableRow {
@@ -18910,8 +19123,8 @@ function awsPersistedFindingRiskOperationRow(
     triageUpdatedBy: finding.triage?.updated_by,
     filters: {
       severity: normalizeValue(finding.severity).toLowerCase() || 'unknown',
-      account: findingScope.accountID && findingScope.accountID === connection?.account_id ? 'connected' : 'unknown',
-      region: findingScope.global ? 'global' : findingScope.region && findingScope.region === connection?.region ? 'current' : findingScope.region ? 'other' : 'unknown',
+      account: findingScope.accountID || 'unknown',
+      region: findingScope.global ? 'global' : findingScope.region || 'unknown',
       evidence: Object.keys(finding.evidence ?? {}).length > 0 ? 'inventory-backed' : 'unavailable',
       status
     },
@@ -18951,6 +19164,7 @@ function AWSFindingsContent({
   persistedScan,
   persistedScanPartial,
   persistedScanCoverageUnknown,
+  persistedScanCoverage,
   persistedScanID,
   scope,
   environmentID,
@@ -18966,6 +19180,7 @@ function AWSFindingsContent({
   persistedScan: ScanRecord | null;
   persistedScanPartial: boolean;
   persistedScanCoverageUnknown: boolean;
+  persistedScanCoverage: AWSFindingCoverageContext;
   persistedScanID?: string;
   scope: ProductSession | null;
   environmentID?: string;
@@ -18978,8 +19193,14 @@ function AWSFindingsContent({
 }) {
   const showingPersistedScan = Boolean(persistedScanID);
   const persistedCompleteness = persistedScanPartial ? 'partial' : persistedScanCoverageUnknown ? 'unknown' : 'complete';
+  const findingCompleteness = showingPersistedScan
+    ? persistedCompleteness
+    : findings ? awsSecretPermissionEquivalenceCompleteness(findings) : 'unknown';
+  const findingCoverage = showingPersistedScan
+    ? persistedScanCoverage
+    : awsSecretPermissionEquivalenceCoverage(findings);
   const rows = showingPersistedScan
-    ? persistedFindings?.map((finding) => awsPersistedFindingRiskOperationRow(finding, connection, persistedScan, persistedCompleteness)) ?? []
+    ? persistedFindings?.map((finding) => awsPersistedFindingRiskOperationRow(finding, persistedScan, persistedCompleteness)) ?? []
     : findings?.findings.map((finding) => awsSecretPermissionEquivalenceRiskOperationRow(finding, findings, scope, environmentID, connection)) ?? [];
   const filteredRows = filterAWSInventoryRows(rows, filters);
   const displayedRows = groupAWSFindingRows(filteredRows).sort(
@@ -18990,6 +19211,8 @@ function AWSFindingsContent({
   const persistedScanReadyToLoad = Boolean(scope && environmentID);
   const liveFindingsReadyToLoad = Boolean(scope && environmentID && connection?.connected);
   const isLoading = loading || (showingPersistedScan && persistedScanReadyToLoad && !persistedFindings && !error) || (!showingPersistedScan && liveFindingsReadyToLoad && !findings && !error);
+  const coveragePath = scope && environmentID ? awsRouteLink(scope, 'coverage', environmentID) : undefined;
+  const showSummary = !error && !isLoading && (showingPersistedScan ? Boolean(persistedScan) : Boolean(findings));
 
   return (
     <>
@@ -19009,8 +19232,24 @@ function AWSFindingsContent({
           </p>
         </DomainStatusPanel>
       ) : null}
-      {displayedRows.length > 0 ? <AWSFindingSeveritySummary rows={filteredRows} resourceCount={awsFindingDistinctResourceCount(filteredRows)} /> : null}
-      <AWSRiskOperationFilterSet routeID="findings" filters={filters} onChange={onFiltersChange} />
+      {showSummary ? (
+        <AWSFindingSeveritySummary
+          rows={rows}
+          resourceCount={awsFindingDistinctResourceCount(rows)}
+          persistedScan={persistedScan}
+          showingPersistedScan={showingPersistedScan}
+          completeness={findingCompleteness}
+          coverage={findingCoverage}
+          coveragePath={coveragePath}
+          connection={connection}
+        />
+      ) : null}
+      <AWSRiskOperationFilterSet
+        routeID="findings"
+        filters={filters}
+        onChange={onFiltersChange}
+        configs={awsFindingFilterConfigs(rows, showingPersistedScan)}
+      />
       {error ? (
         <DomainErrorState
           title="Couldn't load AWS findings"
@@ -19026,6 +19265,7 @@ function AWSFindingsContent({
       ) : (
         <DomainDataTable
           label="AWS findings"
+          stackOnNarrow
           rows={displayedRows}
           getRowKey={(row) => row.id}
           emptyState={
@@ -19056,12 +19296,22 @@ function AWSFindingsContent({
             />
           }
           columns={[
-            { key: 'title', header: 'Finding', render: (row) => row.detailLink ? <Link to={row.detailLink}>{row.title}</Link> : <strong>{row.title}</strong> },
             { key: 'category', header: 'Severity', render: (row) => <AWSFindingSeverityBadge severity={awsFindingDisplaySeverity(row)} /> },
-            { key: 'evidence', header: 'Evidence', render: (row) => <AWSFindingEvidenceCell row={row} /> },
-            { key: 'blast', header: 'Blast radius', render: (row) => row.blastRadius },
-            { key: 'status', header: 'Status', render: (row) => <AWSFindingStatusBadge status={row.status} showingPersistedScan={showingPersistedScan} /> },
-            { key: 'action', header: 'Action', render: (row) => <button type="button" className="idt-aws-finding-view-details" onClick={() => setSelectedRowID(row.id)}>View details</button> }
+            { key: 'title', header: 'Finding', render: (row) => row.detailLink ? <Link to={row.detailLink}>{row.title}</Link> : <strong>{row.title}</strong> },
+            { key: 'resource', header: 'Affected resource', render: (row) => <AWSFindingAffectedResourceCell row={row} /> },
+            { key: 'why', header: 'Why it matters', render: (row) => <span className="idt-aws-finding-why-cell">{row.evidence}</span> },
+            { key: 'blast', header: 'Blast radius', render: (row) => <AWSFindingBlastRadiusCell row={row} /> },
+            { key: 'evidence', header: 'Confidence / evidence', render: (row) => <AWSFindingEvidenceCell row={row} /> },
+            {
+              key: 'workflow',
+              header: 'Workflow',
+              render: (row) => (
+                <div className="idt-aws-finding-workflow-cell">
+                  <AWSFindingStatusBadge status={row.status} showingPersistedScan={showingPersistedScan} />
+                  <button type="button" className="idt-aws-finding-view-details" onClick={() => setSelectedRowID(row.id)}>View details</button>
+                </div>
+              )
+            }
           ]}
         />
       )}
@@ -19427,6 +19677,10 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
   const [persistedScan, setPersistedScan] = useState<ScanRecord | null>(null);
   const [persistedScanPartial, setPersistedScanPartial] = useState(false);
   const [persistedScanCoverageUnknown, setPersistedScanCoverageUnknown] = useState(false);
+  const [persistedScanCoverage, setPersistedScanCoverage] = useState<AWSFindingCoverageContext>({
+    totalCount: 0,
+    issues: []
+  });
   const [persistedFindingsLoading, setPersistedFindingsLoading] = useState(false);
   const [persistedFindingsError, setPersistedFindingsError] = useState('');
   const persistedFindingsRequestRef = useRef(0);
@@ -19437,7 +19691,7 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
 
   useEffect(() => {
     setActiveFilters({ ...AWS_RISK_OPERATION_FILTER_DEFAULTS[routeID] });
-  }, [routeID]);
+  }, [persistedScanID, routeID, selectedEnvironmentID]);
 
   const showSecretPermissionEquivalence = routeID === 'runtime';
   const shouldLoadSecretPermissionEquivalence = routeID === 'runtime' || (routeID === 'findings' && !persistedScanID);
@@ -21302,6 +21556,7 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
     setPersistedScan(null);
     setPersistedScanPartial(false);
     setPersistedScanCoverageUnknown(false);
+    setPersistedScanCoverage({ totalCount: 0, issues: [] });
     setPersistedFindingsError('');
     if (routeID !== 'findings' || !persistedScanID || !scope || !selectedEnvironmentID) {
       setPersistedFindingsLoading(false);
@@ -21313,8 +21568,8 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       const [scanResponse, findingsResponse, eventsResponse] = await Promise.all([
         apiClient.getScan(persistedScanID, auth),
         listAllAWSScanFindings(persistedScanID, auth),
-        apiClient.listScanEvents(persistedScanID, undefined, 100, auth)
-          .then((response) => ({ items: response.items, available: true }))
+        listAllAWSScanEvents(persistedScanID, auth)
+          .then((items) => ({ items, available: true }))
           .catch(() => ({ items: [], available: false }))
       ]);
       if (requestID !== persistedFindingsRequestRef.current) {
@@ -21338,9 +21593,13 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
       ) {
         throw new Error('The requested AWS scan does not belong to this environment.');
       }
+      const coverage = awsDiscoveryFindingCoverage(eventsResponse.items);
       setPersistedScan(scan);
       setPersistedFindings(findingsResponse);
-      setPersistedScanPartial(scanStatus === 'partial' || awsDiscoveryHasPartialResults(eventsResponse.items));
+      setPersistedScanCoverage(coverage);
+      setPersistedScanPartial(
+        scanStatus === 'partial' || coverage.totalCount > 0 || awsDiscoveryHasPartialResults(eventsResponse.items)
+      );
       setPersistedScanCoverageUnknown(!eventsResponse.available);
     } catch (requestError) {
       if (requestID !== persistedFindingsRequestRef.current) {
@@ -21739,6 +21998,7 @@ function ProductAWSRiskOperationsPage({ routeID }: { routeID: AWSRiskOperationRo
             persistedScan={persistedScan}
             persistedScanPartial={persistedScanPartial}
             persistedScanCoverageUnknown={persistedScanCoverageUnknown}
+            persistedScanCoverage={persistedScanCoverage}
             persistedScanID={persistedScanID}
             scope={scope}
             environmentID={selectedEnvironmentID}
@@ -21845,6 +22105,44 @@ function awsDiscoveryHasPartialResults(events: ScanEvent[]): boolean {
     const message = normalizeValue(event.message).toLowerCase();
     return message.includes('partial source') || normalizeValue(event.metadata?.state).toLowerCase() === 'partial';
   });
+}
+
+function awsDiscoveryFindingCoverage(events: ScanEvent[]): AWSFindingCoverageContext {
+  const issues: AWSFindingCoverageIssue[] = [];
+  const seenIssues = new Set<string>();
+  let totalCount = 0;
+
+  for (const event of events) {
+    const declaredCount = Number(event.metadata?.source_error_count);
+    if (Number.isFinite(declaredCount) && declaredCount > totalCount) {
+      totalCount = Math.floor(declaredCount);
+    }
+    const sourceErrors = event.metadata?.source_errors;
+    if (!Array.isArray(sourceErrors)) {
+      continue;
+    }
+    for (const sourceError of sourceErrors) {
+      if (!sourceError || typeof sourceError !== 'object' || Array.isArray(sourceError)) {
+        continue;
+      }
+      const error = sourceError as Record<string, unknown>;
+      const collector = normalizeValue(error.collector) || 'Unknown collector';
+      const sourceID = normalizeValue(error.source_id) || undefined;
+      const code = normalizeValue(error.code) || undefined;
+      const retryable = error.retryable === true;
+      const issueKey = `${collector}\u0000${sourceID ?? ''}\u0000${code ?? ''}`;
+      if (seenIssues.has(issueKey)) {
+        continue;
+      }
+      seenIssues.add(issueKey);
+      issues.push({ collector, sourceID, code, retryable });
+    }
+  }
+
+  return {
+    totalCount: Math.max(totalCount, issues.length),
+    issues: issues.slice(0, 8)
+  };
 }
 
 function awsDiscoveryPhase(scan: ScanRecord | null, events: ScanEvent[]): AWSDiscoveryPhase {

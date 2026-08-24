@@ -79,6 +79,28 @@ describe('apiClient', () => {
     expect(url).toContain('/v1/scans?sort_by=started_at&sort_order=desc');
   });
 
+  it('passes the scan event cursor for paging', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [], next_cursor: 'cursor-3' })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await apiClient.listScanEvents(
+      'scan-1',
+      undefined,
+      500,
+      { tenantID: 'tenant-a', workspaceID: 'workspace-a' },
+      'cursor-2'
+    );
+
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/v1/scans/scan-1/events?limit=500&cursor=cursor-2&sort_by=created_at&sort_order=desc');
+    const headers = new Headers(options.headers);
+    expect(headers.get('x-identrail-tenant-id')).toBe('tenant-a');
+    expect(headers.get('x-identrail-workspace-id')).toBe('workspace-a');
+  });
+
   it('builds AWS graph explorer URL with filters', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
