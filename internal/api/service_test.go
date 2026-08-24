@@ -1187,7 +1187,7 @@ func TestServiceRepoFindingTriageScopesStateToRepoScan(t *testing.T) {
 		defaultScopeContext(),
 		"shared-id",
 		secondScan.ID,
-		FindingTriageRequest{Status: &resolved, Assignee: &secondAssignee},
+		FindingTriageRequest{Status: &resolved, Assignee: &secondAssignee, Comment: "verified in the second scan"},
 		"subject:user-2",
 	); err != nil {
 		t.Fatalf("triage second repo finding: %v", err)
@@ -1638,6 +1638,17 @@ func TestServiceTriageFindingRejectsInvalidRequest(t *testing.T) {
 
 	if _, err := svc.TriageFinding(defaultScopeContext(), "finding-1", scan.ID, FindingTriageRequest{}, "subject:user-1"); !errors.Is(err, ErrInvalidFindingTriageRequest) {
 		t.Fatalf("expected invalid triage request error for empty payload, got %v", err)
+	}
+
+	resolved := string(domain.FindingLifecycleResolved)
+	if _, err := svc.TriageFinding(
+		defaultScopeContext(),
+		"finding-1",
+		scan.ID,
+		FindingTriageRequest{Status: &resolved},
+		"subject:user-1",
+	); !errors.Is(err, ErrInvalidFindingTriageRequest) {
+		t.Fatalf("expected invalid triage request error for resolution without verification basis, got %v", err)
 	}
 
 	suppressed := string(domain.FindingLifecycleSuppressed)
