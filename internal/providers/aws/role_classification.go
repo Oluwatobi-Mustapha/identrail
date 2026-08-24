@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	connectoraws "github.com/identrail/identrail/internal/connectors/aws"
 	"github.com/identrail/identrail/internal/domain"
 	"github.com/identrail/identrail/internal/providers"
 )
@@ -236,6 +237,10 @@ func connectorRoleSignals(bundle providers.NormalizedBundle, identity domain.Ide
 }
 
 func connectorPermissionScopeExpanded(policies []domain.Policy) bool {
+	allowedActions, err := expectedConnectorPermissionActions()
+	if err != nil {
+		return true
+	}
 	for _, policy := range policies {
 		statements, err := parseNormalizedStatements(policy.Normalized[statementsKey])
 		if err != nil {
@@ -247,7 +252,7 @@ func connectorPermissionScopeExpanded(policies []domain.Policy) bool {
 				continue
 			}
 			for _, action := range parseStringList(statement["actions"]) {
-				if !isConnectorReadOnlyAction(action) {
+				if _, ok := allowedActions[strings.ToLower(strings.TrimSpace(action))]; !ok {
 					return true
 				}
 			}
@@ -256,19 +261,28 @@ func connectorPermissionScopeExpanded(policies []domain.Policy) bool {
 	return false
 }
 
-func isConnectorReadOnlyAction(action string) bool {
-	action = strings.TrimSpace(action)
-	parts := strings.SplitN(action, ":", 2)
-	if len(parts) != 2 || strings.Contains(parts[1], "*") {
-		return false
+func expectedConnectorPermissionActions() (map[string]struct{}, error) {
+	document, err := connectoraws.ReadOnlyPolicyDocument()
+	if err != nil {
+		return nil, err
 	}
-	operation := strings.ToLower(parts[1])
-	for _, prefix := range []string{"get", "list", "describe", "batchget", "lookup", "search", "simulate"} {
-		if strings.HasPrefix(operation, prefix) {
-			return true
+	policy, err := parsePolicyDocument(string(document))
+	if err != nil {
+		return nil, err
+	}
+	actions := map[string]struct{}{}
+	for _, statement := range policy.Statement {
+		if !strings.EqualFold(strings.TrimSpace(statement.Effect), "allow") {
+			continue
+		}
+		for _, action := range parseStringList(statement.Action) {
+			actions[strings.ToLower(strings.TrimSpace(action))] = struct{}{}
 		}
 	}
-	return strings.EqualFold(action, "iam:GenerateServiceLastAccessedDetails")
+	if len(actions) == 0 {
+		return nil, fmt.Errorf("Identrail connector policy has no allowed actions")
+	}
+	return actions, nil
 }
 
 func managedRoleAnomalyFinding(identity domain.Identity, expectation serviceLinkedRoleExpectation, signals []string, now time.Time) domain.Finding {

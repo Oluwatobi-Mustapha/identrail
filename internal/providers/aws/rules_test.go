@@ -462,6 +462,27 @@ func TestRuleSetGroupsInvalidConnectorRoleSignals(t *testing.T) {
 	}
 }
 
+func TestConnectorPermissionScopeRejectsOutOfContractReads(t *testing.T) {
+	policy := domain.Policy{Normalized: map[string]any{
+		statementsKey: []map[string]any{{
+			"effect":    "Allow",
+			"actions":   []string{"iam:ListRoles", "s3:GetObject"},
+			"resources": []string{"*"},
+		}},
+	}}
+	if !connectorPermissionScopeExpanded([]domain.Policy{policy}) {
+		t.Fatal("object-content reads are outside the Identrail collector policy even though they are read-only")
+	}
+	policy.Normalized[statementsKey] = []map[string]any{{
+		"effect":    "Allow",
+		"actions":   []string{"iam:ListRoles", "s3:GetBucketPolicy"},
+		"resources": []string{"*"},
+	}}
+	if connectorPermissionScopeExpanded([]domain.Policy{policy}) {
+		t.Fatal("expected canonical Identrail collector actions to remain valid")
+	}
+}
+
 func TestRuleSetDoesNotTreatAccountRootAsSubordinateIdentity(t *testing.T) {
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	identity := domain.Identity{
