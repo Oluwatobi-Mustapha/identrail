@@ -262,6 +262,24 @@ func TestValidateNormalizedBundleDuplicateAndSchemaFailures(t *testing.T) {
 			needle: "missing trust principals",
 		},
 		{
+			name: "trust service principals blank",
+			bundle: NormalizedBundle{
+				Identities: []domain.Identity{baseIdentity},
+				Policies: []domain.Policy{{
+					ID:       "p1",
+					Provider: domain.ProviderAWS,
+					Name:     "trust",
+					RawRef:   "raw",
+					Normalized: map[string]any{
+						"policy_type":        "trust",
+						"identity_id":        "id-1",
+						"service_principals": []string{"", "  "},
+					},
+				}},
+			},
+			needle: "missing trust principals",
+		},
+		{
 			name: "permission statement shape",
 			bundle: NormalizedBundle{
 				Identities: []domain.Identity{baseIdentity},

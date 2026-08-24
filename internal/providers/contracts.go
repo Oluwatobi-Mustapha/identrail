@@ -271,7 +271,8 @@ func validatePolicyNormalized(normalized map[string]any, identityIDs map[string]
 		}
 	case "trust":
 		principals := extractStringSlice(normalized["principals"])
-		if len(principals) == 0 {
+		servicePrincipals := extractStringSlice(normalized["service_principals"])
+		if len(principals) == 0 && len(servicePrincipals) == 0 {
 			return fmt.Errorf("missing trust principals")
 		}
 	}
@@ -297,9 +298,21 @@ func validateStatement(statement map[string]any) error {
 func extractStringSlice(raw any) []string {
 	switch values := raw.(type) {
 	case []string:
-		copied := append([]string(nil), values...)
-		slices.Sort(copied)
-		return slices.Compact(copied)
+		result := make([]string, 0, len(values))
+		seen := map[string]struct{}{}
+		for _, value := range values {
+			normalized := strings.TrimSpace(value)
+			if normalized == "" {
+				continue
+			}
+			if _, exists := seen[normalized]; exists {
+				continue
+			}
+			seen[normalized] = struct{}{}
+			result = append(result, normalized)
+		}
+		slices.Sort(result)
+		return result
 	case []any:
 		result := make([]string, 0, len(values))
 		seen := map[string]struct{}{}
