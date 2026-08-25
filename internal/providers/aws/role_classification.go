@@ -298,8 +298,13 @@ func connectorRoleSignals(bundle providers.NormalizedBundle, identity domain.Ide
 	if len(permissionPolicies) == 0 {
 		completeness = "partial"
 		signals = append(signals, "permission_evidence_missing")
-	} else if connectorPermissionScopeExpanded(permissionPolicies) {
-		signals = append(signals, "permission_scope_expanded")
+	} else {
+		if connectorPermissionScopeExpanded(permissionPolicies) {
+			signals = append(signals, "permission_scope_expanded")
+		}
+		if connectorPermissionActionsMissing(permissionPolicies) {
+			signals = append(signals, "permission_scope_incomplete")
+		}
 	}
 	return sortedUniqueStrings(signals), completeness
 }
@@ -352,13 +357,51 @@ func connectorPermissionScopeExpanded(policies []domain.Policy) bool {
 	return false
 }
 
+// connectorPermissionActionsMissing reports an incomplete connector policy
+// boundary. Scope validation must catch both permissions that are too broad
+// and permissions that are absent; otherwise an existing role can appear
+// compliant while newly wired collectors fail with AccessDenied.
+func connectorPermissionActionsMissing(policies []domain.Policy) bool {
+	expected, err := expectedConnectorPermissionActions()
+	if err != nil {
+		return true
+	}
+	observed := map[string]struct{}{}
+	for _, policy := range policies {
+		statements, err := parseNormalizedStatements(policy.Normalized[statementsKey])
+		if err != nil {
+			return true
+		}
+		for _, statement := range statements {
+			effect, _ := statement["effect"].(string)
+			if !strings.EqualFold(effect, "Allow") {
+				continue
+			}
+			for _, action := range parseStringList(statement["actions"]) {
+				normalized := strings.ToLower(strings.TrimSpace(action))
+				if normalized == "*" {
+					return false
+				}
+				observed[normalized] = struct{}{}
+			}
+		}
+	}
+	for expectedAction := range expected {
+		if _, ok := observed[expectedAction]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
 func expectedConnectorPermissionActions() (map[string]struct{}, error) {
 	actions := map[string]struct{}{}
-	// This is the deployed CloudFormation role contract, not the broader
-	// collector capability catalog. The template-parity regression test makes
-	// any future action change explicit in both producers and consumers.
+	// This is the deployed CloudFormation role contract. Keep it aligned with
+	// the embedded policy and deployment artifacts so connector validation does
+	// not reject the permissions required by newly wired metadata collectors.
 	for _, action := range []string{
 		"iam:GetAccountSummary",
+		"iam:GetInstanceProfile",
 		"iam:GetPolicy",
 		"iam:GetPolicyVersion",
 		"iam:GetRole",
@@ -370,14 +413,90 @@ func expectedConnectorPermissionActions() (map[string]struct{}, error) {
 		"iam:SimulatePrincipalPolicy",
 		"ec2:DescribeIamInstanceProfileAssociations",
 		"ec2:DescribeInstances",
+		"ec2:DescribeLaunchTemplateVersions",
+		"ec2:DescribeLaunchTemplates",
 		"ec2:DescribeRegions",
+		"ecs:DescribeServices",
+		"ecs:DescribeTaskDefinition",
+		"ecs:ListClusters",
+		"ecs:ListServices",
+		"ecs:ListTaskDefinitions",
+		"codebuild:BatchGetProjects",
+		"codebuild:ListProjects",
+		"lambda:ListFunctions",
+		"lambda:ListEventSourceMappings",
+		"lambda:ListAliases",
+		"lambda:ListVersionsByFunction",
+		"lambda:ListTags",
+		"codepipeline:ListPipelines",
+		"codepipeline:GetPipeline",
+		"codepipeline:GetPipelineState",
+		"states:ListStateMachines",
+		"states:DescribeStateMachine",
+		"states:ListTagsForResource",
+		"events:ListEventBuses",
+		"events:ListRules",
+		"events:ListTargetsByRule",
+		"events:ListTagsForResource",
+		"scheduler:ListSchedules",
+		"scheduler:GetSchedule",
+		"pipes:ListPipes",
+		"pipes:DescribePipe",
+		"apprunner:ListServices",
+		"apprunner:DescribeService",
+		"batch:DescribeComputeEnvironments",
+		"batch:DescribeJobDefinitions",
+		"glue:GetJobs",
+		"glue:GetCrawlers",
+		"elasticmapreduce:ListClusters",
+		"elasticmapreduce:DescribeCluster",
+		"eks:DescribeCluster",
+		"eks:DescribeFargateProfile",
+		"eks:DescribeNodegroup",
+		"eks:DescribePodIdentityAssociation",
+		"eks:ListClusters",
+		"eks:ListFargateProfiles",
+		"eks:ListNodegroups",
+		"eks:ListPodIdentityAssociations",
+		"sagemaker:DescribeDomain",
+		"sagemaker:DescribeEndpoint",
+		"sagemaker:DescribeEndpointConfig",
+		"sagemaker:DescribeModel",
+		"sagemaker:DescribeNotebookInstance",
+		"sagemaker:DescribePipeline",
+		"sagemaker:DescribeProcessingJob",
+		"sagemaker:DescribeTrainingJob",
+		"sagemaker:DescribeTransformJob",
+		"sagemaker:ListDomains",
+		"sagemaker:ListEndpoints",
+		"sagemaker:ListModels",
+		"sagemaker:ListNotebookInstances",
+		"sagemaker:ListPipelines",
+		"sagemaker:ListProcessingJobs",
+		"sagemaker:ListTrainingJobs",
+		"sagemaker:ListTransformJobs",
 		"s3:GetBucketAcl",
+		"s3:GetBucketLocation",
+		"s3:GetBucketOwnershipControls",
 		"s3:GetBucketPolicy",
 		"s3:GetBucketPublicAccessBlock",
+		"s3:GetBucketTagging",
+		"s3:GetEncryptionConfiguration",
+		"s3:ListAccessPoints",
 		"s3:ListAllMyBuckets",
+		"ecr:DescribeImages",
+		"ecr:DescribeRepositories",
+		"ecr:GetLifecyclePolicy",
+		"ecr:GetRepositoryPolicy",
+		"ecr:GetRegistryScanningConfiguration",
+		"ecr:ListTagsForResource",
 		"kms:DescribeKey",
 		"kms:GetKeyPolicy",
+		"kms:GetKeyRotationStatus",
+		"kms:ListAliases",
+		"kms:ListGrants",
 		"kms:ListKeys",
+		"kms:ListResourceTags",
 		"sqs:GetQueueAttributes",
 		"sqs:ListQueues",
 		"sqs:ListQueueTags",
@@ -386,6 +505,33 @@ func expectedConnectorPermissionActions() (map[string]struct{}, error) {
 		"sns:ListSubscriptionsByTopic",
 		"sns:ListTagsForResource",
 		"sns:ListTopics",
+		"dynamodb:ListTables",
+		"dynamodb:DescribeTable",
+		"dynamodb:ListTagsOfResource",
+		"dynamodb:GetResourcePolicy",
+		"rds:DescribeDBInstances",
+		"rds:DescribeDBClusters",
+		"rds:DescribeDBProxies",
+		"rds:ListTagsForResource",
+		"secretsmanager:ListSecrets",
+		"secretsmanager:DescribeSecret",
+		"secretsmanager:GetResourcePolicy",
+		"secretsmanager:ListSecretVersionIds",
+		"ssm:DescribeParameters",
+		"ssm:ListTagsForResource",
+		"bedrock-agentcore:ListAgentRuntimes",
+		"bedrock-agentcore:GetAgentRuntime",
+		"bedrock-agentcore:ListAgentRuntimeEndpoints",
+		"bedrock-agentcore:ListGateways",
+		"bedrock-agentcore:GetGateway",
+		"bedrock-agentcore:ListGatewayTargets",
+		"bedrock-agentcore:GetGatewayTarget",
+		"bedrock-agentcore:ListMemories",
+		"bedrock-agentcore:GetMemory",
+		"bedrock-agentcore:ListBrowsers",
+		"bedrock-agentcore:GetBrowser",
+		"bedrock-agentcore:ListCodeInterpreters",
+		"bedrock-agentcore:GetCodeInterpreter",
 		"sts:GetCallerIdentity",
 		"organizations:DescribeOrganization",
 		"organizations:ListAccountsForParent",
