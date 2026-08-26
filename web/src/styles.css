@@ -25121,6 +25121,13 @@ html[data-theme='light'] .idt-app-shell-screen select {
     overflow-wrap: anywhere;
     word-break: break-word;
   }
+
+  .idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='resource'] .idt-aws-finding-resource-cell,
+  .idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='why'] .idt-aws-finding-why-cell,
+  .idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='evidence'] .idt-aws-finding-evidence-cell {
+    min-width: 0;
+    max-width: 100%;
+  }
 }
 
 .idt-aws-risk-page .idt-domain-table-empty {

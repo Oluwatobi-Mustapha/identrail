@@ -269,11 +269,14 @@ func isRetryable(err error) bool {
 	}
 
 	message := strings.ToLower(err.Error())
+	if isAWSTransientFailure(err) {
+		return true
+	}
 	if isAWSNonRetryableFailure(message, err) {
 		return false
 	}
-	if isAWSTransientFailure(err) {
-		return true
+	if isAWSClientHTTPFailure(err) {
+		return false
 	}
 	for _, needle := range []string{
 		"throttl", "rate exceeded", "too many requests", "requestlimitexceeded",
@@ -311,11 +314,6 @@ func isAWSNonRetryableFailure(message string, err error) bool {
 			return true
 		}
 	}
-	var responseErr interface{ HTTPStatusCode() int }
-	if errors.As(err, &responseErr) {
-		status := responseErr.HTTPStatusCode()
-		return status >= 400 && status < 500 && status != 429
-	}
 	return false
 }
 
@@ -337,6 +335,15 @@ func isAWSTransientFailure(err error) bool {
 		return true
 	}
 	return errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.EPIPE)
+}
+
+func isAWSClientHTTPFailure(err error) bool {
+	var responseErr interface{ HTTPStatusCode() int }
+	if !errors.As(err, &responseErr) {
+		return false
+	}
+	status := responseErr.HTTPStatusCode()
+	return status >= 400 && status < 500 && status != 429
 }
 
 func defaultSleeper(ctx context.Context, delay time.Duration) error {
