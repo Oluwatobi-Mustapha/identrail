@@ -90,7 +90,7 @@ func TestAWSCompositeCollectorNonFatalServiceFailureContinuesAndRecordsDiagnosti
 
 	secondService := &fakeAWSServiceCollector{
 		name: "ecs",
-		err:  errors.New("temporary downstream failure"),
+		err:  errors.New("ThrottlingException: temporary downstream failure"),
 	}
 	composite := NewAWSCompositeCollector(api, "123", "eu-west-1", secondService)
 	assets, sourceErrors, err := composite.CollectWithDiagnostics(context.Background())
@@ -118,8 +118,30 @@ func TestAWSCompositeCollectorNonFatalServiceFailureContinuesAndRecordsDiagnosti
 	if sourceErrors[0].Retryable != true {
 		t.Fatalf("expected retryable diagnostic for service failure")
 	}
-	if sourceErrors[0].Message == "" || sourceErrors[0].Message != "temporary downstream failure [service=ecs account=123 region=eu-west-1]" {
+	if sourceErrors[0].Message == "" || sourceErrors[0].Message != "ThrottlingException: temporary downstream failure [service=ecs account=123 region=eu-west-1]" {
 		t.Fatalf("unexpected diagnostic message %q", sourceErrors[0].Message)
+	}
+}
+
+func TestAWSCompositeCollectorPermissionFailureIsNotRetryable(t *testing.T) {
+	api := &fakeIAMClient{listFn: func(_ context.Context, _ string, _ int32) (ListRolesPage, error) {
+		return ListRolesPage{Roles: []IAMRole{{ARN: "arn:aws:iam::123:role/safe", Name: "safe"}}}, nil
+	}}
+
+	service := &fakeAWSServiceCollector{
+		name: "lambda",
+		err:  errors.New("AccessDeniedException: User is not authorized to perform lambda:ListFunctions"),
+	}
+	composite := NewAWSCompositeCollector(api, "123", "us-east-1", service)
+	_, sourceErrors, err := composite.CollectWithDiagnostics(context.Background())
+	if err != nil {
+		t.Fatalf("expected IAM assets to preserve a non-fatal service failure, got %v", err)
+	}
+	if len(sourceErrors) != 1 {
+		t.Fatalf("expected one service diagnostic, got %d", len(sourceErrors))
+	}
+	if sourceErrors[0].Retryable {
+		t.Fatalf("permission failures must not be marked retryable: %+v", sourceErrors[0])
 	}
 }
 

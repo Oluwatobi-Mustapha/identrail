@@ -186,7 +186,11 @@ func sourceServiceFailureDiagnostic(scope AWSCollectorScope, err error) provider
 		Code:      "service_collection_failed",
 		Message:   appendSourceContextToMessage(scope, err.Error()),
 		SourceID:  compositeSourceID(scope, ""),
-		Retryable: true,
+		// Preserve the underlying AWS error classification. Permission and
+		// authentication failures are configuration problems and retrying them
+		// only creates noisy partial scans; throttles and other transient errors
+		// remain retryable through isRetryable.
+		Retryable: isRetryable(err),
 	}
 }
 

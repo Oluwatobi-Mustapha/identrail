@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
+	"net"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/aws/smithy-go"
 	"github.com/identrail/identrail/internal/providers"
 )
 
@@ -265,12 +269,81 @@ func isRetryable(err error) bool {
 	}
 
 	message := strings.ToLower(err.Error())
-	for _, needle := range []string{"throttl", "rate exceeded", "too many requests", "requestlimitexceeded"} {
+	if isAWSTransientFailure(err) {
+		return true
+	}
+	if isAWSNonRetryableFailure(message, err) {
+		return false
+	}
+	if isAWSClientHTTPFailure(err) {
+		return false
+	}
+	for _, needle := range []string{
+		"throttl", "rate exceeded", "too many requests", "requestlimitexceeded",
+		"provisionedthroughputexceeded", "internalerror", "internal failure",
+		"service unavailable", "slowdown", "request timeout", "connection reset",
+		"connection refused", "broken pipe", "temporarily unavailable",
+		"statuscode: 502", "statuscode: 503", "statuscode: 504", "eof",
+	} {
 		if strings.Contains(message, needle) {
 			return true
 		}
 	}
 	return false
+}
+
+// isAWSNonRetryableFailure identifies authentication and authorization
+// failures before broad transient-message checks. These errors require
+// connector configuration or credentials to change; retrying the same request
+// cannot make it succeed.
+func isAWSNonRetryableFailure(message string, err error) bool {
+	for _, needle := range []string{
+		"accessdenied", "access denied", "unauthorizedoperation", "unauthorized operation",
+		"unrecognizedclient", "invalidclienttokenid", "expiredtoken", "signaturedoesnotmatch",
+		"invalid signature", "missingauthenticationtoken", "authentication failed",
+		"not authorized", "permission denied",
+	} {
+		if strings.Contains(message, needle) {
+			return true
+		}
+	}
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		switch strings.ToLower(apiErr.ErrorCode()) {
+		case "accessdenied", "accessdeniedexception", "unauthorizedoperation", "unrecognizedclientexception", "invalidclienttokenid", "expiredtoken", "expiredtokenexception", "signaturedoesnotmatch", "invalidsignatureexception", "missingauthenticationtoken":
+			return true
+		}
+	}
+	return false
+}
+
+func isAWSTransientFailure(err error) bool {
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		switch strings.ToLower(apiErr.ErrorCode()) {
+		case "throttling", "throttlingexception", "requestlimitexceeded", "provisionedthroughputexceededexception", "toomanyrequests", "toomanyrequestsexception", "internalerror", "internalfailure", "serviceunavailable", "serviceunavailableexception", "slowdown", "requesttimeout", "requesttimeoutexception", "priorrequestnotcomplete", "limitexceededexception", "resourcelimitexceeded":
+			return true
+		}
+	}
+	var responseErr interface{ HTTPStatusCode() int }
+	if errors.As(err, &responseErr) {
+		status := responseErr.HTTPStatusCode()
+		return status == 429 || status >= 500
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary()) {
+		return true
+	}
+	return errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.EPIPE)
+}
+
+func isAWSClientHTTPFailure(err error) bool {
+	var responseErr interface{ HTTPStatusCode() int }
+	if !errors.As(err, &responseErr) {
+		return false
+	}
+	status := responseErr.HTTPStatusCode()
+	return status >= 400 && status < 500 && status != 429
 }
 
 func defaultSleeper(ctx context.Context, delay time.Duration) error {

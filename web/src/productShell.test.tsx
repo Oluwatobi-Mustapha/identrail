@@ -9015,6 +9015,12 @@ describe('Domain-first app routes', () => {
     expect(stylesSource).toContain('min-width: 0 !important;');
     expect(stylesSource).toContain('content: attr(data-label);');
     expect(stylesSource).toContain('overflow-wrap: anywhere;');
+    expect(stylesSource).toContain('table-layout: fixed;');
+    expect(stylesSource).toContain('@media (min-width: 1101px)');
+    expect(stylesSource).toContain("[data-column='workflow']");
+    expect(stylesSource).toContain('.idt-domain-drawer .idt-inline-actions');
+    expect(stylesSource).toContain('.idt-domain-drawer .idt-aws-finding-workflow-controls textarea');
+    expect(within(findingsTable).getByRole('columnheader', { name: 'Workflow' })).toHaveAttribute('data-column', 'workflow');
     const [productionRoleFinding] = within(findingsTable).getAllByText('production-role', { exact: true });
     const overprivilegedRow = productionRoleFinding.closest('tr');
     expect(overprivilegedRow).not.toBeNull();

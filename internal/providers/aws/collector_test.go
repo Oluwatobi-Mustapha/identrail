@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aws/smithy-go"
 )
 
 type fakeIAMClient struct {
@@ -277,13 +281,44 @@ func TestCollectFailsWithoutClient(t *testing.T) {
 }
 
 func TestIsRetryableByMessage(t *testing.T) {
-	if !isRetryable(errors.New("RequestLimitExceeded")) {
-		t.Fatal("expected retryable error")
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "throttle code", err: errors.New("RequestLimitExceeded"), want: true},
+		{name: "throughput code", err: &smithy.GenericAPIError{Code: "ProvisionedThroughputExceededException"}, want: true},
+		{name: "internal service code", err: &smithy.GenericAPIError{Code: "InternalError"}, want: true},
+		{name: "throttle code in client response", err: httpStatusTestError{status: 400, err: &smithy.GenericAPIError{Code: "ThrottlingException"}}, want: true},
+		{name: "unknown client response", err: httpStatusTestError{status: 400, err: errors.New("bad request")}, want: false},
+		{name: "timeout wrapper", err: &url.Error{Op: "GET", URL: "https://example.test", Err: timeoutTestError{}}, want: true},
+		{name: "eof", err: io.EOF, want: true},
+		{name: "access denied code", err: &smithy.GenericAPIError{Code: "AccessDeniedException"}, want: false},
+		{name: "permission message", err: errors.New("permission denied"), want: false},
 	}
-	if isRetryable(errors.New("permission denied")) {
-		t.Fatal("expected non-retryable error")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isRetryable(tt.err); got != tt.want {
+				t.Fatalf("isRetryable(%v)=%t, want %t", tt.err, got, tt.want)
+			}
+		})
 	}
 }
+
+type timeoutTestError struct{}
+
+func (timeoutTestError) Error() string   { return "i/o timeout" }
+func (timeoutTestError) Timeout() bool   { return true }
+func (timeoutTestError) Temporary() bool { return true }
+
+type httpStatusTestError struct {
+	status int
+	err    error
+}
+
+func (e httpStatusTestError) Error() string       { return e.err.Error() }
+func (e httpStatusTestError) Unwrap() error       { return e.err }
+func (e httpStatusTestError) HTTPStatusCode() int { return e.status }
 
 func mustLoadPageFixture(t *testing.T, name string) ListRolesPage {
 	t.Helper()

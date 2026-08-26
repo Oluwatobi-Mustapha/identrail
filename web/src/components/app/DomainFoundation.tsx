@@ -497,7 +497,7 @@ export function DomainDataTable<Row>({
         <thead>
           <tr>
             {columns.map((column) => (
-              <th key={column.key} scope="col" className={column.align === 'right' ? 'is-right' : undefined}>
+              <th key={column.key} scope="col" data-column={column.key} className={column.align === 'right' ? 'is-right' : undefined}>
                 {column.header}
               </th>
             ))}
@@ -507,7 +507,7 @@ export function DomainDataTable<Row>({
           {rows.map((row) => (
             <tr key={getRowKey(row)}>
               {columns.map((column) => (
-                <td key={column.key} data-label={column.header} className={column.align === 'right' ? 'is-right' : undefined}>
+                <td key={column.key} data-column={column.key} data-label={column.header} className={column.align === 'right' ? 'is-right' : undefined}>
                   {column.render(row)}
                 </td>
               ))}
