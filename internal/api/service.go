@@ -1227,6 +1227,17 @@ func (s *Service) scannerForScan(ctx context.Context, record db.ScanRecord) (Sca
 	if provider != "aws" || s.AWSScannerFactory == nil {
 		return s.Scanner, nil
 	}
+	// Connector health is checked when work is queued, but the role can drift
+	// while a job waits in the queue. Revalidate immediately before constructing
+	// the AWS scanner so queued work never starts with stale permission state.
+	if record.ProjectID != "" {
+		if err := s.refreshAWSConnectionForScan(ctx, db.ScanSource{
+			ProjectID:   record.ProjectID,
+			ConnectorID: record.ConnectorID,
+		}); err != nil {
+			return nil, err
+		}
+	}
 	connection, ok, err := s.activeAWSConnectionForScan(ctx, record)
 	if err != nil {
 		return nil, err

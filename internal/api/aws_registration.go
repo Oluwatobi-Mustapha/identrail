@@ -22,10 +22,16 @@ import (
 )
 
 const (
-	awsConnectorTemplateVersion    = "2.2.0"
-	awsRegistrationTokenPurpose    = "aws-connector-registration-v1"
-	awsRegistrationAttemptLifetime = 2 * time.Hour
+	awsConnectorTemplateVersion       = "2.2.0"
+	awsLegacyConnectorTemplateVersion = "2.1.0"
+	awsRegistrationTokenPurpose       = "aws-connector-registration-v1"
+	awsRegistrationAttemptLifetime    = 2 * time.Hour
 )
+
+var awsConnectorTemplateVersionOrder = map[string]int{
+	awsLegacyConnectorTemplateVersion: 1,
+	awsConnectorTemplateVersion:       2,
+}
 
 var (
 	awsStackARNPattern = regexp.MustCompile(`^arn:(aws|aws-us-gov|aws-cn):cloudformation:([a-z0-9-]+):([0-9]{12}):stack/[^/]+/[A-Za-z0-9-]+$`)
@@ -331,6 +337,28 @@ func (s *Service) processAWSRegistrationBootstrap(ctx context.Context, store db.
 			return err
 		}
 	}
+	if request.RequestType == "Update" {
+		incomingVersion := awsRegistrationProperty(request.ResourceProperties, "TemplateVersion")
+		if incomingVersion != attempt.TemplateVersion {
+			attempt.TemplateVersion = incomingVersion
+			attempt.UpdatedAt = s.Now().UTC()
+			updated, updateErr := store.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, attempt.Version)
+			if errors.Is(updateErr, db.ErrConflict) {
+				winner, loadErr := store.GetAWSConnectorOnboardingAttempt(ctx, attempt.WorkspaceID, attempt.ProjectID, attempt.AttemptID)
+				if loadErr != nil {
+					return loadErr
+				}
+				if winner.TemplateVersion != incomingVersion {
+					return updateErr
+				}
+				attempt = winner
+			} else if updateErr != nil {
+				return updateErr
+			} else {
+				attempt = updated
+			}
+		}
+	}
 	// NoEcho must be false: the template's IAM trust policy and the Register
 	// resource both consume this via Fn::GetAtt, and CloudFormation masks
 	// NoEcho'd custom-resource attributes in those references, which would
@@ -343,7 +371,7 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 	roleARN := awsRegistrationProperty(request.ResourceProperties, "RoleArn")
 	externalID := awsRegistrationProperty(request.ResourceProperties, "ExternalId")
 	templateVersion := awsRegistrationProperty(request.ResourceProperties, "TemplateVersion")
-	if !awsRoleARNPattern.MatchString(roleARN) || templateVersion != attempt.TemplateVersion || accountIDFromRoleARN(roleARN) != attempt.AWSAccountID {
+	if !awsRoleARNPattern.MatchString(roleARN) || !awsRegistrationTemplateVersionCompatible(request.RequestType, attempt.TemplateVersion, templateVersion, request.RequestType == "Update") || accountIDFromRoleARN(roleARN) != attempt.AWSAccountID {
 		return s.failAWSCloudFormationRequest(ctx, request, "The AWS role does not match this connection request.", fmt.Errorf("registration role mismatch"))
 	}
 	stored, err := s.Store.GetTenancyConnector(ctx, attempt.WorkspaceID, attempt.ProjectID, attempt.ConnectorID)
@@ -382,6 +410,7 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 		attempt.Status = db.AWSConnectorOnboardingAttemptValidating
 		attempt.RoleARN = roleARN
 		attempt.RegisterRequestID = request.RequestID
+		attempt.TemplateVersion = templateVersion
 		if attempt.RegisteredAt == nil {
 			attempt.RegisteredAt = &now
 		}
@@ -463,6 +492,10 @@ func (s *Service) validateAWSRegistrationRequest(attempt db.AWSConnectorOnboardi
 		boundStack &&
 		(attempt.Status == db.AWSConnectorOnboardingAttemptConnected ||
 			attempt.Status == db.AWSConnectorOnboardingAttemptNeedsFix)
+	templateVersion := awsRegistrationProperty(request.ResourceProperties, "TemplateVersion")
+	if !awsRegistrationTemplateVersionCompatible(request.RequestType, attempt.TemplateVersion, templateVersion, boundLifecycleUpdate) {
+		return fmt.Errorf("unsupported registration template version transition")
+	}
 	if attempt.ProviderTopicARN != strings.TrimSpace(topicARN) ||
 		attempt.Status == db.AWSConnectorOnboardingAttemptExpired ||
 		attempt.Status == db.AWSConnectorOnboardingAttemptFailed ||
@@ -487,6 +520,24 @@ func (s *Service) validateAWSRegistrationRequest(attempt db.AWSConnectorOnboardi
 		return fmt.Errorf("registration stack replay")
 	}
 	return nil
+}
+
+// awsRegistrationTemplateVersionCompatible keeps the one-time registration
+// contract strict for new stacks while allowing an authenticated, stack-bound
+// CloudFormation Update to move a legacy automatic connector forward. Updates
+// can never downgrade or skip to an unknown version.
+func awsRegistrationTemplateVersionCompatible(requestType, storedVersion, incomingVersion string, boundLifecycleUpdate bool) bool {
+	storedVersion = strings.TrimSpace(storedVersion)
+	incomingVersion = strings.TrimSpace(incomingVersion)
+	if requestType == "Create" {
+		return incomingVersion != "" && incomingVersion == storedVersion
+	}
+	if requestType != "Update" || !boundLifecycleUpdate {
+		return incomingVersion == storedVersion
+	}
+	storedOrder, storedKnown := awsConnectorTemplateVersionOrder[storedVersion]
+	incomingOrder, incomingKnown := awsConnectorTemplateVersionOrder[incomingVersion]
+	return storedKnown && incomingKnown && incomingOrder >= storedOrder
 }
 
 func (s *Service) processAWSRegistrationDelete(ctx context.Context, topicARN string, request awsCloudFormationCustomResourceRequest, phase string) error {

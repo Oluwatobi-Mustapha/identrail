@@ -1071,6 +1071,16 @@ func (s *Service) resumeAWSConnectorStart(
 	if storedTemplateChecksum != "" {
 		storedTemplateURL = firstNonEmptyAWSValue(awsMetadataString(stored.State.Metadata, "template_url"), templateURL)
 	}
+	storedTemplateVersion := awsMetadataString(stored.State.Metadata, "template_version")
+	configuredTemplateChecksum := normalizeAWSConnectorTemplateChecksum(s.AWSCloudFormationTemplateSHA)
+	if storedTemplateVersion != awsConnectorTemplateVersion ||
+		(configuredTemplateChecksum != "" && storedTemplateChecksum != "" && storedTemplateChecksum != configuredTemplateChecksum) {
+		// A repair/relaunch must use the currently published template. Reusing a
+		// legacy URL would simply recreate the same incomplete policy and leave
+		// the connector stuck in a partial-coverage loop.
+		storedTemplateURL = templateURL
+		templateChecksum = configuredTemplateChecksum
+	}
 	if generatedExternalID {
 		if rotatedAt.IsZero() {
 			rotatedAt = s.Now().UTC()

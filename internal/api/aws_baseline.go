@@ -182,6 +182,9 @@ func (s *Service) ensureAWSPlatformBaselineReadyForScan(ctx context.Context, pro
 	if source.ProjectID == "" {
 		return nil
 	}
+	if err := s.refreshAWSConnectionForScan(ctx, source); err != nil {
+		return err
+	}
 	result, err := s.VerifyAWSPlatformBaseline(ctx, "", source.ProjectID, AWSPlatformBaselineRequest{ConnectorID: source.ConnectorID})
 	if err != nil {
 		return err
@@ -190,6 +193,36 @@ func (s *Service) ensureAWSPlatformBaselineReadyForScan(ctx context.Context, pro
 		return AWSPlatformBaselineNotReadyError{Result: result}
 	}
 	return nil
+}
+
+// refreshAWSConnectionForScan revalidates the selected AWS connector immediately
+// before a new scan is queued. Connector health is persisted state, so relying
+// on an old successful validation would allow a role-policy change to produce a
+// partial scan while the UI still reports the connector as healthy.
+func (s *Service) refreshAWSConnectionForScan(ctx context.Context, source db.ScanSource) error {
+	if s.AWSConnectorValidator == nil || s.awsBaselineSourceMode() == "fixture" {
+		return nil
+	}
+	source = source.Normalize()
+	project, _, err := s.requireScopedProject(ctx, "", source.ProjectID)
+	if err != nil {
+		return err
+	}
+	connection, hasConnection, err := s.awsBaselineConnection(ctx, project, source.ConnectorID)
+	if err != nil {
+		return err
+	}
+	if !hasConnection || strings.TrimSpace(connection.RoleARN) == "" || connection.Disabled || connection.Status == domain.ConnectorStatusDisconnected {
+		return nil
+	}
+	_, err = s.ValidateAWSConnector(ctx, connection.ConnectorID, AWSConnectorValidateRequest{
+		WorkspaceID: project.WorkspaceID,
+		ProjectID:   project.ProjectID,
+		RoleARN:     connection.RoleARN,
+		ExternalID:  connection.ExternalID,
+		Region:      connection.Region,
+	})
+	return err
 }
 
 func (s *Service) awsBaselineConnection(ctx context.Context, project db.TenancyProject, connectorID string) (AWSConnectionStatus, bool, error) {
