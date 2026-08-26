@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Correct AWS service-level coverage diagnostics so permission failures are
+  reported as non-retryable, and keep the findings table and detail drawer
+  usable when the console content area is narrower than the viewport.
 - Redesign the AWS findings queue for prioritization and scan coverage (#1826).
   The summary now exposes open critical/high findings, affected resources,
   historical scan scope, completeness, and named collector failures. Findings

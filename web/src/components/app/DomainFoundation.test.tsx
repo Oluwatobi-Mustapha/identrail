@@ -187,7 +187,9 @@ describe('DomainFoundation', () => {
     expect(within(identityTable).getByText('Deploy role')).toBeInTheDocument();
     expect(identityTable.closest('.idt-domain-table-wrap')).toHaveClass('is-narrow-stack');
     expect(within(identityTable).getByText('Deploy role').closest('td')).toHaveAttribute('data-label', 'Identity');
+    expect(within(identityTable).getByText('Deploy role').closest('td')).toHaveAttribute('data-column', 'name');
     expect(within(identityTable).getByText('High').closest('td')).toHaveAttribute('data-label', 'Risk');
+    expect(within(identityTable).getByRole('columnheader', { name: 'Risk' })).toHaveAttribute('data-column', 'risk');
     expect(screen.getByText('No records yet')).toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent('Sync failed');
     expect(screen.getByRole('status')).toHaveTextContent('Loading GitHub repositories');

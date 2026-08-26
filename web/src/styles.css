@@ -25074,6 +25074,53 @@ html[data-theme='light'] .idt-app-shell-screen select {
   font-size: 0.84rem;
 }
 
+/* Findings are a seven-column operational table. Let the columns share the
+ * available console width instead of allowing long resource names to push
+ * the workflow controls off the viewport. The narrow-stack variant below
+ * still replaces the table with labelled cards on genuinely small screens. */
+.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) {
+  overflow-x: auto;
+}
+
+.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) .idt-domain-data-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='category'] {
+  width: 8%;
+}
+
+.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='title'] {
+  width: 18%;
+}
+
+.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='resource'] {
+  width: 19%;
+}
+
+.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='why'] {
+  width: 20%;
+}
+
+.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='blast'] {
+  width: 12%;
+}
+
+.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='evidence'] {
+  width: 13%;
+}
+
+.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='workflow'] {
+  width: 10%;
+}
+
+.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='title'] > * {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .idt-aws-risk-page .idt-domain-table-empty {
   padding: 0;
 }
@@ -26234,9 +26281,23 @@ button.idt-domain-finding-card:focus-visible {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  overflow-wrap: anywhere;
   overscroll-behavior: contain;
   padding: 1rem;
   color: var(--app-text);
+}
+
+.idt-domain-drawer .idt-inline-actions {
+  margin-top: 0;
+  justify-content: flex-start;
+}
+
+.idt-domain-drawer .idt-aws-finding-workflow-controls textarea {
+  min-height: 5rem;
+}
+
+.idt-domain-drawer .idt-aws-finding-handoff-label textarea {
+  min-height: 8rem;
 }
 
 .idt-domain-drawer footer {
@@ -33676,7 +33737,7 @@ html[data-theme='light'] .idt-danger-modal-typed input {
   font-weight: 800;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 1100px) {
   .idt-aws-finding-summary-heading {
     flex-direction: column;
   }
