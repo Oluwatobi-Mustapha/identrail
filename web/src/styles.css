@@ -25088,37 +25088,39 @@ html[data-theme='light'] .idt-app-shell-screen select {
   table-layout: fixed;
 }
 
-.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='category'] {
-  width: 8%;
-}
+@media (min-width: 1101px) {
+  .idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='category'] {
+    width: 8%;
+  }
 
-.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='title'] {
-  width: 18%;
-}
+  .idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='title'] {
+    width: 18%;
+  }
 
-.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='resource'] {
-  width: 19%;
-}
+  .idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='resource'] {
+    width: 19%;
+  }
 
-.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='why'] {
-  width: 20%;
-}
+  .idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='why'] {
+    width: 20%;
+  }
 
-.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='blast'] {
-  width: 12%;
-}
+  .idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='blast'] {
+    width: 12%;
+  }
 
-.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='evidence'] {
-  width: 13%;
-}
+  .idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='evidence'] {
+    width: 13%;
+  }
 
-.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='workflow'] {
-  width: 10%;
-}
+  .idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='workflow'] {
+    width: 10%;
+  }
 
-.idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='title'] > * {
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  .idt-aws-risk-page .idt-domain-table-wrap:has(.idt-aws-finding-workflow-cell) [data-column='title'] > * {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
 }
 
 .idt-aws-risk-page .idt-domain-table-empty {
