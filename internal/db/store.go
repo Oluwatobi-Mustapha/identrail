@@ -1240,6 +1240,7 @@ type AWSConnectorOnboardingAttemptStore interface {
 	GetAWSConnectorOnboardingAttempt(ctx context.Context, workspaceID string, projectID string, attemptID string) (AWSConnectorOnboardingAttempt, error)
 	GetAWSConnectorOnboardingAttemptAnyScope(ctx context.Context, attemptID string) (AWSConnectorOnboardingAttempt, error)
 	GetActiveAWSConnectorOnboardingAttempt(ctx context.Context, workspaceID string, projectID string, connectorID string) (AWSConnectorOnboardingAttempt, error)
+	GetLatestAWSConnectorOnboardingAttempt(ctx context.Context, workspaceID string, projectID string, connectorID string) (AWSConnectorOnboardingAttempt, error)
 	UpdateAWSConnectorOnboardingAttempt(ctx context.Context, attempt AWSConnectorOnboardingAttempt, expectedVersion int64) (AWSConnectorOnboardingAttempt, error)
 }
 

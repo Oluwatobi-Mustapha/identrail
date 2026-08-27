@@ -129,6 +129,29 @@ func (p *PostgresStore) GetActiveAWSConnectorOnboardingAttempt(ctx context.Conte
 	return attempt, err
 }
 
+func (p *PostgresStore) GetLatestAWSConnectorOnboardingAttempt(ctx context.Context, workspaceID string, projectID string, connectorID string) (AWSConnectorOnboardingAttempt, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return AWSConnectorOnboardingAttempt{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return AWSConnectorOnboardingAttempt{}, err
+	}
+	row := p.queryRowContext(ctx, `SELECT `+awsConnectorOnboardingAttemptColumns+`
+        FROM aws_connector_onboarding_attempts
+        WHERE tenant_id = $1 AND workspace_id = $2 AND project_id = $3
+          AND connector_id = $4
+        ORDER BY created_at DESC, updated_at DESC
+        LIMIT 1`,
+		scope.TenantID, resolvedWorkspaceID, strings.TrimSpace(projectID), strings.TrimSpace(connectorID))
+	attempt, err := scanAWSConnectorOnboardingAttempt(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AWSConnectorOnboardingAttempt{}, ErrNotFound
+	}
+	return attempt, err
+}
+
 func (p *PostgresStore) UpdateAWSConnectorOnboardingAttempt(ctx context.Context, attempt AWSConnectorOnboardingAttempt, expectedVersion int64) (AWSConnectorOnboardingAttempt, error) {
 	normalized, err := normalizeAWSConnectorOnboardingAttempt(ctx, attempt)
 	if err != nil {

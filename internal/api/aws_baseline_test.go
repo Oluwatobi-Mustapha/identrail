@@ -315,6 +315,40 @@ func TestEnqueueAWSScanRevalidatesConnectorPermissionScope(t *testing.T) {
 	}
 }
 
+func TestEnqueueAWSScanBindsSelectedConnectorBeforeBaselineCheck(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 8, 26, 10, 30, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	// The most recently updated connector is selected for an unbound scan.
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-first", domain.ConnectorStatusActive, "healthy", now.Add(time.Hour))
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-second", domain.ConnectorStatusActive, "healthy", now)
+
+	validator := &sequenceAWSConnectorValidator{results: []AWSConnectionValidationResult{{
+		AccountID: "123456789012",
+		Region:    "us-east-1",
+		PermissionChecks: []AWSConnectionPermissionCheck{
+			{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+			{Name: "aws:ReadOnlyCollectorScope", Passed: false, Message: "The connector role is missing required read-only collector actions."},
+		},
+	}}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSConnectorValidator = validator
+
+	_, err := svc.EnqueueScan(ctx, ScanRequest{ProjectID: "project-a"})
+	var notReady AWSPlatformBaselineNotReadyError
+	if !errors.As(err, &notReady) {
+		t.Fatalf("expected selected connector validation to block scan, got %v", err)
+	}
+	if validator.calls != 1 {
+		t.Fatalf("expected one validation of the selected connector, got %d", validator.calls)
+	}
+	if notReady.Result.ConnectorID != "aws-first" {
+		t.Fatalf("expected baseline to remain bound to selected connector, got %q", notReady.Result.ConnectorID)
+	}
+}
+
 type sequenceAWSConnectorValidator struct {
 	results []AWSConnectionValidationResult
 	calls   int
@@ -526,7 +560,7 @@ func TestEnsureAWSPlatformBaselineBlocksMissingConnector(t *testing.T) {
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.Now = func() time.Time { return now }
 
-	err := svc.ensureAWSPlatformBaselineReadyForScan(ctx, "aws", db.ScanSource{ProjectID: "project-a"})
+	_, err := svc.ensureAWSPlatformBaselineReadyForScan(ctx, "aws", db.ScanSource{ProjectID: "project-a"})
 	var notReady AWSPlatformBaselineNotReadyError
 	if !errorsAsAWSBaseline(err, &notReady) {
 		t.Fatalf("expected baseline not ready error, got %v", err)
@@ -551,7 +585,7 @@ func TestEnsureAWSPlatformBaselineAllowsFixtureModeWithoutConnector(t *testing.T
 	svc.AWSBaselineSourceMode = "fixture"
 	svc.AWSBaselineFixturePaths = []string{fixtureDir}
 
-	if err := svc.ensureAWSPlatformBaselineReadyForScan(ctx, "aws", db.ScanSource{ProjectID: "project-a"}); err != nil {
+	if _, err := svc.ensureAWSPlatformBaselineReadyForScan(ctx, "aws", db.ScanSource{ProjectID: "project-a"}); err != nil {
 		t.Fatalf("expected fixture baseline to allow scan without connector: %v", err)
 	}
 	result, err := store.GetAWSPlatformBaselineResult(ctx, db.AWSPlatformBaselineFilter{

@@ -91,6 +91,37 @@ func (m *MemoryStore) GetActiveAWSConnectorOnboardingAttempt(ctx context.Context
 	return cloneAWSConnectorOnboardingAttempt(newest), nil
 }
 
+// GetLatestAWSConnectorOnboardingAttempt returns the newest attempt regardless
+// of lifecycle status. Resume flows use it to issue an authenticated
+// CloudFormation Update against an already-bound stack instead of creating a
+// second attempt that cannot claim the existing stack.
+func (m *MemoryStore) GetLatestAWSConnectorOnboardingAttempt(ctx context.Context, workspaceID string, projectID string, connectorID string) (AWSConnectorOnboardingAttempt, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return AWSConnectorOnboardingAttempt{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return AWSConnectorOnboardingAttempt{}, err
+	}
+	var newest AWSConnectorOnboardingAttempt
+	for _, attempt := range m.awsOnboardingAttempts {
+		if attempt.TenantID != scope.TenantID || attempt.WorkspaceID != resolvedWorkspaceID || attempt.ProjectID != strings.TrimSpace(projectID) || attempt.ConnectorID != strings.TrimSpace(connectorID) {
+			continue
+		}
+		if newest.AttemptID == "" || attempt.CreatedAt.After(newest.CreatedAt) || (attempt.CreatedAt.Equal(newest.CreatedAt) && attempt.UpdatedAt.After(newest.UpdatedAt)) {
+			newest = attempt
+		}
+	}
+	if newest.AttemptID == "" {
+		return AWSConnectorOnboardingAttempt{}, ErrNotFound
+	}
+	return cloneAWSConnectorOnboardingAttempt(newest), nil
+}
+
 func (m *MemoryStore) UpdateAWSConnectorOnboardingAttempt(ctx context.Context, attempt AWSConnectorOnboardingAttempt, expectedVersion int64) (AWSConnectorOnboardingAttempt, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

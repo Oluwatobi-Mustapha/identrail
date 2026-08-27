@@ -705,7 +705,8 @@ func (s *Service) EnqueueScan(ctx context.Context, requests ...ScanRequest) (db.
 	if err != nil {
 		return db.ScanRecord{}, err
 	}
-	if err := s.ensureAWSPlatformBaselineReadyForScan(ctx, s.Provider, source); err != nil {
+	source, err = s.ensureAWSPlatformBaselineReadyForScan(ctx, s.Provider, source)
+	if err != nil {
 		return db.ScanRecord{}, err
 	}
 	maxPending := s.ScanQueueMaxPending
@@ -809,7 +810,8 @@ func (s *Service) ReplayScan(ctx context.Context, scanID string) (db.ScanRecord,
 		ProjectID:   source.ProjectID,
 		ConnectorID: source.ConnectorID,
 	}
-	if err := s.ensureAWSPlatformBaselineReadyForScan(ctx, source.Provider, sourceContext); err != nil {
+	sourceContext, err = s.ensureAWSPlatformBaselineReadyForScan(ctx, source.Provider, sourceContext)
+	if err != nil {
 		return db.ScanRecord{}, err
 	}
 	if maxPending == 1 {
@@ -1231,12 +1233,18 @@ func (s *Service) scannerForScan(ctx context.Context, record db.ScanRecord) (Sca
 	// while a job waits in the queue. Revalidate immediately before constructing
 	// the AWS scanner so queued work never starts with stale permission state.
 	if record.ProjectID != "" {
-		if err := s.refreshAWSConnectionForScan(ctx, db.ScanSource{
+		refreshedSource, err := s.refreshAWSConnectionForScan(ctx, db.ScanSource{
 			ProjectID:   record.ProjectID,
 			ConnectorID: record.ConnectorID,
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, err
 		}
+		// Use the connector that was just validated for the worker lookup too;
+		// otherwise a degraded selected connector could be replaced by a
+		// different connector with stale persisted health.
+		record.ProjectID = refreshedSource.ProjectID
+		record.ConnectorID = refreshedSource.ConnectorID
 	}
 	connection, ok, err := s.activeAWSConnectionForScan(ctx, record)
 	if err != nil {

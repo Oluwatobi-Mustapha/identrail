@@ -22,15 +22,17 @@ import (
 )
 
 const (
-	awsConnectorTemplateVersion       = "2.2.0"
-	awsLegacyConnectorTemplateVersion = "2.1.0"
-	awsRegistrationTokenPurpose       = "aws-connector-registration-v1"
-	awsRegistrationAttemptLifetime    = 2 * time.Hour
+	awsConnectorTemplateVersion         = "2.2.0"
+	awsOriginalConnectorTemplateVersion = "2.0.0"
+	awsLegacyConnectorTemplateVersion   = "2.1.0"
+	awsRegistrationTokenPurpose         = "aws-connector-registration-v1"
+	awsRegistrationAttemptLifetime      = 2 * time.Hour
 )
 
 var awsConnectorTemplateVersionOrder = map[string]int{
-	awsLegacyConnectorTemplateVersion: 1,
-	awsConnectorTemplateVersion:       2,
+	awsOriginalConnectorTemplateVersion: 1,
+	awsLegacyConnectorTemplateVersion:   2,
+	awsConnectorTemplateVersion:         3,
 }
 
 var (
@@ -200,6 +202,22 @@ func (s *Service) activeOrNewAWSConnectorOnboardingAttempt(
 	} else if !errors.Is(err, db.ErrNotFound) {
 		return db.AWSConnectorOnboardingAttempt{}, "", err
 	}
+	// Connected and needs-fix attempts are intentionally excluded from the
+	// active-attempt query, but a completed CloudFormation stack must be resumed
+	// with that same bound attempt. Creating a fresh attempt would produce a
+	// Create URL for a stack that already exists, while an Update would then be
+	// rejected as an unbound lifecycle transition.
+	latest, latestErr := store.GetLatestAWSConnectorOnboardingAttempt(ctx, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID)
+	if latestErr == nil && awsOnboardingAttemptCanResumeBoundStack(latest, providerTopicARN, region) {
+		token, tokenErr := s.awsRegistrationToken(latest)
+		if tokenErr != nil {
+			return db.AWSConnectorOnboardingAttempt{}, "", tokenErr
+		}
+		return latest, token, nil
+	}
+	if latestErr != nil && !errors.Is(latestErr, db.ErrNotFound) {
+		return db.AWSConnectorOnboardingAttempt{}, "", latestErr
+	}
 	created, token, createErr := s.createAWSConnectorOnboardingAttempt(ctx, stored, providerTopicARN, templateChecksum, region, now)
 	if createErr == nil || !errors.Is(createErr, db.ErrConflict) {
 		return created, token, createErr
@@ -213,6 +231,17 @@ func (s *Service) activeOrNewAWSConnectorOnboardingAttempt(
 		return db.AWSConnectorOnboardingAttempt{}, "", tokenErr
 	}
 	return active, activeToken, nil
+}
+
+func awsOnboardingAttemptCanResumeBoundStack(attempt db.AWSConnectorOnboardingAttempt, providerTopicARN string, region string) bool {
+	if attempt.Status != db.AWSConnectorOnboardingAttemptConnected && attempt.Status != db.AWSConnectorOnboardingAttemptNeedsFix {
+		return false
+	}
+	return attempt.StackID != "" &&
+		attempt.BootstrapRequestID != "" &&
+		attempt.RegisterRequestID != "" &&
+		attempt.ProviderTopicARN == strings.TrimSpace(providerTopicARN) &&
+		attempt.DeploymentRegion == strings.ToLower(strings.TrimSpace(region))
 }
 
 func (s *Service) awsRegistrationToken(attempt db.AWSConnectorOnboardingAttempt) (string, error) {

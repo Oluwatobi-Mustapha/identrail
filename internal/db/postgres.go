@@ -5654,7 +5654,10 @@ func findingsWithTriageFromSQLRows(rows rowsScanner, now time.Time) ([]domain.Fi
 }
 
 func findingEvidenceForPersistence(finding domain.Finding) map[string]any {
-	evidence := make(map[string]any, len(finding.Evidence)+8)
+	// Avoid arithmetic on attacker-influenced map lengths. The metadata fields
+	// below are added lazily, so the map can grow without a preallocation that
+	// could overflow on malformed input.
+	evidence := make(map[string]any, len(finding.Evidence))
 	for key, value := range finding.Evidence {
 		evidence[key] = value
 	}
