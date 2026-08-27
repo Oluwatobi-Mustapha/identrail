@@ -1285,33 +1285,41 @@ func (s *Service) refreshAWSScanRecordConnection(ctx context.Context, record db.
 	if len(items) == 0 {
 		return source, currentScope, nil
 	}
-	selected, active, err := s.firstActiveAWSConnection(ctx, items)
-	if err != nil {
-		return source, currentScope, err
-	}
-	selectedID := selected.ConnectorID
+	selected, active := s.firstActiveAWSConnector(ctx, items)
+	selectedID := selected.Connector.ConnectorID
 	if !active {
 		// Keep the record bound even when persisted health says every connector
 		// is degraded; the explicit worker lookup below will fail closed rather
 		// than falling back to a different unvalidated connector.
 		selectedID = items[0].Connector.ConnectorID
 	}
-	for _, item := range items {
-		if item.Connector.ConnectorID != selectedID {
-			continue
+	var selectedItem db.TenancyConnectorWithState
+	if active {
+		// Keep the complete row returned by the selector. Connector IDs are
+		// project-scoped and may legitimately repeat across tenants, so looking
+		// the item up again by ID could bind validation to a different row.
+		selectedItem = selected
+	} else {
+		for _, item := range items {
+			if item.Connector.ConnectorID == selectedID {
+				selectedItem = item
+				break
+			}
 		}
+	}
+	if strings.TrimSpace(selectedItem.Connector.ConnectorID) != "" {
 		selectedScope := db.Scope{
-			TenantID:    item.Connector.TenantID,
-			WorkspaceID: item.Connector.WorkspaceID,
+			TenantID:    selectedItem.Connector.TenantID,
+			WorkspaceID: selectedItem.Connector.WorkspaceID,
 		}
 		// Older connector rows may not carry denormalized scope fields. The
 		// state row has the same ownership metadata and is a safe fallback;
 		// retain the worker scope only for legacy rows missing both.
 		if strings.TrimSpace(selectedScope.TenantID) == "" {
-			selectedScope.TenantID = item.State.TenantID
+			selectedScope.TenantID = selectedItem.State.TenantID
 		}
 		if strings.TrimSpace(selectedScope.WorkspaceID) == "" {
-			selectedScope.WorkspaceID = item.State.WorkspaceID
+			selectedScope.WorkspaceID = selectedItem.State.WorkspaceID
 		}
 		if strings.TrimSpace(selectedScope.TenantID) == "" {
 			selectedScope.TenantID = currentScope.TenantID
@@ -1322,8 +1330,8 @@ func (s *Service) refreshAWSScanRecordConnection(ctx context.Context, record db.
 		selectedScope = selectedScope.Normalize()
 		selectedCtx := db.WithScope(ctx, selectedScope)
 		refreshed, err := s.refreshAWSConnectionForScan(selectedCtx, db.ScanSource{
-			ProjectID:   item.Connector.ProjectID,
-			ConnectorID: item.Connector.ConnectorID,
+			ProjectID:   selectedItem.Connector.ProjectID,
+			ConnectorID: selectedItem.Connector.ConnectorID,
 		})
 		return refreshed, selectedScope, err
 	}
@@ -1434,6 +1442,14 @@ func filterEligibleAWSConnectors(items []db.TenancyConnectorWithState, limit int
 }
 
 func (s *Service) firstActiveAWSConnection(ctx context.Context, items []db.TenancyConnectorWithState) (AWSConnectionStatus, bool, error) {
+	selected, ok := s.firstActiveAWSConnector(ctx, items)
+	if !ok {
+		return AWSConnectionStatus{}, false, nil
+	}
+	return s.awsConnectionStatusFromStored(ctx, selected), true, nil
+}
+
+func (s *Service) firstActiveAWSConnector(ctx context.Context, items []db.TenancyConnectorWithState) (db.TenancyConnectorWithState, bool) {
 	sort.SliceStable(items, func(i, j int) bool {
 		left := items[i].Connector
 		right := items[j].Connector
@@ -1448,10 +1464,10 @@ func (s *Service) firstActiveAWSConnection(ctx context.Context, items []db.Tenan
 		}
 		status := s.awsConnectionStatusFromStored(ctx, item)
 		if status.Connected {
-			return status, true, nil
+			return item, true
 		}
 	}
-	return AWSConnectionStatus{}, false, nil
+	return db.TenancyConnectorWithState{}, false
 }
 
 func (s *Service) recordQueueDepth(queue string, depth int) {

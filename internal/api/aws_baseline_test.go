@@ -475,8 +475,13 @@ func TestScheduledAWSScanRevalidatesSelectedConnectorInItsScope(t *testing.T) {
 	workerCtx := defaultScopeContext()
 	selectedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
 	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, workerCtx, "project-a")
 	seedDefaultProject(t, store, selectedCtx, "project-b")
-	seedAWSConnectorForScanTest(t, store, selectedCtx, "project-b", "aws-tenant-b", domain.ConnectorStatusActive, "healthy", now)
+	// Connector IDs are project-scoped, so the same ID can exist in both
+	// scopes. Keep the default-scope row newer but degraded to ensure the
+	// selector's full row, rather than only its ID, is preserved.
+	seedAWSConnectorForScanTest(t, store, workerCtx, "project-a", "aws-shared", domain.ConnectorStatusActive, "error", now.Add(time.Hour))
+	seedAWSConnectorForScanTest(t, store, selectedCtx, "project-b", "aws-shared", domain.ConnectorStatusActive, "healthy", now)
 
 	validator := &scopeRecordingAWSConnectorValidator{result: AWSConnectionValidationResult{
 		AccountID: "123456789012",
@@ -491,7 +496,7 @@ func TestScheduledAWSScanRevalidatesSelectedConnectorInItsScope(t *testing.T) {
 	var factoryScope db.Scope
 	svc.AWSScannerFactory = func(ctx context.Context, connection AWSConnectionStatus) (ScannerRunner, error) {
 		factoryScope = db.ScopeFromContext(ctx)
-		if connection.ConnectorID != "aws-tenant-b" {
+		if connection.ConnectorID != "aws-shared" {
 			t.Fatalf("expected selected connector, got %q", connection.ConnectorID)
 		}
 		return fakeScanner{result: app.ScanResult{Assets: 1}}, nil
