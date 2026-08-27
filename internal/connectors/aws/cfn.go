@@ -15,9 +15,12 @@ var awsRegionPattern = regexp.MustCompile(`^[a-z]{2}(-gov)?-[a-z]+-[0-9]$`)
 
 // CloudFormationLaunchInput contains the parameters for an AWS console launch URL.
 type CloudFormationLaunchInput struct {
-	TemplateURL             string
-	Region                  string
-	StackName               string
+	TemplateURL string
+	Region      string
+	StackName   string
+	// StackID selects the existing-stack update wizard when set. Leave it
+	// empty for the create-stack quick-create flow.
+	StackID                 string
 	IdentrailAccountID      string
 	ExternalID              string
 	RoleName                string
@@ -57,6 +60,11 @@ func BuildCloudFormationLaunchURL(input CloudFormationLaunchInput) string {
 		values.Set("param_ExternalId", strings.TrimSpace(input.ExternalID))
 	}
 
+	stackID := strings.TrimSpace(input.StackID)
+	if stackID != "" {
+		values.Set("stackId", stackID)
+		return "https://" + consoleHostForRegion(region) + "/cloudformation/home?region=" + url.QueryEscape(region) + "#/stacks/update/template?" + values.Encode()
+	}
 	return "https://" + consoleHostForRegion(region) + "/cloudformation/home?region=" + url.QueryEscape(region) + "#/stacks/create/review?" + values.Encode()
 }
 

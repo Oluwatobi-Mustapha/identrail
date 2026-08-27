@@ -371,6 +371,12 @@ func TestAWSConnectorStartReusesBoundAttemptForExistingStackUpgrade(t *testing.T
 	if !containsAWSLaunchParameter(parsed.Fragment, "param_RegistrationAttemptId="+attempt.AttemptID) {
 		t.Fatalf("expected existing bound attempt %s in upgrade launch URL, got %q", attempt.AttemptID, resumed.LaunchURL)
 	}
+	if !strings.HasPrefix(parsed.Fragment, "/stacks/update/template?") {
+		t.Fatalf("expected resumed bound stack to use the update wizard, got %q", parsed.Fragment)
+	}
+	if !containsAWSLaunchParameter(parsed.Fragment, "stackId="+stackID) {
+		t.Fatalf("expected resumed launch URL to target stack %s, got %q", stackID, resumed.LaunchURL)
+	}
 }
 
 func TestAWSRegistrationRejectsBoundTemplateDowngrade(t *testing.T) {

@@ -1124,6 +1124,7 @@ func (s *Service) resumeAWSConnectorStart(
 		TemplateURL:             storedTemplateURL,
 		Region:                  region,
 		StackName:               stackName,
+		StackID:                 attempt.StackID,
 		IdentrailAccountID:      accountID,
 		RoleName:                roleName,
 		RegistrationProviderARN: registrationProviderARN,

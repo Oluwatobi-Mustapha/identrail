@@ -292,6 +292,37 @@ func TestBuildCloudFormationLaunchURLAutomaticRegistration(t *testing.T) {
 	}
 }
 
+func TestBuildCloudFormationLaunchURLForExistingStackUsesUpdateWizard(t *testing.T) {
+	launchURL := BuildCloudFormationLaunchURL(CloudFormationLaunchInput{
+		TemplateURL:             "https://cdn.example.com/identrail-readonly-v2.2.yaml",
+		Region:                  "us-east-1",
+		StackName:               "identrail-prod",
+		StackID:                 "arn:aws:cloudformation:us-east-1:123456789012:stack/identrail-prod/abc123",
+		IdentrailAccountID:      "123456789012",
+		RegistrationProviderARN: "arn:aws:sns:us-east-1:123456789012:identrail-registration",
+		RegistrationAttemptID:   "attempt-abc-123",
+		RegistrationToken:       "token-xyz-789",
+	})
+
+	parsed, err := url.Parse(launchURL)
+	if err != nil {
+		t.Fatalf("parse launch URL: %v", err)
+	}
+	if !strings.HasPrefix(parsed.Fragment, "/stacks/update/template?") {
+		t.Fatalf("expected existing stack update wizard, got %q", parsed.Fragment)
+	}
+	fragmentQuery, err := url.ParseQuery(strings.TrimPrefix(parsed.Fragment, "/stacks/update/template?"))
+	if err != nil {
+		t.Fatalf("parse update wizard query: %v", err)
+	}
+	if got := fragmentQuery.Get("stackId"); got != "arn:aws:cloudformation:us-east-1:123456789012:stack/identrail-prod/abc123" {
+		t.Fatalf("expected existing stack ID, got %q", got)
+	}
+	if got := fragmentQuery.Get("templateURL"); got != "https://cdn.example.com/identrail-readonly-v2.2.yaml" {
+		t.Fatalf("expected update template URL, got %q", got)
+	}
+}
+
 func TestBuildCloudFormationStackSetLaunchURL(t *testing.T) {
 	autoDeploy := false
 	launchURL := BuildCloudFormationStackSetLaunchURL(CloudFormationStackSetLaunchInput{
