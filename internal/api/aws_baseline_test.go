@@ -423,7 +423,7 @@ func TestAWSWorkerRevalidatesConnectorBeforeStartingQueuedScan(t *testing.T) {
 	if validator.calls != 1 {
 		t.Fatalf("expected enqueue validation, got %d calls", validator.calls)
 	}
-	if _, err := svc.scannerForScan(ctx, record); err == nil || !strings.Contains(err.Error(), "not active") {
+	if _, _, err := svc.scannerForScan(ctx, record); err == nil || !strings.Contains(err.Error(), "not active") {
 		t.Fatalf("expected worker validation to reject stale connector health, got %v", err)
 	}
 	if validator.calls != 2 {
@@ -468,6 +468,13 @@ func TestScheduledAWSScanRevalidatesSelectedConnectorBeforeStarting(t *testing.T
 	if factoryCalled {
 		t.Fatal("expected scanner factory not to run after scheduled connector validation failed")
 	}
+	scans, err := store.ListScans(ctx, 10)
+	if err != nil {
+		t.Fatalf("list failed scheduled scan: %v", err)
+	}
+	if len(scans) != 1 || scans[0].ProjectID != "project-a" || scans[0].ConnectorID != "aws-prod" {
+		t.Fatalf("expected failed scheduled scan to retain selected source for replay, got %+v", scans)
+	}
 }
 
 func TestScheduledAWSScanRevalidatesSelectedConnectorInItsScope(t *testing.T) {
@@ -502,8 +509,9 @@ func TestScheduledAWSScanRevalidatesSelectedConnectorInItsScope(t *testing.T) {
 		return fakeScanner{result: app.ScanResult{Assets: 1}}, nil
 	}
 
-	if _, err := svc.scannerForScan(workerCtx, db.ScanRecord{Provider: "aws"}); err != nil {
-		t.Fatalf("build scheduled scanner: %v", err)
+	result, err := svc.RunScan(workerCtx)
+	if err != nil {
+		t.Fatalf("run scheduled scan: %v", err)
 	}
 	wantScope := db.Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"}
 	if validator.calls != 1 || validator.seen != wantScope {
@@ -511,6 +519,16 @@ func TestScheduledAWSScanRevalidatesSelectedConnectorInItsScope(t *testing.T) {
 	}
 	if factoryScope != wantScope {
 		t.Fatalf("expected scanner factory in selected scope, got %+v", factoryScope)
+	}
+	if result.Scan.ProjectID != "project-b" || result.Scan.ConnectorID != "aws-shared" || result.Scan.TenantID != wantScope.TenantID || result.Scan.WorkspaceID != wantScope.WorkspaceID {
+		t.Fatalf("expected scheduled scan to persist selected source and scope, got %+v", result.Scan)
+	}
+	persisted, err := store.GetScan(selectedCtx, result.Scan.ID)
+	if err != nil {
+		t.Fatalf("load persisted selected scan: %v", err)
+	}
+	if persisted.ProjectID != "project-b" || persisted.ConnectorID != "aws-shared" || persisted.TenantID != wantScope.TenantID || persisted.WorkspaceID != wantScope.WorkspaceID {
+		t.Fatalf("expected persisted scan source and scope, got %+v", persisted)
 	}
 }
 

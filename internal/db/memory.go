@@ -518,6 +518,33 @@ func (m *MemoryStore) GetScan(ctx context.Context, scanID string) (ScanRecord, e
 	return record, nil
 }
 
+// BindScanSource records the connector selected for a queued or running scan.
+// The lookup is intentionally any-scope because the worker claims scans across
+// scopes, then applies the selected connector's scope to the record.
+func (m *MemoryStore) BindScanSource(ctx context.Context, scanID string, source ScanSource) (ScanRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return ScanRecord{}, err
+	}
+	normalizedSource := source.Normalize()
+	if normalizedSource.Empty() {
+		return ScanRecord{}, ErrNotFound
+	}
+	record, exists := m.scans[scanID]
+	if !exists || record.DeadLettered || (record.Status != "queued" && record.Status != "running") {
+		return ScanRecord{}, ErrNotFound
+	}
+	record.TenantID = scope.TenantID
+	record.WorkspaceID = scope.WorkspaceID
+	record.ProjectID = normalizedSource.ProjectID
+	record.ConnectorID = normalizedSource.ConnectorID
+	m.scans[scanID] = record
+	return record, nil
+}
+
 // CompleteScan finalizes persisted scan metadata.
 func (m *MemoryStore) CompleteScan(ctx context.Context, scanID string, status string, finishedAt time.Time, assetCount int, findingCount int, errorMessage string) error {
 	m.mu.Lock()

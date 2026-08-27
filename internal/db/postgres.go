@@ -755,6 +755,42 @@ func (p *PostgresStore) GetScan(ctx context.Context, scanID string) (ScanRecord,
 	return record, nil
 }
 
+// BindScanSource records the connector selected for a queued or running scan.
+// The any-scope lookup is required because the worker claims scans across
+// tenants before applying the selected connector's scope to the record.
+func (p *PostgresStore) BindScanSource(ctx context.Context, scanID string, source ScanSource) (ScanRecord, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return ScanRecord{}, err
+	}
+	normalizedSource := source.Normalize()
+	if normalizedSource.Empty() {
+		return ScanRecord{}, ErrNotFound
+	}
+	row := p.queryRowContextAnyScope(
+		ctx,
+		`UPDATE scans
+		 SET tenant_id=$2, workspace_id=$3, source_project_id=$4, source_connector_id=$5
+		 WHERE id=$1
+		   AND status IN ('queued', 'running')
+		   AND dead_lettered = FALSE
+		 RETURNING id, tenant_id, workspace_id, COALESCE(source_project_id, ''), COALESCE(source_connector_id, ''), provider, status, started_at, finished_at, asset_count, finding_count, COALESCE(error_message, ''), retry_count, max_retry_count, COALESCE(failure_category, ''), next_retry_at, dead_lettered, dead_lettered_at`,
+		scanID,
+		scope.TenantID,
+		scope.WorkspaceID,
+		normalizedSource.ProjectID,
+		normalizedSource.ConnectorID,
+	)
+	record, err := scanScanRecord(row)
+	if err != nil {
+		if errorsIsNoRows(err) {
+			return ScanRecord{}, ErrNotFound
+		}
+		return ScanRecord{}, fmt.Errorf("bind scan source: %w", err)
+	}
+	return record, nil
+}
+
 // CompleteScan updates scan completion metadata.
 func (p *PostgresStore) CompleteScan(ctx context.Context, scanID string, status string, finishedAt time.Time, assetCount int, findingCount int, errorMessage string) error {
 	scope, err := RequireScope(ctx)

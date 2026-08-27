@@ -940,7 +940,9 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord, a
 			s.Metrics.ScanDurationMS.Observe(float64(time.Since(scanStarted).Milliseconds()))
 		}()
 	}
-	scanner, err := s.scannerForScan(ctx, record)
+	scanner, boundRecord, err := s.scannerForScan(ctx, record)
+	record = boundRecord
+	ctx = db.WithScope(ctx, db.Scope{TenantID: record.TenantID, WorkspaceID: record.WorkspaceID})
 	if err != nil {
 		if handleErr := s.handleScanFailure(ctx, record, allowRetry, scanFailureStageConnectorSetup, 0, 0, err, "scan failed while preparing provider connector"); handleErr != nil {
 			return RunScanResult{}, handleErr
@@ -1221,47 +1223,76 @@ func scanRetryBackoff(retryCount int) time.Duration {
 	return backoff
 }
 
-func (s *Service) scannerForScan(ctx context.Context, record db.ScanRecord) (ScannerRunner, error) {
+func (s *Service) scannerForScan(ctx context.Context, record db.ScanRecord) (ScannerRunner, db.ScanRecord, error) {
 	provider := strings.ToLower(strings.TrimSpace(record.Provider))
 	if provider == "" {
 		provider = strings.ToLower(strings.TrimSpace(s.Provider))
 	}
 	if provider != "aws" || s.AWSScannerFactory == nil {
-		return s.Scanner, nil
+		return s.Scanner, record, nil
 	}
 	// Connector health is checked when work is queued, but the role can drift
 	// while a job waits in the queue. Revalidate immediately before constructing
 	// the AWS scanner so queued work never starts with stale permission state.
-	refreshedSource, selectedScope, err := s.refreshAWSScanRecordConnection(ctx, record)
-	if err != nil {
-		return nil, err
-	}
+	refreshedSource, selectedScope, refreshErr := s.refreshAWSScanRecordConnection(ctx, record)
 	// Unscoped scheduled selection may choose a connector belonging to a
 	// different tenant/workspace than the worker's default scope. Carry the
 	// selected connector's scope through both validation and the final lookup;
 	// otherwise requireScopedProject can validate the wrong project or reject a
 	// valid connector as not found.
 	selectedCtx := db.WithScope(ctx, selectedScope)
+	boundRecord, selectedCtx, err := s.bindAWSScanRecordSource(selectedCtx, record, refreshedSource)
+	if err != nil {
+		return nil, boundRecord, err
+	}
+	if refreshErr != nil {
+		return nil, boundRecord, refreshErr
+	}
 	// Use the connector that was just validated for the worker lookup too;
 	// otherwise a degraded selected connector could be replaced by a different
 	// connector with stale persisted health.
-	record.ProjectID = refreshedSource.ProjectID
-	record.ConnectorID = refreshedSource.ConnectorID
-	connection, ok, err := s.activeAWSConnectionForScan(selectedCtx, record)
+	boundRecord.ProjectID = refreshedSource.ProjectID
+	boundRecord.ConnectorID = refreshedSource.ConnectorID
+	connection, ok, err := s.activeAWSConnectionForScan(selectedCtx, boundRecord)
 	if err != nil {
-		return nil, err
+		return nil, boundRecord, err
 	}
 	if !ok {
-		return s.Scanner, nil
+		return s.Scanner, boundRecord, nil
 	}
 	scanner, err := s.AWSScannerFactory(selectedCtx, connection)
 	if err != nil {
-		return nil, fmt.Errorf("initialize aws connector scanner: %w", err)
+		return nil, boundRecord, fmt.Errorf("initialize aws connector scanner: %w", err)
 	}
 	if scanner == nil {
-		return nil, errors.New("aws connector scanner factory returned nil scanner")
+		return nil, boundRecord, errors.New("aws connector scanner factory returned nil scanner")
 	}
-	return scanner, nil
+	return scanner, boundRecord, nil
+}
+
+func (s *Service) bindAWSScanRecordSource(ctx context.Context, record db.ScanRecord, source db.ScanSource) (db.ScanRecord, context.Context, error) {
+	normalizedSource := source.Normalize()
+	if normalizedSource.Empty() {
+		return record, ctx, nil
+	}
+	scope := db.ScopeFromContext(ctx)
+	needsBinding := record.ProjectID != normalizedSource.ProjectID || record.ConnectorID != normalizedSource.ConnectorID || !db.MatchScope(scope, record.TenantID, record.WorkspaceID)
+	record.ProjectID = normalizedSource.ProjectID
+	record.ConnectorID = normalizedSource.ConnectorID
+	record.TenantID = scope.TenantID
+	record.WorkspaceID = scope.WorkspaceID
+	if !needsBinding || strings.TrimSpace(record.ID) == "" {
+		return record, ctx, nil
+	}
+	binder, ok := s.Store.(db.ScanSourceBinder)
+	if !ok {
+		return record, ctx, errors.New("scan store does not support source binding")
+	}
+	bound, err := binder.BindScanSource(ctx, record.ID, normalizedSource)
+	if err != nil {
+		return record, ctx, fmt.Errorf("bind aws scan source: %w", err)
+	}
+	return bound, db.WithScope(ctx, db.Scope{TenantID: bound.TenantID, WorkspaceID: bound.WorkspaceID}), nil
 }
 
 // refreshAWSScanRecordConnection resolves the same connector that the worker

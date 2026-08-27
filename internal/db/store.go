@@ -322,6 +322,13 @@ type ScanSource struct {
 	ConnectorID string
 }
 
+// ScanSourceBinder atomically records the connector selected for a running
+// scan. Worker scans can be created without source metadata and must bind the
+// selected source before execution so retries and history use the same scope.
+type ScanSourceBinder interface {
+	BindScanSource(ctx context.Context, scanID string, source ScanSource) (ScanRecord, error)
+}
+
 // Normalize returns a stable source key.
 func (s ScanSource) Normalize() ScanSource {
 	return ScanSource{
