@@ -1232,20 +1232,15 @@ func (s *Service) scannerForScan(ctx context.Context, record db.ScanRecord) (Sca
 	// Connector health is checked when work is queued, but the role can drift
 	// while a job waits in the queue. Revalidate immediately before constructing
 	// the AWS scanner so queued work never starts with stale permission state.
-	if record.ProjectID != "" {
-		refreshedSource, err := s.refreshAWSConnectionForScan(ctx, db.ScanSource{
-			ProjectID:   record.ProjectID,
-			ConnectorID: record.ConnectorID,
-		})
-		if err != nil {
-			return nil, err
-		}
-		// Use the connector that was just validated for the worker lookup too;
-		// otherwise a degraded selected connector could be replaced by a
-		// different connector with stale persisted health.
-		record.ProjectID = refreshedSource.ProjectID
-		record.ConnectorID = refreshedSource.ConnectorID
+	refreshedSource, err := s.refreshAWSScanRecordConnection(ctx, record)
+	if err != nil {
+		return nil, err
 	}
+	// Use the connector that was just validated for the worker lookup too;
+	// otherwise a degraded selected connector could be replaced by a different
+	// connector with stale persisted health.
+	record.ProjectID = refreshedSource.ProjectID
+	record.ConnectorID = refreshedSource.ConnectorID
 	connection, ok, err := s.activeAWSConnectionForScan(ctx, record)
 	if err != nil {
 		return nil, err
@@ -1261,6 +1256,48 @@ func (s *Service) scannerForScan(ctx context.Context, record db.ScanRecord) (Sca
 		return nil, errors.New("aws connector scanner factory returned nil scanner")
 	}
 	return scanner, nil
+}
+
+// refreshAWSScanRecordConnection resolves the same connector that the worker
+// would otherwise select for a source-less scheduled scan, then validates it
+// and binds the record to that connector. Scheduled scans are created without
+// project metadata, so checking only record.ProjectID would skip validation.
+func (s *Service) refreshAWSScanRecordConnection(ctx context.Context, record db.ScanRecord) (db.ScanSource, error) {
+	source := db.ScanSource{ProjectID: record.ProjectID, ConnectorID: record.ConnectorID}.Normalize()
+	if source.ProjectID != "" {
+		return s.refreshAWSConnectionForScan(ctx, source)
+	}
+	if s.AWSConnectorValidator == nil || s.awsBaselineSourceMode() == "fixture" {
+		return source, nil
+	}
+	items, err := s.listEligibleAWSConnectorsUnscoped(ctx, 25)
+	if err != nil {
+		return source, fmt.Errorf("list aws connectors for scheduled scan: %w", err)
+	}
+	if len(items) == 0 {
+		return source, nil
+	}
+	selected, active, err := s.firstActiveAWSConnection(ctx, items)
+	if err != nil {
+		return source, err
+	}
+	selectedID := selected.ConnectorID
+	if !active {
+		// Keep the record bound even when persisted health says every connector
+		// is degraded; the explicit worker lookup below will fail closed rather
+		// than falling back to a different unvalidated connector.
+		selectedID = items[0].Connector.ConnectorID
+	}
+	for _, item := range items {
+		if item.Connector.ConnectorID != selectedID {
+			continue
+		}
+		return s.refreshAWSConnectionForScan(ctx, db.ScanSource{
+			ProjectID:   item.Connector.ProjectID,
+			ConnectorID: item.Connector.ConnectorID,
+		})
+	}
+	return source, nil
 }
 
 func (s *Service) recordServiceAuthzDenial(ctx context.Context, action string, resourceType string, resourceID string) {

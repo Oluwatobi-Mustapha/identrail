@@ -264,6 +264,74 @@ func TestAWSRegistrationTemplateVersionCompatibilityAcceptsDeployedVersions(t *t
 	}
 }
 
+func TestAWSRegistrationBootstrapDoesNotPersistUpgradeBeforeRegister(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	responder := &recordingAWSCloudFormationResponder{}
+	svc.AWSCloudFormationResponder = responder
+	_, attempt, stackID, externalID := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+	store := svc.Store.(db.AWSConnectorOnboardingAttemptStore)
+	initial := awsRegistrationRequest(stackID, "Create", "registration-create", "Register", attempt.AttemptID)
+	initial.ResourceProperties["ExternalId"] = externalID
+	initial.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	initial.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, initial)); err != nil {
+		t.Fatalf("complete initial registration: %v", err)
+	}
+	legacy, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload attempt: %v", err)
+	}
+	legacy.TemplateVersion = awsLegacyConnectorTemplateVersion
+	if _, err := store.UpdateAWSConnectorOnboardingAttempt(ctx, legacy, legacy.Version); err != nil {
+		t.Fatalf("seed legacy template version: %v", err)
+	}
+	token, err := svc.awsRegistrationToken(legacy)
+	if err != nil {
+		t.Fatalf("derive token: %v", err)
+	}
+	bootstrap := awsRegistrationRequest(stackID, "Update", "bootstrap-upgrade", "Bootstrap", attempt.AttemptID)
+	bootstrap.ResourceProperties["RegistrationToken"] = token
+	bootstrap.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, bootstrap)); err != nil {
+		t.Fatalf("process bootstrap upgrade: %v", err)
+	}
+	unchanged, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload attempt after bootstrap: %v", err)
+	}
+	if unchanged.TemplateVersion != awsLegacyConnectorTemplateVersion {
+		t.Fatalf("bootstrap must not persist upgraded version before register, got %s", unchanged.TemplateVersion)
+	}
+	rollback := awsRegistrationRequest(stackID, "Update", "bootstrap-rollback", "Bootstrap", attempt.AttemptID)
+	rollback.ResourceProperties["RegistrationToken"] = token
+	rollback.ResourceProperties["TemplateVersion"] = awsLegacyConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, rollback)); err != nil {
+		t.Fatalf("process rollback bootstrap: %v", err)
+	}
+	rollbackSafe, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload attempt after rollback: %v", err)
+	}
+	if rollbackSafe.TemplateVersion != awsLegacyConnectorTemplateVersion {
+		t.Fatalf("rollback must remain compatible with stored legacy version, got %s", rollbackSafe.TemplateVersion)
+	}
+
+	registration := awsRegistrationRequest(stackID, "Update", "registration-upgrade", "Register", attempt.AttemptID)
+	registration.ResourceProperties["ExternalId"] = externalID
+	registration.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	registration.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, registration)); err != nil {
+		t.Fatalf("process registration upgrade: %v", err)
+	}
+	upgraded, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload attempt after register: %v", err)
+	}
+	if upgraded.TemplateVersion != awsConnectorTemplateVersion {
+		t.Fatalf("register must persist upgraded version after callback acceptance, got %s", upgraded.TemplateVersion)
+	}
+}
+
 func TestAWSConnectorStartReusesBoundAttemptForExistingStackUpgrade(t *testing.T) {
 	svc, ctx := newAWSRegistrationTestService(t)
 	responder := &recordingAWSCloudFormationResponder{}

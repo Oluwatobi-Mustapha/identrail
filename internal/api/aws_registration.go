@@ -366,28 +366,11 @@ func (s *Service) processAWSRegistrationBootstrap(ctx context.Context, store db.
 			return err
 		}
 	}
-	if request.RequestType == "Update" {
-		incomingVersion := awsRegistrationProperty(request.ResourceProperties, "TemplateVersion")
-		if incomingVersion != attempt.TemplateVersion {
-			attempt.TemplateVersion = incomingVersion
-			attempt.UpdatedAt = s.Now().UTC()
-			updated, updateErr := store.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, attempt.Version)
-			if errors.Is(updateErr, db.ErrConflict) {
-				winner, loadErr := store.GetAWSConnectorOnboardingAttempt(ctx, attempt.WorkspaceID, attempt.ProjectID, attempt.AttemptID)
-				if loadErr != nil {
-					return loadErr
-				}
-				if winner.TemplateVersion != incomingVersion {
-					return updateErr
-				}
-				attempt = winner
-			} else if updateErr != nil {
-				return updateErr
-			} else {
-				attempt = updated
-			}
-		}
-	}
+	// Do not persist an Update's template version during Bootstrap. If a later
+	// custom resource fails, CloudFormation sends rollback Updates carrying the
+	// legacy version; recording the new version here would make that legitimate
+	// rollback look like a downgrade. The Register phase persists the upgraded
+	// version only after its callback is accepted.
 	// NoEcho must be false: the template's IAM trust policy and the Register
 	// resource both consume this via Fn::GetAtt, and CloudFormation masks
 	// NoEcho'd custom-resource attributes in those references, which would
