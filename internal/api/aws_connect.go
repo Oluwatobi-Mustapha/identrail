@@ -1306,6 +1306,7 @@ func awsConnectorLaunchMetadata(metadata map[string]any) map[string]any {
 		"stack_set_name",
 		"template_url",
 		"template_checksum",
+		"template_version",
 		"launch_url",
 		"policy_hash",
 		"target_summary",

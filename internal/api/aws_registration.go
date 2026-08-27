@@ -457,7 +457,7 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 	// has a different request ID and is allowed to validate the replacement.
 	if callbackAlreadyDelivered &&
 		(attempt.Status == db.AWSConnectorOnboardingAttemptConnected || attempt.Status == db.AWSConnectorOnboardingAttemptNeedsFix) {
-		return nil
+		return s.reconcileAWSConnectorFromOnboardingAttempt(ctx, attempt)
 	}
 	status, validationErr := s.ValidateAWSConnector(ctx, attempt.ConnectorID, AWSConnectorValidateRequest{
 		WorkspaceID: attempt.WorkspaceID,
@@ -492,7 +492,13 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 		}
 		return s.reconcileAWSConnectorFromOnboardingAttempt(ctx, winner)
 	}
-	return updateErr
+	if updateErr != nil {
+		return updateErr
+	}
+	if attempt.Status == db.AWSConnectorOnboardingAttemptConnected {
+		return s.reconcileAWSConnectorFromOnboardingAttempt(ctx, attempt)
+	}
+	return nil
 }
 
 func (s *Service) validateAWSRegistrationRequest(attempt db.AWSConnectorOnboardingAttempt, topicARN string, request awsCloudFormationCustomResourceRequest, phase string, token string) error {
@@ -897,6 +903,21 @@ func (s *Service) persistAWSRegistrationConnected(ctx context.Context, stored db
 	}
 	if attempt.DeploymentRegion != "" {
 		metadata["region"] = attempt.DeploymentRegion
+	}
+	if templateVersion := strings.TrimSpace(attempt.TemplateVersion); templateVersion != "" {
+		metadata["template_version"] = templateVersion
+	}
+	// A successful registration is the durable proof that the stack now runs
+	// the template used for this launch. Prefer the currently configured
+	// content-addressed template metadata so a legacy stack upgrade cannot
+	// leave the connector offering the same migration again on its next start.
+	if templateChecksum := normalizeAWSConnectorTemplateChecksum(s.AWSCloudFormationTemplateSHA); templateChecksum != "" {
+		metadata["template_checksum"] = templateChecksum
+	} else if templateChecksum := normalizeAWSConnectorTemplateChecksum(attempt.TemplateChecksum); templateChecksum != "" {
+		metadata["template_checksum"] = templateChecksum
+	}
+	if templateURL := strings.TrimSpace(s.AWSCloudFormationTemplateURL); templateURL != "" {
+		metadata["template_url"] = templateURL
 	}
 	delete(metadata, "launch_url")
 	now := s.Now().UTC()

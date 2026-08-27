@@ -52,15 +52,34 @@ type fakeIAMValidationClient struct {
 
 type fakeIAMPermissionSimulationClient struct {
 	fakeIAMValidationClient
-	output *iam.SimulatePrincipalPolicyOutput
-	err    error
-	calls  int
-	inputs []*iam.SimulatePrincipalPolicyInput
+	output                    *iam.SimulatePrincipalPolicyOutput
+	err                       error
+	calls                     int
+	inputs                    []*iam.SimulatePrincipalPolicyInput
+	resourceScopedPermissions bool
 }
 
 func (f *fakeIAMPermissionSimulationClient) SimulatePrincipalPolicy(ctx context.Context, params *iam.SimulatePrincipalPolicyInput, optFns ...func(*iam.Options)) (*iam.SimulatePrincipalPolicyOutput, error) {
 	f.calls++
 	f.inputs = append(f.inputs, params)
+	if f.resourceScopedPermissions {
+		resourceScoped := false
+		for _, resource := range params.ResourceArns {
+			if resource != "*" {
+				resourceScoped = true
+				break
+			}
+		}
+		decision := iamtypes.PolicyEvaluationDecisionTypeImplicitDeny
+		if resourceScoped {
+			decision = iamtypes.PolicyEvaluationDecisionTypeAllowed
+		}
+		evaluations := make([]iamtypes.EvaluationResult, 0, len(params.ActionNames))
+		for _, action := range params.ActionNames {
+			evaluations = append(evaluations, iamtypes.EvaluationResult{EvalActionName: awsv2.String(action), EvalDecision: decision})
+		}
+		return &iam.SimulatePrincipalPolicyOutput{EvaluationResults: evaluations}, nil
+	}
 	return f.output, f.err
 }
 
@@ -162,7 +181,8 @@ func TestConnectionValidatorValidatesCompleteCollectorPermissionScope(t *testing
 			getRolePolicyOutput:            &iam.GetRolePolicyOutput{PolicyDocument: awsv2.String("{}")},
 			listAttachedRolePoliciesOutput: &iam.ListAttachedRolePoliciesOutput{},
 		},
-		output: &iam.SimulatePrincipalPolicyOutput{EvaluationResults: evaluations},
+		output:                    &iam.SimulatePrincipalPolicyOutput{EvaluationResults: evaluations},
+		resourceScopedPermissions: true,
 	}
 	validator := testConnectionValidator(&fakeSTSAssumeRoleClient{
 		output: &sts.AssumeRoleOutput{Credentials: &ststypes.Credentials{
@@ -188,6 +208,9 @@ func TestConnectionValidatorValidatesCompleteCollectorPermissionScope(t *testing
 		t.Fatal("expected permission simulation requests")
 	}
 	for _, input := range client.inputs {
+		if len(input.ResourceArns) != 2 || input.ResourceArns[0] != "*" || input.ResourceArns[1] != "arn:aws:iam::123456789012:role/IdentrailReadOnly" {
+			t.Fatalf("expected wildcard and connector-role resource probes, got %+v", input.ResourceArns)
+		}
 		if len(input.ContextEntries) != 1 {
 			t.Fatalf("expected regional simulation context, got %+v", input.ContextEntries)
 		}

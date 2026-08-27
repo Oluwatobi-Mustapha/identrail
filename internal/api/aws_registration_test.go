@@ -209,6 +209,16 @@ func TestAWSRegistrationUpgradesLegacyTemplateOnBoundStackUpdate(t *testing.T) {
 	if _, err := store.UpdateAWSConnectorOnboardingAttempt(ctx, legacyAttempt, legacyAttempt.Version); err != nil {
 		t.Fatalf("seed legacy template version: %v", err)
 	}
+	legacyConnector, err := svc.Store.GetTenancyConnector(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil {
+		t.Fatalf("reload connector for legacy metadata: %v", err)
+	}
+	legacyConnector.State.Metadata["template_version"] = awsLegacyConnectorTemplateVersion
+	legacyConnector.State.Metadata["template_checksum"] = "sha256:" + strings.Repeat("1", 64)
+	legacyConnector.State.Metadata["template_url"] = "https://legacy.example/identrail-readonly.yaml"
+	if err := svc.Store.UpsertTenancyConnector(ctx, legacyConnector.Connector, legacyConnector.State); err != nil {
+		t.Fatalf("seed legacy connector template metadata: %v", err)
+	}
 
 	initial := awsRegistrationRequest(stackID, "Create", "registration-create", "Register", attempt.AttemptID)
 	initial.ResourceProperties["ExternalId"] = externalID
@@ -251,6 +261,19 @@ func TestAWSRegistrationUpgradesLegacyTemplateOnBoundStackUpdate(t *testing.T) {
 	}
 	if upgraded.TemplateVersion != awsConnectorTemplateVersion {
 		t.Fatalf("expected persisted template upgrade to %s, got %s", awsConnectorTemplateVersion, upgraded.TemplateVersion)
+	}
+	upgradedConnector, err := svc.Store.GetTenancyConnector(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil {
+		t.Fatalf("reload connector after template upgrade: %v", err)
+	}
+	if got := awsMetadataString(upgradedConnector.State.Metadata, "template_version"); got != awsConnectorTemplateVersion {
+		t.Fatalf("expected connector template version %s after upgrade, got %q", awsConnectorTemplateVersion, got)
+	}
+	if got := awsMetadataString(upgradedConnector.State.Metadata, "template_checksum"); got != testAWSCloudFormationTemplateChecksum {
+		t.Fatalf("expected connector template checksum %s after upgrade, got %q", testAWSCloudFormationTemplateChecksum, got)
+	}
+	if got := awsMetadataString(upgradedConnector.State.Metadata, "template_url"); got != testAWSCloudFormationTemplateURL {
+		t.Fatalf("expected connector template URL %s after upgrade, got %q", testAWSCloudFormationTemplateURL, got)
 	}
 }
 

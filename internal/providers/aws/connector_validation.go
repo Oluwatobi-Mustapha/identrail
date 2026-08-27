@@ -216,6 +216,7 @@ func validateIAMPermissionScope(ctx context.Context, client iamPermissionSimulat
 	sort.Strings(actions)
 	missing := make(map[string]struct{})
 	simulationContext := iamPermissionSimulationContext(region)
+	simulationResources := iamPermissionSimulationResourceARNs(roleARN)
 	for start := 0; start < len(actions); start += iamPermissionSimulationBatchSize {
 		end := start + iamPermissionSimulationBatchSize
 		if end > len(actions) {
@@ -228,7 +229,7 @@ func validateIAMPermissionScope(ctx context.Context, client iamPermissionSimulat
 			input := &iam.SimulatePrincipalPolicyInput{
 				PolicySourceArn: awsv2.String(strings.TrimSpace(roleARN)),
 				ActionNames:     batch,
-				ResourceArns:    []string{"*"},
+				ResourceArns:    simulationResources,
 				ContextEntries:  simulationContext,
 				MaxItems:        awsv2.Int32(int32(len(batch))),
 			}
@@ -246,7 +247,15 @@ func validateIAMPermissionScope(ctx context.Context, client iamPermissionSimulat
 				for _, evaluation := range output.EvaluationResults {
 					action := strings.ToLower(strings.TrimSpace(awsv2.ToString(evaluation.EvalActionName)))
 					if action != "" {
-						decisions[action] = evaluation.EvalDecision
+						// A resource-scoped grant can deny the literal "*" probe
+						// while allowing the representative role ARN. Preserve an
+						// allowed result from any resource instead of letting a later
+						// implicit deny overwrite it.
+						if evaluation.EvalDecision == iamtypes.PolicyEvaluationDecisionTypeAllowed || decisions[action] == iamtypes.PolicyEvaluationDecisionTypeAllowed {
+							decisions[action] = iamtypes.PolicyEvaluationDecisionTypeAllowed
+						} else if _, exists := decisions[action]; !exists {
+							decisions[action] = evaluation.EvalDecision
+						}
 					}
 				}
 				if output.IsTruncated && strings.TrimSpace(awsv2.ToString(output.Marker)) != "" {
@@ -274,6 +283,19 @@ func validateIAMPermissionScope(ctx context.Context, client iamPermissionSimulat
 	check.Message = fmt.Sprintf("The connector role is missing %d required read-only collector action(s): %s.", len(missingActions), formatIAMActionSample(missingActions))
 	check.Remediation = "Attach the current Identrail read-only collector policy (template 2.2.0), then validate the connector again. Do not add write permissions or weaken the external-ID trust condition."
 	return check, nil
+}
+
+// iamPermissionSimulationResourceARNs probes both the account-wide wildcard
+// and the configured connector role. The latter is a representative IAM
+// resource that lets policies such as arn:aws:iam::<account>:role/* evaluate
+// as allowed without weakening the permission check for genuinely missing
+// actions.
+func iamPermissionSimulationResourceARNs(roleARN string) []string {
+	resources := []string{"*"}
+	if trimmed := strings.TrimSpace(roleARN); strings.HasPrefix(trimmed, "arn:") {
+		resources = append(resources, trimmed)
+	}
+	return resources
 }
 
 // iamPermissionSimulationContext mirrors the request context that the
