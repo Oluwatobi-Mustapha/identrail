@@ -180,7 +180,7 @@ func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request
 	}
 	result.PermissionChecks = append(result.PermissionChecks, iamCheck)
 	if simulator, ok := validatedIAMClient.(iamPermissionSimulationAPI); ok {
-		scopeCheck, _ := validateIAMPermissionScope(ctx, simulator, result.RoleARN)
+		scopeCheck, _ := validateIAMPermissionScope(ctx, simulator, result.RoleARN, region)
 		if !scopeCheck.Passed {
 			result.Diagnostics = append(result.Diagnostics, api.AWSConnectionDiagnostic{
 				Code:        "aws_connector_permission_scope_incomplete",
@@ -196,7 +196,7 @@ func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request
 
 const iamPermissionSimulationBatchSize = 100
 
-func validateIAMPermissionScope(ctx context.Context, client iamPermissionSimulationAPI, roleARN string) (api.AWSConnectionPermissionCheck, error) {
+func validateIAMPermissionScope(ctx context.Context, client iamPermissionSimulationAPI, roleARN string, region string) (api.AWSConnectionPermissionCheck, error) {
 	check := api.AWSConnectionPermissionCheck{
 		Name:    "aws:ReadOnlyCollectorScope",
 		Passed:  true,
@@ -215,6 +215,7 @@ func validateIAMPermissionScope(ctx context.Context, client iamPermissionSimulat
 	}
 	sort.Strings(actions)
 	missing := make(map[string]struct{})
+	simulationContext := iamPermissionSimulationContext(region)
 	for start := 0; start < len(actions); start += iamPermissionSimulationBatchSize {
 		end := start + iamPermissionSimulationBatchSize
 		if end > len(actions) {
@@ -228,6 +229,7 @@ func validateIAMPermissionScope(ctx context.Context, client iamPermissionSimulat
 				PolicySourceArn: awsv2.String(strings.TrimSpace(roleARN)),
 				ActionNames:     batch,
 				ResourceArns:    []string{"*"},
+				ContextEntries:  simulationContext,
 				MaxItems:        awsv2.Int32(int32(len(batch))),
 			}
 			if marker != "" {
@@ -272,6 +274,22 @@ func validateIAMPermissionScope(ctx context.Context, client iamPermissionSimulat
 	check.Message = fmt.Sprintf("The connector role is missing %d required read-only collector action(s): %s.", len(missingActions), formatIAMActionSample(missingActions))
 	check.Remediation = "Attach the current Identrail read-only collector policy (template 2.2.0), then validate the connector again. Do not add write permissions or weaken the external-ID trust condition."
 	return check, nil
+}
+
+// iamPermissionSimulationContext mirrors the request context that the
+// collector uses for regional AWS calls. Without aws:RequestedRegion, IAM
+// evaluates a policy conditioned on that key as an implicit deny even when
+// the role is authorized in the configured region.
+func iamPermissionSimulationContext(region string) []iamtypes.ContextEntry {
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return nil
+	}
+	return []iamtypes.ContextEntry{{
+		ContextKeyName:   awsv2.String("aws:RequestedRegion"),
+		ContextKeyValues: []string{region},
+		ContextKeyType:   iamtypes.ContextKeyTypeEnum("string"),
+	}}
 }
 
 func formatIAMActionSample(actions []string) string {

@@ -55,10 +55,12 @@ type fakeIAMPermissionSimulationClient struct {
 	output *iam.SimulatePrincipalPolicyOutput
 	err    error
 	calls  int
+	inputs []*iam.SimulatePrincipalPolicyInput
 }
 
 func (f *fakeIAMPermissionSimulationClient) SimulatePrincipalPolicy(ctx context.Context, params *iam.SimulatePrincipalPolicyInput, optFns ...func(*iam.Options)) (*iam.SimulatePrincipalPolicyOutput, error) {
 	f.calls++
+	f.inputs = append(f.inputs, params)
 	return f.output, f.err
 }
 
@@ -172,7 +174,7 @@ func TestConnectionValidatorValidatesCompleteCollectorPermissionScope(t *testing
 		UserId:  awsv2.String("AROATEST:session"),
 	}}, client)
 
-	result, err := validator.ValidateAWSConnection(context.Background(), api.AWSConnectionValidationRequest{RoleARN: "arn:aws:iam::123456789012:role/IdentrailReadOnly"})
+	result, err := validator.ValidateAWSConnection(context.Background(), api.AWSConnectionValidationRequest{RoleARN: "arn:aws:iam::123456789012:role/IdentrailReadOnly", Region: "eu-west-1"})
 	if err != nil {
 		t.Fatalf("validate connection: %v", err)
 	}
@@ -181,6 +183,18 @@ func TestConnectionValidatorValidatesCompleteCollectorPermissionScope(t *testing
 	}
 	if len(result.PermissionChecks) != 3 || !result.PermissionChecks[2].Passed {
 		t.Fatalf("expected complete collector scope check to pass, got %+v", result.PermissionChecks)
+	}
+	if len(client.inputs) == 0 {
+		t.Fatal("expected permission simulation requests")
+	}
+	for _, input := range client.inputs {
+		if len(input.ContextEntries) != 1 {
+			t.Fatalf("expected regional simulation context, got %+v", input.ContextEntries)
+		}
+		entry := input.ContextEntries[0]
+		if awsv2.ToString(entry.ContextKeyName) != "aws:RequestedRegion" || len(entry.ContextKeyValues) != 1 || entry.ContextKeyValues[0] != "eu-west-1" || entry.ContextKeyType != iamtypes.ContextKeyTypeEnum("string") {
+			t.Fatalf("unexpected regional simulation context: %+v", entry)
+		}
 	}
 }
 

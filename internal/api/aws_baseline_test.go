@@ -363,6 +363,18 @@ func (v *sequenceAWSConnectorValidator) ValidateAWSConnection(_ context.Context,
 	return v.results[index], nil
 }
 
+type scopeRecordingAWSConnectorValidator struct {
+	result AWSConnectionValidationResult
+	seen   db.Scope
+	calls  int
+}
+
+func (v *scopeRecordingAWSConnectorValidator) ValidateAWSConnection(ctx context.Context, _ AWSConnectionValidationRequest) (AWSConnectionValidationResult, error) {
+	v.calls++
+	v.seen = db.ScopeFromContext(ctx)
+	return v.result, nil
+}
+
 func TestAWSWorkerRevalidatesConnectorBeforeStartingQueuedScan(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()
@@ -455,6 +467,45 @@ func TestScheduledAWSScanRevalidatesSelectedConnectorBeforeStarting(t *testing.T
 	}
 	if factoryCalled {
 		t.Fatal("expected scanner factory not to run after scheduled connector validation failed")
+	}
+}
+
+func TestScheduledAWSScanRevalidatesSelectedConnectorInItsScope(t *testing.T) {
+	store := db.NewMemoryStore()
+	workerCtx := defaultScopeContext()
+	selectedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, selectedCtx, "project-b")
+	seedAWSConnectorForScanTest(t, store, selectedCtx, "project-b", "aws-tenant-b", domain.ConnectorStatusActive, "healthy", now)
+
+	validator := &scopeRecordingAWSConnectorValidator{result: AWSConnectionValidationResult{
+		AccountID: "123456789012",
+		Region:    "us-east-1",
+		PermissionChecks: []AWSConnectionPermissionCheck{{
+			Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded.",
+		}},
+	}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSConnectorValidator = validator
+	var factoryScope db.Scope
+	svc.AWSScannerFactory = func(ctx context.Context, connection AWSConnectionStatus) (ScannerRunner, error) {
+		factoryScope = db.ScopeFromContext(ctx)
+		if connection.ConnectorID != "aws-tenant-b" {
+			t.Fatalf("expected selected connector, got %q", connection.ConnectorID)
+		}
+		return fakeScanner{result: app.ScanResult{Assets: 1}}, nil
+	}
+
+	if _, err := svc.scannerForScan(workerCtx, db.ScanRecord{Provider: "aws"}); err != nil {
+		t.Fatalf("build scheduled scanner: %v", err)
+	}
+	wantScope := db.Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"}
+	if validator.calls != 1 || validator.seen != wantScope {
+		t.Fatalf("expected connector validation in selected scope, calls=%d scope=%+v", validator.calls, validator.seen)
+	}
+	if factoryScope != wantScope {
+		t.Fatalf("expected scanner factory in selected scope, got %+v", factoryScope)
 	}
 }
 
