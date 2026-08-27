@@ -6505,8 +6505,12 @@ func TestServiceLockKeyNamespace(t *testing.T) {
 
 func seedAWSConnectorForScanTest(t *testing.T, store db.Store, ctx context.Context, projectID string, connectorID string, status domain.ConnectorStatus, health string, updatedAt time.Time) {
 	t.Helper()
+	scope, err := db.RequireScope(ctx)
+	if err != nil {
+		t.Fatalf("resolve connector scope: %v", err)
+	}
 	if err := store.UpsertTenancyConnector(ctx, db.TenancyConnector{
-		WorkspaceID: "default",
+		WorkspaceID: scope.WorkspaceID,
 		ProjectID:   projectID,
 		ConnectorID: connectorID,
 		Type:        domain.ConnectorTypeAWS,
@@ -6515,7 +6519,7 @@ func seedAWSConnectorForScanTest(t *testing.T, store db.Store, ctx context.Conte
 		CreatedAt:   updatedAt,
 		UpdatedAt:   updatedAt,
 	}, db.TenancyConnectorState{
-		WorkspaceID:  "default",
+		WorkspaceID:  scope.WorkspaceID,
 		ProjectID:    projectID,
 		ConnectorID:  connectorID,
 		HealthStatus: health,

@@ -322,6 +322,13 @@ type ScanSource struct {
 	ConnectorID string
 }
 
+// ScanSourceBinder atomically records the connector selected for a running
+// scan. Worker scans can be created without source metadata and must bind the
+// selected source before execution so retries and history use the same scope.
+type ScanSourceBinder interface {
+	BindScanSource(ctx context.Context, scanID string, source ScanSource) (ScanRecord, error)
+}
+
 // Normalize returns a stable source key.
 func (s ScanSource) Normalize() ScanSource {
 	return ScanSource{
@@ -1240,6 +1247,8 @@ type AWSConnectorOnboardingAttemptStore interface {
 	GetAWSConnectorOnboardingAttempt(ctx context.Context, workspaceID string, projectID string, attemptID string) (AWSConnectorOnboardingAttempt, error)
 	GetAWSConnectorOnboardingAttemptAnyScope(ctx context.Context, attemptID string) (AWSConnectorOnboardingAttempt, error)
 	GetActiveAWSConnectorOnboardingAttempt(ctx context.Context, workspaceID string, projectID string, connectorID string) (AWSConnectorOnboardingAttempt, error)
+	GetLatestAWSConnectorOnboardingAttempt(ctx context.Context, workspaceID string, projectID string, connectorID string) (AWSConnectorOnboardingAttempt, error)
+	GetLatestResumableAWSConnectorOnboardingAttempt(ctx context.Context, workspaceID string, projectID string, connectorID string, providerTopicARN string, region string) (AWSConnectorOnboardingAttempt, error)
 	UpdateAWSConnectorOnboardingAttempt(ctx context.Context, attempt AWSConnectorOnboardingAttempt, expectedVersion int64) (AWSConnectorOnboardingAttempt, error)
 }
 

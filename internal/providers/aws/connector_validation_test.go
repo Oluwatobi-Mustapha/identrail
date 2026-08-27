@@ -50,6 +50,39 @@ type fakeIAMValidationClient struct {
 	getPolicyVersionErr            error
 }
 
+type fakeIAMPermissionSimulationClient struct {
+	fakeIAMValidationClient
+	output                    *iam.SimulatePrincipalPolicyOutput
+	err                       error
+	calls                     int
+	inputs                    []*iam.SimulatePrincipalPolicyInput
+	resourceScopedPermissions bool
+}
+
+func (f *fakeIAMPermissionSimulationClient) SimulatePrincipalPolicy(ctx context.Context, params *iam.SimulatePrincipalPolicyInput, optFns ...func(*iam.Options)) (*iam.SimulatePrincipalPolicyOutput, error) {
+	f.calls++
+	f.inputs = append(f.inputs, params)
+	if f.resourceScopedPermissions {
+		resourceScoped := false
+		for _, resource := range params.ResourceArns {
+			if resource != "*" {
+				resourceScoped = true
+				break
+			}
+		}
+		decision := iamtypes.PolicyEvaluationDecisionTypeImplicitDeny
+		if resourceScoped {
+			decision = iamtypes.PolicyEvaluationDecisionTypeAllowed
+		}
+		evaluations := make([]iamtypes.EvaluationResult, 0, len(params.ActionNames))
+		for _, action := range params.ActionNames {
+			evaluations = append(evaluations, iamtypes.EvaluationResult{EvalActionName: awsv2.String(action), EvalDecision: decision})
+		}
+		return &iam.SimulatePrincipalPolicyOutput{EvaluationResults: evaluations}, nil
+	}
+	return f.output, f.err
+}
+
 func (f fakeIAMValidationClient) ListRoles(ctx context.Context, params *iam.ListRolesInput, optFns ...func(*iam.Options)) (*iam.ListRolesOutput, error) {
 	return f.listRolesOutput, f.listRolesErr
 }
@@ -126,6 +159,99 @@ func TestConnectionValidatorValidateAWSConnectionActive(t *testing.T) {
 	}
 	if assume.seen == nil || awsv2.ToString(assume.seen.ExternalId) != "external" || awsv2.ToString(assume.seen.RoleSessionName) != "session" {
 		t.Fatalf("assume role request was not populated correctly: %+v", assume.seen)
+	}
+}
+
+func TestConnectionValidatorValidatesCompleteCollectorPermissionScope(t *testing.T) {
+	expected, err := expectedConnectorPermissionActions()
+	if err != nil {
+		t.Fatalf("load expected connector actions: %v", err)
+	}
+	evaluations := make([]iamtypes.EvaluationResult, 0, len(expected))
+	for action := range expected {
+		evaluations = append(evaluations, iamtypes.EvaluationResult{
+			EvalActionName: awsv2.String(action),
+			EvalDecision:   iamtypes.PolicyEvaluationDecisionTypeAllowed,
+		})
+	}
+	client := &fakeIAMPermissionSimulationClient{
+		fakeIAMValidationClient: fakeIAMValidationClient{
+			listRolesOutput:                &iam.ListRolesOutput{Roles: []iamtypes.Role{{RoleName: awsv2.String("AppRole")}}},
+			listRolePoliciesOutput:         &iam.ListRolePoliciesOutput{PolicyNames: []string{"inline"}},
+			getRolePolicyOutput:            &iam.GetRolePolicyOutput{PolicyDocument: awsv2.String("{}")},
+			listAttachedRolePoliciesOutput: &iam.ListAttachedRolePoliciesOutput{},
+		},
+		output:                    &iam.SimulatePrincipalPolicyOutput{EvaluationResults: evaluations},
+		resourceScopedPermissions: true,
+	}
+	validator := testConnectionValidator(&fakeSTSAssumeRoleClient{
+		output: &sts.AssumeRoleOutput{Credentials: &ststypes.Credentials{
+			AccessKeyId: awsv2.String("access"), SecretAccessKey: awsv2.String("secret"), SessionToken: awsv2.String("token"),
+		}},
+	}, fakeSTSIdentityClient{output: &sts.GetCallerIdentityOutput{
+		Account: awsv2.String("123456789012"),
+		Arn:     awsv2.String("arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/session"),
+		UserId:  awsv2.String("AROATEST:session"),
+	}}, client)
+
+	result, err := validator.ValidateAWSConnection(context.Background(), api.AWSConnectionValidationRequest{RoleARN: "arn:aws:iam::123456789012:role/IdentrailReadOnly", Region: "eu-west-1"})
+	if err != nil {
+		t.Fatalf("validate connection: %v", err)
+	}
+	if client.calls < 2 {
+		t.Fatalf("expected permission simulation to use batches, got %d calls", client.calls)
+	}
+	if len(result.PermissionChecks) != 3 || !result.PermissionChecks[2].Passed {
+		t.Fatalf("expected complete collector scope check to pass, got %+v", result.PermissionChecks)
+	}
+	if len(client.inputs) == 0 {
+		t.Fatal("expected permission simulation requests")
+	}
+	for _, input := range client.inputs {
+		if len(input.ResourceArns) != 2 || input.ResourceArns[0] != "*" || input.ResourceArns[1] != "arn:aws:iam::123456789012:role/IdentrailReadOnly" {
+			t.Fatalf("expected wildcard and connector-role resource probes, got %+v", input.ResourceArns)
+		}
+		if len(input.ContextEntries) != 1 {
+			t.Fatalf("expected regional simulation context, got %+v", input.ContextEntries)
+		}
+		entry := input.ContextEntries[0]
+		if awsv2.ToString(entry.ContextKeyName) != "aws:RequestedRegion" || len(entry.ContextKeyValues) != 1 || entry.ContextKeyValues[0] != "eu-west-1" || entry.ContextKeyType != iamtypes.ContextKeyTypeEnum("string") {
+			t.Fatalf("unexpected regional simulation context: %+v", entry)
+		}
+	}
+}
+
+func TestConnectionValidatorRejectsIncompleteCollectorPermissionScope(t *testing.T) {
+	client := &fakeIAMPermissionSimulationClient{
+		fakeIAMValidationClient: fakeIAMValidationClient{
+			listRolesOutput:                &iam.ListRolesOutput{Roles: []iamtypes.Role{{RoleName: awsv2.String("AppRole")}}},
+			listRolePoliciesOutput:         &iam.ListRolePoliciesOutput{},
+			listAttachedRolePoliciesOutput: &iam.ListAttachedRolePoliciesOutput{},
+		},
+		output: &iam.SimulatePrincipalPolicyOutput{EvaluationResults: []iamtypes.EvaluationResult{{
+			EvalActionName: awsv2.String("iam:GetRole"),
+			EvalDecision:   iamtypes.PolicyEvaluationDecisionTypeAllowed,
+		}}},
+	}
+	validator := testConnectionValidator(&fakeSTSAssumeRoleClient{
+		output: &sts.AssumeRoleOutput{Credentials: &ststypes.Credentials{
+			AccessKeyId: awsv2.String("access"), SecretAccessKey: awsv2.String("secret"), SessionToken: awsv2.String("token"),
+		}},
+	}, fakeSTSIdentityClient{output: &sts.GetCallerIdentityOutput{
+		Account: awsv2.String("123456789012"),
+		Arn:     awsv2.String("arn:aws:sts::123456789012:assumed-role/IdentrailReadOnly/session"),
+		UserId:  awsv2.String("AROATEST:session"),
+	}}, client)
+
+	result, err := validator.ValidateAWSConnection(context.Background(), api.AWSConnectionValidationRequest{RoleARN: "arn:aws:iam::123456789012:role/IdentrailReadOnly"})
+	if err != nil {
+		t.Fatalf("validate connection: %v", err)
+	}
+	if len(result.PermissionChecks) != 3 || result.PermissionChecks[2].Passed {
+		t.Fatalf("expected incomplete collector scope check to fail, got %+v", result.PermissionChecks)
+	}
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "aws_connector_permission_scope_incomplete" {
+		t.Fatalf("expected permission scope diagnostic, got %+v", result.Diagnostics)
 	}
 }
 

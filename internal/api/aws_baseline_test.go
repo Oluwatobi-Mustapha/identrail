@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -272,6 +274,264 @@ func TestVerifyAWSPlatformBaselineExplainsUnhealthyConnectorAndFullQueue(t *test
 	}
 }
 
+func TestEnqueueAWSScanRevalidatesConnectorPermissionScope(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 8, 26, 10, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	stored, err := store.GetTenancyConnector(ctx, "default", "project-a", "aws-prod")
+	if err != nil {
+		t.Fatalf("load connector: %v", err)
+	}
+	stored.State.Metadata["external_id"] = "test-external-id"
+	if err := store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
+		t.Fatalf("persist connector external id: %v", err)
+	}
+
+	validator := &fakeAWSConnectorValidator{result: AWSConnectionValidationResult{
+		AccountID: "123456789012",
+		Region:    "us-east-1",
+		PermissionChecks: []AWSConnectionPermissionCheck{
+			{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+			{Name: "aws:ReadOnlyCollectorScope", Passed: false, Message: "The connector role is missing required read-only collector actions.", Remediation: "Attach the current read-only collector policy."},
+		},
+	}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSConnectorValidator = validator
+
+	_, err = svc.EnqueueScan(ctx, ScanRequest{ProjectID: "project-a", ConnectorID: "aws-prod"})
+	var notReady AWSPlatformBaselineNotReadyError
+	if !errors.As(err, &notReady) {
+		t.Fatalf("expected permission preflight to block scan, got %v", err)
+	}
+	if validator.calls != 1 {
+		t.Fatalf("expected one live connector validation, got %d", validator.calls)
+	}
+	check := requireAWSBaselineCheck(t, notReady.Result.Checks, "aws_connector_health")
+	if check.Status != db.AWSPlatformBaselineCheckPermissionDenied || !strings.Contains(check.FailureReason, "missing required") {
+		t.Fatalf("expected permission-scope failure in baseline, got %+v", check)
+	}
+}
+
+func TestEnqueueAWSScanBindsSelectedConnectorBeforeBaselineCheck(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 8, 26, 10, 30, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	// The most recently updated connector is selected for an unbound scan.
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-first", domain.ConnectorStatusActive, "healthy", now.Add(time.Hour))
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-second", domain.ConnectorStatusActive, "healthy", now)
+
+	validator := &sequenceAWSConnectorValidator{results: []AWSConnectionValidationResult{{
+		AccountID: "123456789012",
+		Region:    "us-east-1",
+		PermissionChecks: []AWSConnectionPermissionCheck{
+			{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+			{Name: "aws:ReadOnlyCollectorScope", Passed: false, Message: "The connector role is missing required read-only collector actions."},
+		},
+	}}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSConnectorValidator = validator
+
+	_, err := svc.EnqueueScan(ctx, ScanRequest{ProjectID: "project-a"})
+	var notReady AWSPlatformBaselineNotReadyError
+	if !errors.As(err, &notReady) {
+		t.Fatalf("expected selected connector validation to block scan, got %v", err)
+	}
+	if validator.calls != 1 {
+		t.Fatalf("expected one validation of the selected connector, got %d", validator.calls)
+	}
+	if notReady.Result.ConnectorID != "aws-first" {
+		t.Fatalf("expected baseline to remain bound to selected connector, got %q", notReady.Result.ConnectorID)
+	}
+}
+
+type sequenceAWSConnectorValidator struct {
+	results []AWSConnectionValidationResult
+	calls   int
+}
+
+func (v *sequenceAWSConnectorValidator) ValidateAWSConnection(_ context.Context, _ AWSConnectionValidationRequest) (AWSConnectionValidationResult, error) {
+	index := v.calls
+	v.calls++
+	if index >= len(v.results) {
+		index = len(v.results) - 1
+	}
+	return v.results[index], nil
+}
+
+type scopeRecordingAWSConnectorValidator struct {
+	result AWSConnectionValidationResult
+	seen   db.Scope
+	calls  int
+}
+
+func (v *scopeRecordingAWSConnectorValidator) ValidateAWSConnection(ctx context.Context, _ AWSConnectionValidationRequest) (AWSConnectionValidationResult, error) {
+	v.calls++
+	v.seen = db.ScopeFromContext(ctx)
+	return v.result, nil
+}
+
+func TestAWSWorkerRevalidatesConnectorBeforeStartingQueuedScan(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 8, 26, 11, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+	stored, err := store.GetTenancyConnector(ctx, "default", "project-a", "aws-prod")
+	if err != nil {
+		t.Fatalf("load connector: %v", err)
+	}
+	stored.State.Metadata["external_id"] = "test-external-id"
+	if err := store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
+		t.Fatalf("persist connector external id: %v", err)
+	}
+
+	healthy := AWSConnectionValidationResult{
+		AccountID: "123456789012",
+		Region:    "us-east-1",
+		PermissionChecks: []AWSConnectionPermissionCheck{
+			{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+			{Name: "aws:ReadOnlyCollectorScope", Passed: true, Message: "The connector role grants every required read-only collector action."},
+		},
+	}
+	degraded := AWSConnectionValidationResult{
+		AccountID: "123456789012",
+		Region:    "us-east-1",
+		PermissionChecks: []AWSConnectionPermissionCheck{
+			{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+			{Name: "aws:ReadOnlyCollectorScope", Passed: false, Message: "The connector role is missing required read-only collector actions."},
+		},
+	}
+	validator := &sequenceAWSConnectorValidator{results: []AWSConnectionValidationResult{healthy, degraded}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSConnectorValidator = validator
+	factoryCalled := false
+	svc.AWSScannerFactory = func(_ context.Context, _ AWSConnectionStatus) (ScannerRunner, error) {
+		factoryCalled = true
+		return fakeScanner{result: app.ScanResult{Assets: 1}}, nil
+	}
+
+	record, err := svc.EnqueueScan(ctx, ScanRequest{ProjectID: "project-a", ConnectorID: "aws-prod"})
+	if err != nil {
+		t.Fatalf("enqueue scan: %v", err)
+	}
+	if validator.calls != 1 {
+		t.Fatalf("expected enqueue validation, got %d calls", validator.calls)
+	}
+	if _, _, err := svc.scannerForScan(ctx, record); err == nil || !strings.Contains(err.Error(), "not active") {
+		t.Fatalf("expected worker validation to reject stale connector health, got %v", err)
+	}
+	if validator.calls != 2 {
+		t.Fatalf("expected worker validation, got %d calls", validator.calls)
+	}
+	if factoryCalled {
+		t.Fatal("expected AWS scanner factory not to run after permission drift")
+	}
+}
+
+func TestScheduledAWSScanRevalidatesSelectedConnectorBeforeStarting(t *testing.T) {
+	store := db.NewMemoryStore()
+	ctx := defaultScopeContext()
+	now := time.Date(2026, 8, 26, 11, 30, 0, 0, time.UTC)
+	seedDefaultProject(t, store, ctx, "project-a")
+	seedAWSConnectorForScanTest(t, store, ctx, "project-a", "aws-prod", domain.ConnectorStatusActive, "healthy", now)
+
+	validator := &sequenceAWSConnectorValidator{results: []AWSConnectionValidationResult{{
+		AccountID: "123456789012",
+		Region:    "us-east-1",
+		PermissionChecks: []AWSConnectionPermissionCheck{
+			{Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded."},
+			{Name: "aws:ReadOnlyCollectorScope", Passed: false, Message: "The connector role is missing required read-only collector actions."},
+		},
+	}}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSConnectorValidator = validator
+	factoryCalled := false
+	svc.AWSScannerFactory = func(_ context.Context, _ AWSConnectionStatus) (ScannerRunner, error) {
+		factoryCalled = true
+		return fakeScanner{result: app.ScanResult{Assets: 1}}, nil
+	}
+
+	_, err := svc.RunScan(ctx)
+	if err == nil || !strings.Contains(err.Error(), "not active") {
+		t.Fatalf("expected scheduled scan to fail closed after connector drift, got %v", err)
+	}
+	if validator.calls != 1 {
+		t.Fatalf("expected one scheduled-scan connector validation, got %d", validator.calls)
+	}
+	if factoryCalled {
+		t.Fatal("expected scanner factory not to run after scheduled connector validation failed")
+	}
+	scans, err := store.ListScans(ctx, 10)
+	if err != nil {
+		t.Fatalf("list failed scheduled scan: %v", err)
+	}
+	if len(scans) != 1 || scans[0].ProjectID != "project-a" || scans[0].ConnectorID != "aws-prod" {
+		t.Fatalf("expected failed scheduled scan to retain selected source for replay, got %+v", scans)
+	}
+}
+
+func TestScheduledAWSScanRevalidatesSelectedConnectorInItsScope(t *testing.T) {
+	store := db.NewMemoryStore()
+	workerCtx := defaultScopeContext()
+	selectedCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"})
+	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+	seedDefaultProject(t, store, workerCtx, "project-a")
+	seedDefaultProject(t, store, selectedCtx, "project-b")
+	// Connector IDs are project-scoped, so the same ID can exist in both
+	// scopes. Keep the default-scope row newer but degraded to ensure the
+	// selector's full row, rather than only its ID, is preserved.
+	seedAWSConnectorForScanTest(t, store, workerCtx, "project-a", "aws-shared", domain.ConnectorStatusActive, "error", now.Add(time.Hour))
+	seedAWSConnectorForScanTest(t, store, selectedCtx, "project-b", "aws-shared", domain.ConnectorStatusActive, "healthy", now)
+
+	validator := &scopeRecordingAWSConnectorValidator{result: AWSConnectionValidationResult{
+		AccountID: "123456789012",
+		Region:    "us-east-1",
+		PermissionChecks: []AWSConnectionPermissionCheck{{
+			Name: "sts:AssumeRole", Passed: true, Message: "Role assumption succeeded.",
+		}},
+	}}
+	svc := NewService(store, fakeScanner{}, "aws")
+	svc.Now = func() time.Time { return now }
+	svc.AWSConnectorValidator = validator
+	var factoryScope db.Scope
+	svc.AWSScannerFactory = func(ctx context.Context, connection AWSConnectionStatus) (ScannerRunner, error) {
+		factoryScope = db.ScopeFromContext(ctx)
+		if connection.ConnectorID != "aws-shared" {
+			t.Fatalf("expected selected connector, got %q", connection.ConnectorID)
+		}
+		return fakeScanner{result: app.ScanResult{Assets: 1}}, nil
+	}
+
+	result, err := svc.RunScan(workerCtx)
+	if err != nil {
+		t.Fatalf("run scheduled scan: %v", err)
+	}
+	wantScope := db.Scope{TenantID: "tenant-b", WorkspaceID: "workspace-b"}
+	if validator.calls != 1 || validator.seen != wantScope {
+		t.Fatalf("expected connector validation in selected scope, calls=%d scope=%+v", validator.calls, validator.seen)
+	}
+	if factoryScope != wantScope {
+		t.Fatalf("expected scanner factory in selected scope, got %+v", factoryScope)
+	}
+	if result.Scan.ProjectID != "project-b" || result.Scan.ConnectorID != "aws-shared" || result.Scan.TenantID != wantScope.TenantID || result.Scan.WorkspaceID != wantScope.WorkspaceID {
+		t.Fatalf("expected scheduled scan to persist selected source and scope, got %+v", result.Scan)
+	}
+	persisted, err := store.GetScan(selectedCtx, result.Scan.ID)
+	if err != nil {
+		t.Fatalf("load persisted selected scan: %v", err)
+	}
+	if persisted.ProjectID != "project-b" || persisted.ConnectorID != "aws-shared" || persisted.TenantID != wantScope.TenantID || persisted.WorkspaceID != wantScope.WorkspaceID {
+		t.Fatalf("expected persisted scan source and scope, got %+v", persisted)
+	}
+}
+
 func TestVerifyAWSPlatformBaselineQueueCheckIsSourceScoped(t *testing.T) {
 	store := db.NewMemoryStore()
 	ctx := defaultScopeContext()
@@ -410,7 +670,7 @@ func TestEnsureAWSPlatformBaselineBlocksMissingConnector(t *testing.T) {
 	svc := NewService(store, fakeScanner{}, "aws")
 	svc.Now = func() time.Time { return now }
 
-	err := svc.ensureAWSPlatformBaselineReadyForScan(ctx, "aws", db.ScanSource{ProjectID: "project-a"})
+	_, err := svc.ensureAWSPlatformBaselineReadyForScan(ctx, "aws", db.ScanSource{ProjectID: "project-a"})
 	var notReady AWSPlatformBaselineNotReadyError
 	if !errorsAsAWSBaseline(err, &notReady) {
 		t.Fatalf("expected baseline not ready error, got %v", err)
@@ -435,7 +695,7 @@ func TestEnsureAWSPlatformBaselineAllowsFixtureModeWithoutConnector(t *testing.T
 	svc.AWSBaselineSourceMode = "fixture"
 	svc.AWSBaselineFixturePaths = []string{fixtureDir}
 
-	if err := svc.ensureAWSPlatformBaselineReadyForScan(ctx, "aws", db.ScanSource{ProjectID: "project-a"}); err != nil {
+	if _, err := svc.ensureAWSPlatformBaselineReadyForScan(ctx, "aws", db.ScanSource{ProjectID: "project-a"}); err != nil {
 		t.Fatalf("expected fixture baseline to allow scan without connector: %v", err)
 	}
 	result, err := store.GetAWSPlatformBaselineResult(ctx, db.AWSPlatformBaselineFilter{

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -186,6 +187,320 @@ func TestAWSRegistrationRenewsAttemptDeadlineOnBoundStackUpdate(t *testing.T) {
 	}
 	if !reloaded.ExpiresAt.After(pastExpiry) {
 		t.Fatalf("expected bound-Update to renew ExpiresAt past %s, got %s", pastExpiry, reloaded.ExpiresAt)
+	}
+}
+
+func TestAWSRegistrationUpgradesLegacyTemplateOnBoundStackUpdate(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	responder := &recordingAWSCloudFormationResponder{}
+	svc.AWSCloudFormationResponder = responder
+	started, attempt, stackID, externalID := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+	store := svc.Store.(db.AWSConnectorOnboardingAttemptStore)
+
+	// The stack was created by the previous automatic-registration template.
+	// Keep its one-time attempt bound to 2.1.0 so the test exercises the same
+	// migration path as a real legacy connector.
+	legacyAttempt, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload attempt: %v", err)
+	}
+	legacyAttempt.TemplateVersion = awsLegacyConnectorTemplateVersion
+	legacyAttempt.UpdatedAt = svc.Now().UTC()
+	if _, err := store.UpdateAWSConnectorOnboardingAttempt(ctx, legacyAttempt, legacyAttempt.Version); err != nil {
+		t.Fatalf("seed legacy template version: %v", err)
+	}
+	legacyConnector, err := svc.Store.GetTenancyConnector(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil {
+		t.Fatalf("reload connector for legacy metadata: %v", err)
+	}
+	legacyConnector.State.Metadata["template_version"] = awsLegacyConnectorTemplateVersion
+	legacyConnector.State.Metadata["template_checksum"] = "sha256:" + strings.Repeat("1", 64)
+	legacyConnector.State.Metadata["template_url"] = "https://legacy.example/identrail-readonly.yaml"
+	if err := svc.Store.UpsertTenancyConnector(ctx, legacyConnector.Connector, legacyConnector.State); err != nil {
+		t.Fatalf("seed legacy connector template metadata: %v", err)
+	}
+
+	initial := awsRegistrationRequest(stackID, "Create", "registration-create", "Register", attempt.AttemptID)
+	initial.ResourceProperties["ExternalId"] = externalID
+	initial.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	initial.ResourceProperties["TemplateVersion"] = awsLegacyConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, initial)); err != nil {
+		t.Fatalf("complete legacy registration: %v", err)
+	}
+
+	currentAttempt, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload connected legacy attempt: %v", err)
+	}
+	bootstrapToken, err := svc.awsRegistrationToken(currentAttempt)
+	if err != nil {
+		t.Fatalf("derive bootstrap token: %v", err)
+	}
+	bootstrapUpdate := awsRegistrationRequest(stackID, "Update", "bootstrap-upgrade", "Bootstrap", attempt.AttemptID)
+	bootstrapUpdate.ResourceProperties["RegistrationToken"] = bootstrapToken
+	bootstrapUpdate.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, bootstrapUpdate)); err != nil {
+		t.Fatalf("upgrade legacy bootstrap: %v", err)
+	}
+
+	registrationUpdate := awsRegistrationRequest(stackID, "Update", "registration-upgrade", "Register", attempt.AttemptID)
+	registrationUpdate.ResourceProperties["ExternalId"] = externalID
+	registrationUpdate.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	registrationUpdate.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, registrationUpdate)); err != nil {
+		t.Fatalf("complete upgraded registration: %v", err)
+	}
+
+	status, err := svc.PollAWSConnector(ctx, started.ConnectorID, AWSConnectorPollRequest{WorkspaceID: "workspace-a", ProjectID: "project-1"})
+	if err != nil || !status.Connected {
+		t.Fatalf("expected upgraded connector to remain connected, got %+v err=%v", status, err)
+	}
+	upgraded, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload upgraded attempt: %v", err)
+	}
+	if upgraded.TemplateVersion != awsConnectorTemplateVersion {
+		t.Fatalf("expected persisted template upgrade to %s, got %s", awsConnectorTemplateVersion, upgraded.TemplateVersion)
+	}
+	upgradedConnector, err := svc.Store.GetTenancyConnector(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil {
+		t.Fatalf("reload connector after template upgrade: %v", err)
+	}
+	if got := awsMetadataString(upgradedConnector.State.Metadata, "template_version"); got != awsConnectorTemplateVersion {
+		t.Fatalf("expected connector template version %s after upgrade, got %q", awsConnectorTemplateVersion, got)
+	}
+	if got := awsMetadataString(upgradedConnector.State.Metadata, "template_checksum"); got != testAWSCloudFormationTemplateChecksum {
+		t.Fatalf("expected connector template checksum %s after upgrade, got %q", testAWSCloudFormationTemplateChecksum, got)
+	}
+	if got := awsMetadataString(upgradedConnector.State.Metadata, "template_url"); got != testAWSCloudFormationTemplateURL {
+		t.Fatalf("expected connector template URL %s after upgrade, got %q", testAWSCloudFormationTemplateURL, got)
+	}
+}
+
+func TestAWSRegistrationTemplateVersionCompatibilityAcceptsDeployedVersions(t *testing.T) {
+	for _, version := range []string{awsOriginalConnectorTemplateVersion, awsLegacyConnectorTemplateVersion} {
+		t.Run(version, func(t *testing.T) {
+			if !awsRegistrationTemplateVersionCompatible("Update", version, awsConnectorTemplateVersion, true) {
+				t.Fatalf("expected bound update from deployed version %s to be accepted", version)
+			}
+		})
+	}
+}
+
+func TestAWSRegistrationBootstrapDoesNotPersistUpgradeBeforeRegister(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	responder := &recordingAWSCloudFormationResponder{}
+	svc.AWSCloudFormationResponder = responder
+	_, attempt, stackID, externalID := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+	store := svc.Store.(db.AWSConnectorOnboardingAttemptStore)
+	initial := awsRegistrationRequest(stackID, "Create", "registration-create", "Register", attempt.AttemptID)
+	initial.ResourceProperties["ExternalId"] = externalID
+	initial.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	initial.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, initial)); err != nil {
+		t.Fatalf("complete initial registration: %v", err)
+	}
+	legacy, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload attempt: %v", err)
+	}
+	legacy.TemplateVersion = awsLegacyConnectorTemplateVersion
+	if _, err := store.UpdateAWSConnectorOnboardingAttempt(ctx, legacy, legacy.Version); err != nil {
+		t.Fatalf("seed legacy template version: %v", err)
+	}
+	token, err := svc.awsRegistrationToken(legacy)
+	if err != nil {
+		t.Fatalf("derive token: %v", err)
+	}
+	bootstrap := awsRegistrationRequest(stackID, "Update", "bootstrap-upgrade", "Bootstrap", attempt.AttemptID)
+	bootstrap.ResourceProperties["RegistrationToken"] = token
+	bootstrap.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, bootstrap)); err != nil {
+		t.Fatalf("process bootstrap upgrade: %v", err)
+	}
+	unchanged, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload attempt after bootstrap: %v", err)
+	}
+	if unchanged.TemplateVersion != awsLegacyConnectorTemplateVersion {
+		t.Fatalf("bootstrap must not persist upgraded version before register, got %s", unchanged.TemplateVersion)
+	}
+	rollback := awsRegistrationRequest(stackID, "Update", "bootstrap-rollback", "Bootstrap", attempt.AttemptID)
+	rollback.ResourceProperties["RegistrationToken"] = token
+	rollback.ResourceProperties["TemplateVersion"] = awsLegacyConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, rollback)); err != nil {
+		t.Fatalf("process rollback bootstrap: %v", err)
+	}
+	rollbackSafe, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload attempt after rollback: %v", err)
+	}
+	if rollbackSafe.TemplateVersion != awsLegacyConnectorTemplateVersion {
+		t.Fatalf("rollback must remain compatible with stored legacy version, got %s", rollbackSafe.TemplateVersion)
+	}
+
+	registration := awsRegistrationRequest(stackID, "Update", "registration-upgrade", "Register", attempt.AttemptID)
+	registration.ResourceProperties["ExternalId"] = externalID
+	registration.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	registration.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, registration)); err != nil {
+		t.Fatalf("process registration upgrade: %v", err)
+	}
+	upgraded, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload attempt after register: %v", err)
+	}
+	if upgraded.TemplateVersion != awsConnectorTemplateVersion {
+		t.Fatalf("register must persist upgraded version after callback acceptance, got %s", upgraded.TemplateVersion)
+	}
+}
+
+func TestAWSConnectorStartReusesBoundAttemptForExistingStackUpgrade(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	responder := &recordingAWSCloudFormationResponder{}
+	svc.AWSCloudFormationResponder = responder
+	started, attempt, stackID, externalID := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+	store := svc.Store.(db.AWSConnectorOnboardingAttemptStore)
+
+	legacyAttempt, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload attempt: %v", err)
+	}
+	legacyAttempt.TemplateVersion = awsLegacyConnectorTemplateVersion
+	legacyAttempt.UpdatedAt = svc.Now().UTC()
+	if _, err := store.UpdateAWSConnectorOnboardingAttempt(ctx, legacyAttempt, legacyAttempt.Version); err != nil {
+		t.Fatalf("seed legacy attempt: %v", err)
+	}
+	registration := awsRegistrationRequest(stackID, "Create", "registration-create", "Register", attempt.AttemptID)
+	registration.ResourceProperties["ExternalId"] = externalID
+	registration.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	registration.ResourceProperties["TemplateVersion"] = awsLegacyConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, registration)); err != nil {
+		t.Fatalf("complete legacy registration: %v", err)
+	}
+
+	resumed, err := svc.StartAWSConnector(ctx, AWSConnectorStartRequest{
+		WorkspaceID: "workspace-a",
+		ProjectID:   "project-1",
+		ConnectorID: started.ConnectorID,
+	})
+	if err != nil {
+		t.Fatalf("resume existing connector: %v", err)
+	}
+	parsed, err := url.Parse(resumed.LaunchURL)
+	if err != nil {
+		t.Fatalf("parse resumed launch URL: %v", err)
+	}
+	if !containsAWSLaunchParameter(parsed.Fragment, "param_RegistrationAttemptId="+attempt.AttemptID) {
+		t.Fatalf("expected existing bound attempt %s in upgrade launch URL, got %q", attempt.AttemptID, resumed.LaunchURL)
+	}
+	if !strings.HasPrefix(parsed.Fragment, "/stacks/update/template?") {
+		t.Fatalf("expected resumed bound stack to use the update wizard, got %q", parsed.Fragment)
+	}
+	if !containsAWSLaunchParameter(parsed.Fragment, "stackId="+stackID) {
+		t.Fatalf("expected resumed launch URL to target stack %s, got %q", stackID, resumed.LaunchURL)
+	}
+}
+
+func TestAWSConnectorStartPrefersOlderBoundAttemptOverNewerUnboundAttempt(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	responder := &recordingAWSCloudFormationResponder{}
+	svc.AWSCloudFormationResponder = responder
+	started, attempt, stackID, externalID := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+	store := svc.Store.(db.AWSConnectorOnboardingAttemptStore)
+	registration := awsRegistrationRequest(stackID, "Create", "registration-create", "Register", attempt.AttemptID)
+	registration.ResourceProperties["ExternalId"] = externalID
+	registration.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	registration.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, registration)); err != nil {
+		t.Fatalf("complete bound registration: %v", err)
+	}
+	bound, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload bound attempt: %v", err)
+	}
+
+	// A newer attempt can be left waiting by a pre-fix launch flow. It has no
+	// StackID, so selecting it would generate a Create URL and fail to resume
+	// the already-created stack owned by bound.
+	now := svc.Now().UTC()
+	_, err = store.CreateAWSConnectorOnboardingAttempt(ctx, db.AWSConnectorOnboardingAttempt{
+		AttemptID:        "newer-unbound",
+		TenantID:         "tenant-a",
+		WorkspaceID:      "workspace-a",
+		ProjectID:        "project-1",
+		ConnectorID:      started.ConnectorID,
+		Status:           db.AWSConnectorOnboardingAttemptWaiting,
+		TokenHash:        bytes.Repeat([]byte{3}, 32),
+		TokenKeyVersion:  "test-v1",
+		ProviderTopicARN: testAWSRegistrationTopicARN,
+		TemplateVersion:  awsConnectorTemplateVersion,
+		TemplateChecksum: testAWSCloudFormationTemplateChecksum,
+		DeploymentRegion: "us-east-1",
+		ExpiresAt:        now.Add(time.Hour),
+		CreatedAt:        now.Add(time.Minute),
+		UpdatedAt:        now.Add(time.Minute),
+		Version:          1,
+	})
+	if err != nil {
+		t.Fatalf("seed newer unbound attempt: %v", err)
+	}
+	stored, err := svc.Store.GetTenancyConnector(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil {
+		t.Fatalf("reload connector: %v", err)
+	}
+	selected, _, err := svc.activeOrNewAWSConnectorOnboardingAttempt(ctx, stored, testAWSRegistrationTopicARN, testAWSCloudFormationTemplateChecksum, "us-east-1")
+	if err != nil {
+		t.Fatalf("select resumable attempt: %v", err)
+	}
+	if selected.AttemptID != bound.AttemptID || selected.StackID != stackID {
+		t.Fatalf("expected older bound attempt %s with stack %s, got %+v", bound.AttemptID, stackID, selected)
+	}
+
+	// The same precedence must hold after the stale attempt has expired and is
+	// no longer returned by the active-attempt query.
+	stale, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", "newer-unbound")
+	if err != nil {
+		t.Fatalf("reload stale attempt: %v", err)
+	}
+	stale.Status = db.AWSConnectorOnboardingAttemptExpired
+	stale.FailureCode = "registration_expired"
+	stale.FailureMessage = "The AWS connection window expired. Start a new connection."
+	stale.UpdatedAt = now.Add(2 * time.Minute)
+	if _, err := store.UpdateAWSConnectorOnboardingAttempt(ctx, stale, stale.Version); err != nil {
+		t.Fatalf("expire stale attempt: %v", err)
+	}
+	selected, _, err = svc.activeOrNewAWSConnectorOnboardingAttempt(ctx, stored, testAWSRegistrationTopicARN, testAWSCloudFormationTemplateChecksum, "us-east-1")
+	if err != nil {
+		t.Fatalf("select bound attempt after stale expiry: %v", err)
+	}
+	if selected.AttemptID != bound.AttemptID || selected.StackID != stackID {
+		t.Fatalf("expected older bound attempt after stale expiry, got %+v", selected)
+	}
+}
+
+func TestAWSRegistrationRejectsBoundTemplateDowngrade(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	responder := &recordingAWSCloudFormationResponder{}
+	svc.AWSCloudFormationResponder = responder
+	_, attempt, stackID, externalID := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+	registration := awsRegistrationRequest(stackID, "Create", "registration-create", "Register", attempt.AttemptID)
+	registration.ResourceProperties["ExternalId"] = externalID
+	registration.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	registration.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, registration)); err != nil {
+		t.Fatalf("complete initial registration: %v", err)
+	}
+
+	bootstrapToken, err := svc.awsRegistrationToken(attempt)
+	if err != nil {
+		t.Fatalf("derive bootstrap token: %v", err)
+	}
+	downgrade := awsRegistrationRequest(stackID, "Update", "bootstrap-downgrade", "Bootstrap", attempt.AttemptID)
+	downgrade.ResourceProperties["RegistrationToken"] = bootstrapToken
+	downgrade.ResourceProperties["TemplateVersion"] = awsLegacyConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, downgrade)); err == nil {
+		t.Fatal("expected bound update downgrade to be rejected")
 	}
 }
 
@@ -752,6 +1067,9 @@ func TestAWSConnectorRepairHydrationDoesNotRenewAttemptAndExplicitRelaunchResets
 	applyAWSConnectorSetupMetadata(stored.State.Metadata, setup, AWSConnectorOnboardingNeedsFix)
 	stored.Connector.Status = domain.ConnectorStatusDegraded
 	stored.State.HealthStatus = "error"
+	stored.State.Metadata["template_version"] = awsLegacyConnectorTemplateVersion
+	stored.State.Metadata["template_checksum"] = "sha256:" + strings.Repeat("a", 64)
+	stored.State.Metadata["template_url"] = "https://legacy.example/identrail-readonly.yaml"
 	stored.State.LastErrorCode = "assume_role_failed"
 	stored.State.LastErrorMessage = "Repair the trust policy."
 	if err := svc.Store.UpsertTenancyConnector(ctx, stored.Connector, stored.State); err != nil {
@@ -769,6 +1087,9 @@ func TestAWSConnectorRepairHydrationDoesNotRenewAttemptAndExplicitRelaunchResets
 	}
 	if hydrated.LaunchURL != "" || hydrated.ExternalID == "" || hydrated.OnboardingStatus != AWSConnectorOnboardingNeedsFix {
 		t.Fatalf("repair hydration must preserve state and omit launch, got %+v", hydrated)
+	}
+	if hydrated.TemplateURL != testAWSCloudFormationTemplateURL || hydrated.TemplateChecksum != testAWSCloudFormationTemplateChecksum {
+		t.Fatalf("repair hydration must use the current connector template, got url=%q checksum=%q", hydrated.TemplateURL, hydrated.TemplateChecksum)
 	}
 	if _, err := attemptStore.GetActiveAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", started.ConnectorID); !errors.Is(err, db.ErrNotFound) {
 		t.Fatalf("repair hydration silently renewed an attempt: %v", err)
@@ -867,8 +1188,9 @@ func awsRegistrationRequest(stackID string, requestType string, requestID string
 		ResourceType:      resourceType,
 		LogicalResourceID: logicalID,
 		ResourceProperties: map[string]any{
-			"Phase":     phase,
-			"AttemptId": attemptID,
+			"Phase":           phase,
+			"AttemptId":       attemptID,
+			"TemplateVersion": awsConnectorTemplateVersion,
 		},
 	}
 }

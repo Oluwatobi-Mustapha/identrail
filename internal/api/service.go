@@ -705,7 +705,8 @@ func (s *Service) EnqueueScan(ctx context.Context, requests ...ScanRequest) (db.
 	if err != nil {
 		return db.ScanRecord{}, err
 	}
-	if err := s.ensureAWSPlatformBaselineReadyForScan(ctx, s.Provider, source); err != nil {
+	source, err = s.ensureAWSPlatformBaselineReadyForScan(ctx, s.Provider, source)
+	if err != nil {
 		return db.ScanRecord{}, err
 	}
 	maxPending := s.ScanQueueMaxPending
@@ -809,7 +810,8 @@ func (s *Service) ReplayScan(ctx context.Context, scanID string) (db.ScanRecord,
 		ProjectID:   source.ProjectID,
 		ConnectorID: source.ConnectorID,
 	}
-	if err := s.ensureAWSPlatformBaselineReadyForScan(ctx, source.Provider, sourceContext); err != nil {
+	sourceContext, err = s.ensureAWSPlatformBaselineReadyForScan(ctx, source.Provider, sourceContext)
+	if err != nil {
 		return db.ScanRecord{}, err
 	}
 	if maxPending == 1 {
@@ -938,7 +940,9 @@ func (s *Service) runScanWithRecord(ctx context.Context, record db.ScanRecord, a
 			s.Metrics.ScanDurationMS.Observe(float64(time.Since(scanStarted).Milliseconds()))
 		}()
 	}
-	scanner, err := s.scannerForScan(ctx, record)
+	scanner, boundRecord, err := s.scannerForScan(ctx, record)
+	record = boundRecord
+	ctx = db.WithScope(ctx, db.Scope{TenantID: record.TenantID, WorkspaceID: record.WorkspaceID})
 	if err != nil {
 		if handleErr := s.handleScanFailure(ctx, record, allowRetry, scanFailureStageConnectorSetup, 0, 0, err, "scan failed while preparing provider connector"); handleErr != nil {
 			return RunScanResult{}, handleErr
@@ -1219,29 +1223,150 @@ func scanRetryBackoff(retryCount int) time.Duration {
 	return backoff
 }
 
-func (s *Service) scannerForScan(ctx context.Context, record db.ScanRecord) (ScannerRunner, error) {
+func (s *Service) scannerForScan(ctx context.Context, record db.ScanRecord) (ScannerRunner, db.ScanRecord, error) {
 	provider := strings.ToLower(strings.TrimSpace(record.Provider))
 	if provider == "" {
 		provider = strings.ToLower(strings.TrimSpace(s.Provider))
 	}
 	if provider != "aws" || s.AWSScannerFactory == nil {
-		return s.Scanner, nil
+		return s.Scanner, record, nil
 	}
-	connection, ok, err := s.activeAWSConnectionForScan(ctx, record)
+	// Connector health is checked when work is queued, but the role can drift
+	// while a job waits in the queue. Revalidate immediately before constructing
+	// the AWS scanner so queued work never starts with stale permission state.
+	refreshedSource, selectedScope, refreshErr := s.refreshAWSScanRecordConnection(ctx, record)
+	// Unscoped scheduled selection may choose a connector belonging to a
+	// different tenant/workspace than the worker's default scope. Carry the
+	// selected connector's scope through both validation and the final lookup;
+	// otherwise requireScopedProject can validate the wrong project or reject a
+	// valid connector as not found.
+	selectedCtx := db.WithScope(ctx, selectedScope)
+	boundRecord, selectedCtx, err := s.bindAWSScanRecordSource(selectedCtx, record, refreshedSource)
 	if err != nil {
-		return nil, err
+		return nil, boundRecord, err
+	}
+	if refreshErr != nil {
+		return nil, boundRecord, refreshErr
+	}
+	// Use the connector that was just validated for the worker lookup too;
+	// otherwise a degraded selected connector could be replaced by a different
+	// connector with stale persisted health.
+	boundRecord.ProjectID = refreshedSource.ProjectID
+	boundRecord.ConnectorID = refreshedSource.ConnectorID
+	connection, ok, err := s.activeAWSConnectionForScan(selectedCtx, boundRecord)
+	if err != nil {
+		return nil, boundRecord, err
 	}
 	if !ok {
-		return s.Scanner, nil
+		return s.Scanner, boundRecord, nil
 	}
-	scanner, err := s.AWSScannerFactory(ctx, connection)
+	scanner, err := s.AWSScannerFactory(selectedCtx, connection)
 	if err != nil {
-		return nil, fmt.Errorf("initialize aws connector scanner: %w", err)
+		return nil, boundRecord, fmt.Errorf("initialize aws connector scanner: %w", err)
 	}
 	if scanner == nil {
-		return nil, errors.New("aws connector scanner factory returned nil scanner")
+		return nil, boundRecord, errors.New("aws connector scanner factory returned nil scanner")
 	}
-	return scanner, nil
+	return scanner, boundRecord, nil
+}
+
+func (s *Service) bindAWSScanRecordSource(ctx context.Context, record db.ScanRecord, source db.ScanSource) (db.ScanRecord, context.Context, error) {
+	normalizedSource := source.Normalize()
+	if normalizedSource.Empty() {
+		return record, ctx, nil
+	}
+	scope := db.ScopeFromContext(ctx)
+	needsBinding := record.ProjectID != normalizedSource.ProjectID || record.ConnectorID != normalizedSource.ConnectorID || !db.MatchScope(scope, record.TenantID, record.WorkspaceID)
+	record.ProjectID = normalizedSource.ProjectID
+	record.ConnectorID = normalizedSource.ConnectorID
+	record.TenantID = scope.TenantID
+	record.WorkspaceID = scope.WorkspaceID
+	if !needsBinding || strings.TrimSpace(record.ID) == "" {
+		return record, ctx, nil
+	}
+	binder, ok := s.Store.(db.ScanSourceBinder)
+	if !ok {
+		return record, ctx, errors.New("scan store does not support source binding")
+	}
+	bound, err := binder.BindScanSource(ctx, record.ID, normalizedSource)
+	if err != nil {
+		return record, ctx, fmt.Errorf("bind aws scan source: %w", err)
+	}
+	return bound, db.WithScope(ctx, db.Scope{TenantID: bound.TenantID, WorkspaceID: bound.WorkspaceID}), nil
+}
+
+// refreshAWSScanRecordConnection resolves the same connector that the worker
+// would otherwise select for a source-less scheduled scan, then validates it
+// and binds the record to that connector. Scheduled scans are created without
+// project metadata, so checking only record.ProjectID would skip validation.
+func (s *Service) refreshAWSScanRecordConnection(ctx context.Context, record db.ScanRecord) (db.ScanSource, db.Scope, error) {
+	currentScope := db.ScopeFromContext(ctx)
+	source := db.ScanSource{ProjectID: record.ProjectID, ConnectorID: record.ConnectorID}.Normalize()
+	if source.ProjectID != "" {
+		refreshed, err := s.refreshAWSConnectionForScan(ctx, source)
+		return refreshed, currentScope, err
+	}
+	if s.AWSConnectorValidator == nil || s.awsBaselineSourceMode() == "fixture" {
+		return source, currentScope, nil
+	}
+	items, err := s.listEligibleAWSConnectorsUnscoped(ctx, 25)
+	if err != nil {
+		return source, currentScope, fmt.Errorf("list aws connectors for scheduled scan: %w", err)
+	}
+	if len(items) == 0 {
+		return source, currentScope, nil
+	}
+	selected, active := s.firstActiveAWSConnector(ctx, items)
+	selectedID := selected.Connector.ConnectorID
+	if !active {
+		// Keep the record bound even when persisted health says every connector
+		// is degraded; the explicit worker lookup below will fail closed rather
+		// than falling back to a different unvalidated connector.
+		selectedID = items[0].Connector.ConnectorID
+	}
+	var selectedItem db.TenancyConnectorWithState
+	if active {
+		// Keep the complete row returned by the selector. Connector IDs are
+		// project-scoped and may legitimately repeat across tenants, so looking
+		// the item up again by ID could bind validation to a different row.
+		selectedItem = selected
+	} else {
+		for _, item := range items {
+			if item.Connector.ConnectorID == selectedID {
+				selectedItem = item
+				break
+			}
+		}
+	}
+	if strings.TrimSpace(selectedItem.Connector.ConnectorID) != "" {
+		selectedScope := db.Scope{
+			TenantID:    selectedItem.Connector.TenantID,
+			WorkspaceID: selectedItem.Connector.WorkspaceID,
+		}
+		// Older connector rows may not carry denormalized scope fields. The
+		// state row has the same ownership metadata and is a safe fallback;
+		// retain the worker scope only for legacy rows missing both.
+		if strings.TrimSpace(selectedScope.TenantID) == "" {
+			selectedScope.TenantID = selectedItem.State.TenantID
+		}
+		if strings.TrimSpace(selectedScope.WorkspaceID) == "" {
+			selectedScope.WorkspaceID = selectedItem.State.WorkspaceID
+		}
+		if strings.TrimSpace(selectedScope.TenantID) == "" {
+			selectedScope.TenantID = currentScope.TenantID
+		}
+		if strings.TrimSpace(selectedScope.WorkspaceID) == "" {
+			selectedScope.WorkspaceID = currentScope.WorkspaceID
+		}
+		selectedScope = selectedScope.Normalize()
+		selectedCtx := db.WithScope(ctx, selectedScope)
+		refreshed, err := s.refreshAWSConnectionForScan(selectedCtx, db.ScanSource{
+			ProjectID:   selectedItem.Connector.ProjectID,
+			ConnectorID: selectedItem.Connector.ConnectorID,
+		})
+		return refreshed, selectedScope, err
+	}
+	return source, currentScope, nil
 }
 
 func (s *Service) recordServiceAuthzDenial(ctx context.Context, action string, resourceType string, resourceID string) {
@@ -1348,6 +1473,14 @@ func filterEligibleAWSConnectors(items []db.TenancyConnectorWithState, limit int
 }
 
 func (s *Service) firstActiveAWSConnection(ctx context.Context, items []db.TenancyConnectorWithState) (AWSConnectionStatus, bool, error) {
+	selected, ok := s.firstActiveAWSConnector(ctx, items)
+	if !ok {
+		return AWSConnectionStatus{}, false, nil
+	}
+	return s.awsConnectionStatusFromStored(ctx, selected), true, nil
+}
+
+func (s *Service) firstActiveAWSConnector(ctx context.Context, items []db.TenancyConnectorWithState) (db.TenancyConnectorWithState, bool) {
 	sort.SliceStable(items, func(i, j int) bool {
 		left := items[i].Connector
 		right := items[j].Connector
@@ -1362,10 +1495,10 @@ func (s *Service) firstActiveAWSConnection(ctx context.Context, items []db.Tenan
 		}
 		status := s.awsConnectionStatusFromStored(ctx, item)
 		if status.Connected {
-			return status, true, nil
+			return item, true
 		}
 	}
-	return AWSConnectionStatus{}, false, nil
+	return db.TenancyConnectorWithState{}, false
 }
 
 func (s *Service) recordQueueDepth(queue string, depth int) {

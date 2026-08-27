@@ -41,6 +41,28 @@ func (m jsonSubsetMatcher) Match(value driver.Value) bool {
 	return true
 }
 
+func TestFindingEvidenceForPersistencePreservesEvidenceAndMetadata(t *testing.T) {
+	finding := domain.Finding{
+		Evidence:             map[string]any{"resource": "role/reader"},
+		ConfidenceScore:      0.9,
+		Actionability:        domain.FindingActionabilityReview,
+		Exploitability:       domain.FindingExploitabilityPlausible,
+		EvidenceCompleteness: "complete",
+		Provenance:           "aws_iam_inventory",
+		AdapterSource:        "aws_iam_rule_engine",
+		ConfidenceState:      "inventory_backed",
+		EvidenceVersion:      "aws-finding-v2",
+	}
+
+	got := findingEvidenceForPersistence(finding)
+	if got["resource"] != "role/reader" || got["confidence_score"] != 0.9 || got["actionability"] != domain.FindingActionabilityReview || got["evidence_version"] != "aws-finding-v2" {
+		t.Fatalf("expected evidence and metadata to be persisted together, got %+v", got)
+	}
+	if len(got) != len(finding.Evidence)+8 {
+		t.Fatalf("expected all eight metadata fields, got %d entries: %+v", len(got), got)
+	}
+}
+
 func TestPostgresStoreCreateAndCompleteScan(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

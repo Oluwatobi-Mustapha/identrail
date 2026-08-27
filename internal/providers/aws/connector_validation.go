@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 	api "github.com/identrail/identrail/internal/api"
@@ -42,6 +44,13 @@ type iamValidationAPI interface {
 	ListAttachedRolePolicies(ctx context.Context, params *iam.ListAttachedRolePoliciesInput, optFns ...func(*iam.Options)) (*iam.ListAttachedRolePoliciesOutput, error)
 	GetPolicy(ctx context.Context, params *iam.GetPolicyInput, optFns ...func(*iam.Options)) (*iam.GetPolicyOutput, error)
 	GetPolicyVersion(ctx context.Context, params *iam.GetPolicyVersionInput, optFns ...func(*iam.Options)) (*iam.GetPolicyVersionOutput, error)
+}
+
+// iamPermissionSimulationAPI is kept separate from iamValidationAPI so test
+// adapters and older integrations that only implement the IAM metadata probes
+// continue to work. The AWS SDK client implements both interfaces.
+type iamPermissionSimulationAPI interface {
+	SimulatePrincipalPolicy(ctx context.Context, params *iam.SimulatePrincipalPolicyInput, optFns ...func(*iam.Options)) (*iam.SimulatePrincipalPolicyOutput, error)
 }
 
 // NewConnectionValidator creates an AWS SDK-backed connector validator.
@@ -160,7 +169,8 @@ func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request
 	if iamClient == nil {
 		iamClient = func(cfg awsv2.Config) iamValidationAPI { return iam.NewFromConfig(cfg) }
 	}
-	iamCheck := validateIAMReadPermissions(ctx, iamClient(assumedCfg))
+	validatedIAMClient := iamClient(assumedCfg)
+	iamCheck := validateIAMReadPermissions(ctx, validatedIAMClient)
 	if !iamCheck.Passed {
 		result.Diagnostics = append(result.Diagnostics, api.AWSConnectionDiagnostic{
 			Code:        classifyAWSError(iamCheckError(iamCheck), "aws_iam_read_failed"),
@@ -169,8 +179,154 @@ func (v *ConnectionValidator) ValidateAWSConnection(ctx context.Context, request
 		})
 	}
 	result.PermissionChecks = append(result.PermissionChecks, iamCheck)
+	if simulator, ok := validatedIAMClient.(iamPermissionSimulationAPI); ok {
+		scopeCheck, _ := validateIAMPermissionScope(ctx, simulator, result.RoleARN, region)
+		if !scopeCheck.Passed {
+			result.Diagnostics = append(result.Diagnostics, api.AWSConnectionDiagnostic{
+				Code:        "aws_connector_permission_scope_incomplete",
+				Message:     "The connector role does not have the complete read-only collector permission scope.",
+				Remediation: scopeCheck.Remediation,
+			})
+		}
+		result.PermissionChecks = append(result.PermissionChecks, scopeCheck)
+	}
 
 	return result, nil
+}
+
+const iamPermissionSimulationBatchSize = 100
+
+func validateIAMPermissionScope(ctx context.Context, client iamPermissionSimulationAPI, roleARN string, region string) (api.AWSConnectionPermissionCheck, error) {
+	check := api.AWSConnectionPermissionCheck{
+		Name:    "aws:ReadOnlyCollectorScope",
+		Passed:  true,
+		Message: "The connector role grants every required read-only collector action.",
+	}
+	expected, err := expectedConnectorPermissionActions()
+	if err != nil {
+		check.Passed = false
+		check.Message = "Identrail could not determine the required read-only collector permission scope."
+		check.Remediation = "Refresh the Identrail connector policy definition, then validate the AWS connector again."
+		return withIAMScopeCheckError(check, err), err
+	}
+	actions := make([]string, 0, len(expected))
+	for action := range expected {
+		actions = append(actions, action)
+	}
+	sort.Strings(actions)
+	missing := make(map[string]struct{})
+	simulationContext := iamPermissionSimulationContext(region)
+	simulationResources := iamPermissionSimulationResourceARNs(roleARN)
+	for start := 0; start < len(actions); start += iamPermissionSimulationBatchSize {
+		end := start + iamPermissionSimulationBatchSize
+		if end > len(actions) {
+			end = len(actions)
+		}
+		batch := actions[start:end]
+		decisions := make(map[string]iamtypes.PolicyEvaluationDecisionType)
+		marker := ""
+		for {
+			input := &iam.SimulatePrincipalPolicyInput{
+				PolicySourceArn: awsv2.String(strings.TrimSpace(roleARN)),
+				ActionNames:     batch,
+				ResourceArns:    simulationResources,
+				ContextEntries:  simulationContext,
+				MaxItems:        awsv2.Int32(int32(len(batch))),
+			}
+			if marker != "" {
+				input.Marker = awsv2.String(marker)
+			}
+			output, err := client.SimulatePrincipalPolicy(ctx, input)
+			if err != nil {
+				check.Passed = false
+				check.Message = "The connector role permission scope could not be verified."
+				check.Remediation = "Attach the current Identrail read-only collector policy (template 2.2.0), then validate the connector again. The policy must include iam:SimulatePrincipalPolicy and every action used by the AWS collectors."
+				return withIAMScopeCheckError(check, err), err
+			}
+			if output != nil {
+				for _, evaluation := range output.EvaluationResults {
+					action := strings.ToLower(strings.TrimSpace(awsv2.ToString(evaluation.EvalActionName)))
+					if action != "" {
+						// A resource-scoped grant can deny the literal "*" probe
+						// while allowing the representative role ARN. Preserve an
+						// allowed result from any resource instead of letting a later
+						// implicit deny overwrite it.
+						if evaluation.EvalDecision == iamtypes.PolicyEvaluationDecisionTypeAllowed || decisions[action] == iamtypes.PolicyEvaluationDecisionTypeAllowed {
+							decisions[action] = iamtypes.PolicyEvaluationDecisionTypeAllowed
+						} else if _, exists := decisions[action]; !exists {
+							decisions[action] = evaluation.EvalDecision
+						}
+					}
+				}
+				if output.IsTruncated && strings.TrimSpace(awsv2.ToString(output.Marker)) != "" {
+					marker = strings.TrimSpace(awsv2.ToString(output.Marker))
+					continue
+				}
+			}
+			break
+		}
+		for _, action := range batch {
+			if decisions[strings.ToLower(action)] != iamtypes.PolicyEvaluationDecisionTypeAllowed {
+				missing[action] = struct{}{}
+			}
+		}
+	}
+	if len(missing) == 0 {
+		return check, nil
+	}
+	missingActions := make([]string, 0, len(missing))
+	for action := range missing {
+		missingActions = append(missingActions, action)
+	}
+	sort.Strings(missingActions)
+	check.Passed = false
+	check.Message = fmt.Sprintf("The connector role is missing %d required read-only collector action(s): %s.", len(missingActions), formatIAMActionSample(missingActions))
+	check.Remediation = "Attach the current Identrail read-only collector policy (template 2.2.0), then validate the connector again. Do not add write permissions or weaken the external-ID trust condition."
+	return check, nil
+}
+
+// iamPermissionSimulationResourceARNs probes both the account-wide wildcard
+// and the configured connector role. The latter is a representative IAM
+// resource that lets policies such as arn:aws:iam::<account>:role/* evaluate
+// as allowed without weakening the permission check for genuinely missing
+// actions.
+func iamPermissionSimulationResourceARNs(roleARN string) []string {
+	resources := []string{"*"}
+	if trimmed := strings.TrimSpace(roleARN); strings.HasPrefix(trimmed, "arn:") {
+		resources = append(resources, trimmed)
+	}
+	return resources
+}
+
+// iamPermissionSimulationContext mirrors the request context that the
+// collector uses for regional AWS calls. Without aws:RequestedRegion, IAM
+// evaluates a policy conditioned on that key as an implicit deny even when
+// the role is authorized in the configured region.
+func iamPermissionSimulationContext(region string) []iamtypes.ContextEntry {
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return nil
+	}
+	return []iamtypes.ContextEntry{{
+		ContextKeyName:   awsv2.String("aws:RequestedRegion"),
+		ContextKeyValues: []string{region},
+		ContextKeyType:   iamtypes.ContextKeyTypeEnum("string"),
+	}}
+}
+
+func formatIAMActionSample(actions []string) string {
+	const sampleSize = 8
+	if len(actions) <= sampleSize {
+		return strings.Join(actions, ", ")
+	}
+	return strings.Join(actions[:sampleSize], ", ") + fmt.Sprintf(", and %d more", len(actions)-sampleSize)
+}
+
+func withIAMScopeCheckError(check api.AWSConnectionPermissionCheck, err error) api.AWSConnectionPermissionCheck {
+	if err != nil {
+		check.Message = strings.TrimSpace(check.Message + " (" + err.Error() + ")")
+	}
+	return check
 }
 
 func validateIAMReadPermissions(ctx context.Context, client iamValidationAPI) api.AWSConnectionPermissionCheck {

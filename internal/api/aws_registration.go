@@ -22,10 +22,18 @@ import (
 )
 
 const (
-	awsConnectorTemplateVersion    = "2.2.0"
-	awsRegistrationTokenPurpose    = "aws-connector-registration-v1"
-	awsRegistrationAttemptLifetime = 2 * time.Hour
+	awsConnectorTemplateVersion         = "2.2.0"
+	awsOriginalConnectorTemplateVersion = "2.0.0"
+	awsLegacyConnectorTemplateVersion   = "2.1.0"
+	awsRegistrationTokenPurpose         = "aws-connector-registration-v1"
+	awsRegistrationAttemptLifetime      = 2 * time.Hour
 )
+
+var awsConnectorTemplateVersionOrder = map[string]int{
+	awsOriginalConnectorTemplateVersion: 1,
+	awsLegacyConnectorTemplateVersion:   2,
+	awsConnectorTemplateVersion:         3,
+}
 
 var (
 	awsStackARNPattern = regexp.MustCompile(`^arn:(aws|aws-us-gov|aws-cn):cloudformation:([a-z0-9-]+):([0-9]{12}):stack/[^/]+/[A-Za-z0-9-]+$`)
@@ -172,27 +180,50 @@ func (s *Service) activeOrNewAWSConnectorOnboardingAttempt(
 		return db.AWSConnectorOnboardingAttempt{}, "", err
 	}
 	now := s.Now().UTC()
-	attempt, err := store.GetActiveAWSConnectorOnboardingAttempt(ctx, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID)
-	if err == nil {
-		if now.Before(attempt.ExpiresAt) &&
-			attempt.ProviderTopicARN == strings.TrimSpace(providerTopicARN) &&
-			attempt.TemplateChecksum == normalizeAWSConnectorTemplateChecksum(templateChecksum) &&
-			attempt.DeploymentRegion == strings.ToLower(strings.TrimSpace(region)) {
-			token, tokenErr := s.awsRegistrationToken(attempt)
+	active, err := store.GetActiveAWSConnectorOnboardingAttempt(ctx, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID)
+	activeFound := err == nil
+	if err != nil && !errors.Is(err, db.ErrNotFound) {
+		return db.AWSConnectorOnboardingAttempt{}, "", err
+	}
+	// Prefer the newest attempt that is already bound to a stack. A newer
+	// waiting/expired attempt may have been created by an earlier launch flow,
+	// but it has no durable StackID and cannot safely update the existing stack.
+	resumable, resumableErr := store.GetLatestResumableAWSConnectorOnboardingAttempt(
+		ctx,
+		stored.Connector.WorkspaceID,
+		stored.Connector.ProjectID,
+		stored.Connector.ConnectorID,
+		providerTopicARN,
+		region,
+	)
+	if resumableErr == nil {
+		token, tokenErr := s.awsRegistrationToken(resumable)
+		if tokenErr != nil {
+			return db.AWSConnectorOnboardingAttempt{}, "", tokenErr
+		}
+		return resumable, token, nil
+	}
+	if !errors.Is(resumableErr, db.ErrNotFound) {
+		return db.AWSConnectorOnboardingAttempt{}, "", resumableErr
+	}
+	if activeFound {
+		if now.Before(active.ExpiresAt) &&
+			active.ProviderTopicARN == strings.TrimSpace(providerTopicARN) &&
+			active.TemplateChecksum == normalizeAWSConnectorTemplateChecksum(templateChecksum) &&
+			active.DeploymentRegion == strings.ToLower(strings.TrimSpace(region)) {
+			token, tokenErr := s.awsRegistrationToken(active)
 			if tokenErr != nil {
 				return db.AWSConnectorOnboardingAttempt{}, "", tokenErr
 			}
-			return attempt, token, nil
+			return active, token, nil
 		}
-		attempt.Status = db.AWSConnectorOnboardingAttemptExpired
-		attempt.FailureCode = "registration_expired"
-		attempt.FailureMessage = "The AWS connection window expired. Start a new connection."
-		attempt.UpdatedAt = now
-		if _, updateErr := store.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, attempt.Version); updateErr != nil && !errors.Is(updateErr, db.ErrConflict) {
+		active.Status = db.AWSConnectorOnboardingAttemptExpired
+		active.FailureCode = "registration_expired"
+		active.FailureMessage = "The AWS connection window expired. Start a new connection."
+		active.UpdatedAt = now
+		if _, updateErr := store.UpdateAWSConnectorOnboardingAttempt(ctx, active, active.Version); updateErr != nil && !errors.Is(updateErr, db.ErrConflict) {
 			return db.AWSConnectorOnboardingAttempt{}, "", updateErr
 		}
-	} else if !errors.Is(err, db.ErrNotFound) {
-		return db.AWSConnectorOnboardingAttempt{}, "", err
 	}
 	created, token, createErr := s.createAWSConnectorOnboardingAttempt(ctx, stored, providerTopicARN, templateChecksum, region, now)
 	if createErr == nil || !errors.Is(createErr, db.ErrConflict) {
@@ -207,6 +238,17 @@ func (s *Service) activeOrNewAWSConnectorOnboardingAttempt(
 		return db.AWSConnectorOnboardingAttempt{}, "", tokenErr
 	}
 	return active, activeToken, nil
+}
+
+func awsOnboardingAttemptCanResumeBoundStack(attempt db.AWSConnectorOnboardingAttempt, providerTopicARN string, region string) bool {
+	if attempt.Status != db.AWSConnectorOnboardingAttemptConnected && attempt.Status != db.AWSConnectorOnboardingAttemptNeedsFix {
+		return false
+	}
+	return attempt.StackID != "" &&
+		attempt.BootstrapRequestID != "" &&
+		attempt.RegisterRequestID != "" &&
+		attempt.ProviderTopicARN == strings.TrimSpace(providerTopicARN) &&
+		attempt.DeploymentRegion == strings.ToLower(strings.TrimSpace(region))
 }
 
 func (s *Service) awsRegistrationToken(attempt db.AWSConnectorOnboardingAttempt) (string, error) {
@@ -331,6 +373,11 @@ func (s *Service) processAWSRegistrationBootstrap(ctx context.Context, store db.
 			return err
 		}
 	}
+	// Do not persist an Update's template version during Bootstrap. If a later
+	// custom resource fails, CloudFormation sends rollback Updates carrying the
+	// legacy version; recording the new version here would make that legitimate
+	// rollback look like a downgrade. The Register phase persists the upgraded
+	// version only after its callback is accepted.
 	// NoEcho must be false: the template's IAM trust policy and the Register
 	// resource both consume this via Fn::GetAtt, and CloudFormation masks
 	// NoEcho'd custom-resource attributes in those references, which would
@@ -343,7 +390,7 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 	roleARN := awsRegistrationProperty(request.ResourceProperties, "RoleArn")
 	externalID := awsRegistrationProperty(request.ResourceProperties, "ExternalId")
 	templateVersion := awsRegistrationProperty(request.ResourceProperties, "TemplateVersion")
-	if !awsRoleARNPattern.MatchString(roleARN) || templateVersion != attempt.TemplateVersion || accountIDFromRoleARN(roleARN) != attempt.AWSAccountID {
+	if !awsRoleARNPattern.MatchString(roleARN) || !awsRegistrationTemplateVersionCompatible(request.RequestType, attempt.TemplateVersion, templateVersion, request.RequestType == "Update") || accountIDFromRoleARN(roleARN) != attempt.AWSAccountID {
 		return s.failAWSCloudFormationRequest(ctx, request, "The AWS role does not match this connection request.", fmt.Errorf("registration role mismatch"))
 	}
 	stored, err := s.Store.GetTenancyConnector(ctx, attempt.WorkspaceID, attempt.ProjectID, attempt.ConnectorID)
@@ -382,6 +429,7 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 		attempt.Status = db.AWSConnectorOnboardingAttemptValidating
 		attempt.RoleARN = roleARN
 		attempt.RegisterRequestID = request.RequestID
+		attempt.TemplateVersion = templateVersion
 		if attempt.RegisteredAt == nil {
 			attempt.RegisteredAt = &now
 		}
@@ -409,7 +457,7 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 	// has a different request ID and is allowed to validate the replacement.
 	if callbackAlreadyDelivered &&
 		(attempt.Status == db.AWSConnectorOnboardingAttemptConnected || attempt.Status == db.AWSConnectorOnboardingAttemptNeedsFix) {
-		return nil
+		return s.reconcileAWSConnectorFromOnboardingAttempt(ctx, attempt)
 	}
 	status, validationErr := s.ValidateAWSConnector(ctx, attempt.ConnectorID, AWSConnectorValidateRequest{
 		WorkspaceID: attempt.WorkspaceID,
@@ -444,7 +492,13 @@ func (s *Service) processAWSRegistrationRole(ctx context.Context, store db.AWSCo
 		}
 		return s.reconcileAWSConnectorFromOnboardingAttempt(ctx, winner)
 	}
-	return updateErr
+	if updateErr != nil {
+		return updateErr
+	}
+	if attempt.Status == db.AWSConnectorOnboardingAttemptConnected {
+		return s.reconcileAWSConnectorFromOnboardingAttempt(ctx, attempt)
+	}
+	return nil
 }
 
 func (s *Service) validateAWSRegistrationRequest(attempt db.AWSConnectorOnboardingAttempt, topicARN string, request awsCloudFormationCustomResourceRequest, phase string, token string) error {
@@ -463,6 +517,10 @@ func (s *Service) validateAWSRegistrationRequest(attempt db.AWSConnectorOnboardi
 		boundStack &&
 		(attempt.Status == db.AWSConnectorOnboardingAttemptConnected ||
 			attempt.Status == db.AWSConnectorOnboardingAttemptNeedsFix)
+	templateVersion := awsRegistrationProperty(request.ResourceProperties, "TemplateVersion")
+	if !awsRegistrationTemplateVersionCompatible(request.RequestType, attempt.TemplateVersion, templateVersion, boundLifecycleUpdate) {
+		return fmt.Errorf("unsupported registration template version transition")
+	}
 	if attempt.ProviderTopicARN != strings.TrimSpace(topicARN) ||
 		attempt.Status == db.AWSConnectorOnboardingAttemptExpired ||
 		attempt.Status == db.AWSConnectorOnboardingAttemptFailed ||
@@ -487,6 +545,24 @@ func (s *Service) validateAWSRegistrationRequest(attempt db.AWSConnectorOnboardi
 		return fmt.Errorf("registration stack replay")
 	}
 	return nil
+}
+
+// awsRegistrationTemplateVersionCompatible keeps the one-time registration
+// contract strict for new stacks while allowing an authenticated, stack-bound
+// CloudFormation Update to move a legacy automatic connector forward. Updates
+// can never downgrade or skip to an unknown version.
+func awsRegistrationTemplateVersionCompatible(requestType, storedVersion, incomingVersion string, boundLifecycleUpdate bool) bool {
+	storedVersion = strings.TrimSpace(storedVersion)
+	incomingVersion = strings.TrimSpace(incomingVersion)
+	if requestType == "Create" {
+		return incomingVersion != "" && incomingVersion == storedVersion
+	}
+	if requestType != "Update" || !boundLifecycleUpdate {
+		return incomingVersion == storedVersion
+	}
+	storedOrder, storedKnown := awsConnectorTemplateVersionOrder[storedVersion]
+	incomingOrder, incomingKnown := awsConnectorTemplateVersionOrder[incomingVersion]
+	return storedKnown && incomingKnown && incomingOrder >= storedOrder
 }
 
 func (s *Service) processAWSRegistrationDelete(ctx context.Context, topicARN string, request awsCloudFormationCustomResourceRequest, phase string) error {
@@ -827,6 +903,21 @@ func (s *Service) persistAWSRegistrationConnected(ctx context.Context, stored db
 	}
 	if attempt.DeploymentRegion != "" {
 		metadata["region"] = attempt.DeploymentRegion
+	}
+	if templateVersion := strings.TrimSpace(attempt.TemplateVersion); templateVersion != "" {
+		metadata["template_version"] = templateVersion
+	}
+	// A successful registration is the durable proof that the stack now runs
+	// the template used for this launch. Prefer the currently configured
+	// content-addressed template metadata so a legacy stack upgrade cannot
+	// leave the connector offering the same migration again on its next start.
+	if templateChecksum := normalizeAWSConnectorTemplateChecksum(s.AWSCloudFormationTemplateSHA); templateChecksum != "" {
+		metadata["template_checksum"] = templateChecksum
+	} else if templateChecksum := normalizeAWSConnectorTemplateChecksum(attempt.TemplateChecksum); templateChecksum != "" {
+		metadata["template_checksum"] = templateChecksum
+	}
+	if templateURL := strings.TrimSpace(s.AWSCloudFormationTemplateURL); templateURL != "" {
+		metadata["template_url"] = templateURL
 	}
 	delete(metadata, "launch_url")
 	now := s.Now().UTC()
