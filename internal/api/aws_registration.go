@@ -180,43 +180,50 @@ func (s *Service) activeOrNewAWSConnectorOnboardingAttempt(
 		return db.AWSConnectorOnboardingAttempt{}, "", err
 	}
 	now := s.Now().UTC()
-	attempt, err := store.GetActiveAWSConnectorOnboardingAttempt(ctx, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID)
-	if err == nil {
-		if now.Before(attempt.ExpiresAt) &&
-			attempt.ProviderTopicARN == strings.TrimSpace(providerTopicARN) &&
-			attempt.TemplateChecksum == normalizeAWSConnectorTemplateChecksum(templateChecksum) &&
-			attempt.DeploymentRegion == strings.ToLower(strings.TrimSpace(region)) {
-			token, tokenErr := s.awsRegistrationToken(attempt)
-			if tokenErr != nil {
-				return db.AWSConnectorOnboardingAttempt{}, "", tokenErr
-			}
-			return attempt, token, nil
-		}
-		attempt.Status = db.AWSConnectorOnboardingAttemptExpired
-		attempt.FailureCode = "registration_expired"
-		attempt.FailureMessage = "The AWS connection window expired. Start a new connection."
-		attempt.UpdatedAt = now
-		if _, updateErr := store.UpdateAWSConnectorOnboardingAttempt(ctx, attempt, attempt.Version); updateErr != nil && !errors.Is(updateErr, db.ErrConflict) {
-			return db.AWSConnectorOnboardingAttempt{}, "", updateErr
-		}
-	} else if !errors.Is(err, db.ErrNotFound) {
+	active, err := store.GetActiveAWSConnectorOnboardingAttempt(ctx, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID)
+	activeFound := err == nil
+	if err != nil && !errors.Is(err, db.ErrNotFound) {
 		return db.AWSConnectorOnboardingAttempt{}, "", err
 	}
-	// Connected and needs-fix attempts are intentionally excluded from the
-	// active-attempt query, but a completed CloudFormation stack must be resumed
-	// with that same bound attempt. Creating a fresh attempt would produce a
-	// Create URL for a stack that already exists, while an Update would then be
-	// rejected as an unbound lifecycle transition.
-	latest, latestErr := store.GetLatestAWSConnectorOnboardingAttempt(ctx, stored.Connector.WorkspaceID, stored.Connector.ProjectID, stored.Connector.ConnectorID)
-	if latestErr == nil && awsOnboardingAttemptCanResumeBoundStack(latest, providerTopicARN, region) {
-		token, tokenErr := s.awsRegistrationToken(latest)
+	// Prefer the newest attempt that is already bound to a stack. A newer
+	// waiting/expired attempt may have been created by an earlier launch flow,
+	// but it has no durable StackID and cannot safely update the existing stack.
+	resumable, resumableErr := store.GetLatestResumableAWSConnectorOnboardingAttempt(
+		ctx,
+		stored.Connector.WorkspaceID,
+		stored.Connector.ProjectID,
+		stored.Connector.ConnectorID,
+		providerTopicARN,
+		region,
+	)
+	if resumableErr == nil {
+		token, tokenErr := s.awsRegistrationToken(resumable)
 		if tokenErr != nil {
 			return db.AWSConnectorOnboardingAttempt{}, "", tokenErr
 		}
-		return latest, token, nil
+		return resumable, token, nil
 	}
-	if latestErr != nil && !errors.Is(latestErr, db.ErrNotFound) {
-		return db.AWSConnectorOnboardingAttempt{}, "", latestErr
+	if !errors.Is(resumableErr, db.ErrNotFound) {
+		return db.AWSConnectorOnboardingAttempt{}, "", resumableErr
+	}
+	if activeFound {
+		if now.Before(active.ExpiresAt) &&
+			active.ProviderTopicARN == strings.TrimSpace(providerTopicARN) &&
+			active.TemplateChecksum == normalizeAWSConnectorTemplateChecksum(templateChecksum) &&
+			active.DeploymentRegion == strings.ToLower(strings.TrimSpace(region)) {
+			token, tokenErr := s.awsRegistrationToken(active)
+			if tokenErr != nil {
+				return db.AWSConnectorOnboardingAttempt{}, "", tokenErr
+			}
+			return active, token, nil
+		}
+		active.Status = db.AWSConnectorOnboardingAttemptExpired
+		active.FailureCode = "registration_expired"
+		active.FailureMessage = "The AWS connection window expired. Start a new connection."
+		active.UpdatedAt = now
+		if _, updateErr := store.UpdateAWSConnectorOnboardingAttempt(ctx, active, active.Version); updateErr != nil && !errors.Is(updateErr, db.ErrConflict) {
+			return db.AWSConnectorOnboardingAttempt{}, "", updateErr
+		}
 	}
 	created, token, createErr := s.createAWSConnectorOnboardingAttempt(ctx, stored, providerTopicARN, templateChecksum, region, now)
 	if createErr == nil || !errors.Is(createErr, db.ErrConflict) {

@@ -122,6 +122,45 @@ func (m *MemoryStore) GetLatestAWSConnectorOnboardingAttempt(ctx context.Context
 	return cloneAWSConnectorOnboardingAttempt(newest), nil
 }
 
+// GetLatestResumableAWSConnectorOnboardingAttempt returns the newest attempt
+// that can safely resume an already-created CloudFormation stack. Unbound
+// attempts are intentionally ignored so a newer draft cannot hide the older
+// attempt that owns the durable stack identity.
+func (m *MemoryStore) GetLatestResumableAWSConnectorOnboardingAttempt(ctx context.Context, workspaceID string, projectID string, connectorID string, providerTopicARN string, region string) (AWSConnectorOnboardingAttempt, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return AWSConnectorOnboardingAttempt{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return AWSConnectorOnboardingAttempt{}, err
+	}
+	providerTopicARN = strings.TrimSpace(providerTopicARN)
+	region = strings.ToLower(strings.TrimSpace(region))
+	var newest AWSConnectorOnboardingAttempt
+	for _, attempt := range m.awsOnboardingAttempts {
+		if attempt.TenantID != scope.TenantID ||
+			attempt.WorkspaceID != resolvedWorkspaceID ||
+			attempt.ProjectID != strings.TrimSpace(projectID) ||
+			attempt.ConnectorID != strings.TrimSpace(connectorID) ||
+			attempt.ProviderTopicARN != providerTopicARN ||
+			attempt.DeploymentRegion != region ||
+			!awsOnboardingAttemptHasBoundStack(attempt) {
+			continue
+		}
+		if newest.AttemptID == "" || attempt.CreatedAt.After(newest.CreatedAt) || (attempt.CreatedAt.Equal(newest.CreatedAt) && attempt.UpdatedAt.After(newest.UpdatedAt)) {
+			newest = attempt
+		}
+	}
+	if newest.AttemptID == "" {
+		return AWSConnectorOnboardingAttempt{}, ErrNotFound
+	}
+	return cloneAWSConnectorOnboardingAttempt(newest), nil
+}
+
 func (m *MemoryStore) UpdateAWSConnectorOnboardingAttempt(ctx context.Context, attempt AWSConnectorOnboardingAttempt, expectedVersion int64) (AWSConnectorOnboardingAttempt, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -225,6 +264,15 @@ func awsOnboardingAttemptActive(status string) bool {
 	default:
 		return false
 	}
+}
+
+func awsOnboardingAttemptHasBoundStack(attempt AWSConnectorOnboardingAttempt) bool {
+	if attempt.Status != AWSConnectorOnboardingAttemptConnected && attempt.Status != AWSConnectorOnboardingAttemptNeedsFix {
+		return false
+	}
+	return strings.TrimSpace(attempt.StackID) != "" &&
+		strings.TrimSpace(attempt.BootstrapRequestID) != "" &&
+		strings.TrimSpace(attempt.RegisterRequestID) != ""
 }
 
 func cloneAWSConnectorOnboardingAttempt(attempt AWSConnectorOnboardingAttempt) AWSConnectorOnboardingAttempt {

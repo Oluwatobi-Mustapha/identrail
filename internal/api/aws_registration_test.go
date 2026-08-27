@@ -379,6 +379,83 @@ func TestAWSConnectorStartReusesBoundAttemptForExistingStackUpgrade(t *testing.T
 	}
 }
 
+func TestAWSConnectorStartPrefersOlderBoundAttemptOverNewerUnboundAttempt(t *testing.T) {
+	svc, ctx := newAWSRegistrationTestService(t)
+	responder := &recordingAWSCloudFormationResponder{}
+	svc.AWSCloudFormationResponder = responder
+	started, attempt, stackID, externalID := startAndBootstrapAWSRegistration(t, svc, ctx, responder)
+	store := svc.Store.(db.AWSConnectorOnboardingAttemptStore)
+	registration := awsRegistrationRequest(stackID, "Create", "registration-create", "Register", attempt.AttemptID)
+	registration.ResourceProperties["ExternalId"] = externalID
+	registration.ResourceProperties["RoleArn"] = "arn:aws:iam::123456789012:role/IdentrailReadOnly"
+	registration.ResourceProperties["TemplateVersion"] = awsConnectorTemplateVersion
+	if err := svc.ProcessAWSConnectorRegistrationMessage(ctx, awsRegistrationTestMessage(t, testAWSRegistrationTopicARN, registration)); err != nil {
+		t.Fatalf("complete bound registration: %v", err)
+	}
+	bound, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", attempt.AttemptID)
+	if err != nil {
+		t.Fatalf("reload bound attempt: %v", err)
+	}
+
+	// A newer attempt can be left waiting by a pre-fix launch flow. It has no
+	// StackID, so selecting it would generate a Create URL and fail to resume
+	// the already-created stack owned by bound.
+	now := svc.Now().UTC()
+	_, err = store.CreateAWSConnectorOnboardingAttempt(ctx, db.AWSConnectorOnboardingAttempt{
+		AttemptID:        "newer-unbound",
+		TenantID:         "tenant-a",
+		WorkspaceID:      "workspace-a",
+		ProjectID:        "project-1",
+		ConnectorID:      started.ConnectorID,
+		Status:           db.AWSConnectorOnboardingAttemptWaiting,
+		TokenHash:        bytes.Repeat([]byte{3}, 32),
+		TokenKeyVersion:  "test-v1",
+		ProviderTopicARN: testAWSRegistrationTopicARN,
+		TemplateVersion:  awsConnectorTemplateVersion,
+		TemplateChecksum: testAWSCloudFormationTemplateChecksum,
+		DeploymentRegion: "us-east-1",
+		ExpiresAt:        now.Add(time.Hour),
+		CreatedAt:        now.Add(time.Minute),
+		UpdatedAt:        now.Add(time.Minute),
+		Version:          1,
+	})
+	if err != nil {
+		t.Fatalf("seed newer unbound attempt: %v", err)
+	}
+	stored, err := svc.Store.GetTenancyConnector(ctx, "workspace-a", "project-1", started.ConnectorID)
+	if err != nil {
+		t.Fatalf("reload connector: %v", err)
+	}
+	selected, _, err := svc.activeOrNewAWSConnectorOnboardingAttempt(ctx, stored, testAWSRegistrationTopicARN, testAWSCloudFormationTemplateChecksum, "us-east-1")
+	if err != nil {
+		t.Fatalf("select resumable attempt: %v", err)
+	}
+	if selected.AttemptID != bound.AttemptID || selected.StackID != stackID {
+		t.Fatalf("expected older bound attempt %s with stack %s, got %+v", bound.AttemptID, stackID, selected)
+	}
+
+	// The same precedence must hold after the stale attempt has expired and is
+	// no longer returned by the active-attempt query.
+	stale, err := store.GetAWSConnectorOnboardingAttempt(ctx, "workspace-a", "project-1", "newer-unbound")
+	if err != nil {
+		t.Fatalf("reload stale attempt: %v", err)
+	}
+	stale.Status = db.AWSConnectorOnboardingAttemptExpired
+	stale.FailureCode = "registration_expired"
+	stale.FailureMessage = "The AWS connection window expired. Start a new connection."
+	stale.UpdatedAt = now.Add(2 * time.Minute)
+	if _, err := store.UpdateAWSConnectorOnboardingAttempt(ctx, stale, stale.Version); err != nil {
+		t.Fatalf("expire stale attempt: %v", err)
+	}
+	selected, _, err = svc.activeOrNewAWSConnectorOnboardingAttempt(ctx, stored, testAWSRegistrationTopicARN, testAWSCloudFormationTemplateChecksum, "us-east-1")
+	if err != nil {
+		t.Fatalf("select bound attempt after stale expiry: %v", err)
+	}
+	if selected.AttemptID != bound.AttemptID || selected.StackID != stackID {
+		t.Fatalf("expected older bound attempt after stale expiry, got %+v", selected)
+	}
+}
+
 func TestAWSRegistrationRejectsBoundTemplateDowngrade(t *testing.T) {
 	svc, ctx := newAWSRegistrationTestService(t)
 	responder := &recordingAWSCloudFormationResponder{}
