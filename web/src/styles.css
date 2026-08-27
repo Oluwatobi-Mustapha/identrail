@@ -19875,6 +19875,31 @@ html[data-theme='light'] .idt-marketing-page .idt-pricing-card {
   box-shadow: none;
 }
 
+/* Keep the dark marketing tiles dark when the shared interactive-card hover
+   treatment runs. */
+.idt-marketing-page .idt-card:has(a, button):hover,
+.idt-marketing-page .idt-card:has(a, button):focus-within,
+.idt-marketing-page .idt-pricing-card:not(.is-featured):has(a, button):hover,
+.idt-marketing-page .idt-pricing-card:not(.is-featured):has(a, button):focus-within,
+html[data-theme='light'] .idt-marketing-page .idt-card:has(a, button):hover,
+html[data-theme='light'] .idt-marketing-page .idt-card:has(a, button):focus-within,
+html[data-theme='light'] .idt-marketing-page .idt-pricing-card:not(.is-featured):has(a, button):hover,
+html[data-theme='light'] .idt-marketing-page .idt-pricing-card:not(.is-featured):has(a, button):focus-within {
+  background: #080808;
+  box-shadow: none;
+}
+
+.idt-marketing-page .idt-card:has(a, button):hover::after,
+.idt-marketing-page .idt-card:has(a, button):focus-within::after,
+.idt-marketing-page .idt-pricing-card:not(.is-featured):has(a, button):hover::after,
+.idt-marketing-page .idt-pricing-card:not(.is-featured):has(a, button):focus-within::after,
+html[data-theme='light'] .idt-marketing-page .idt-card:has(a, button):hover::after,
+html[data-theme='light'] .idt-marketing-page .idt-card:has(a, button):focus-within::after,
+html[data-theme='light'] .idt-marketing-page .idt-pricing-card:not(.is-featured):has(a, button):hover::after,
+html[data-theme='light'] .idt-marketing-page .idt-pricing-card:not(.is-featured):has(a, button):focus-within::after {
+  color: rgba(255, 255, 255, 0.6);
+}
+
 .idt-marketing-page .idt-card h2,
 .idt-marketing-page .idt-pricing-card h2,
 html[data-theme='light'] .idt-marketing-page .idt-card h2,
