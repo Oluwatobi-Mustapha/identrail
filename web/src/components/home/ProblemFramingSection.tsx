@@ -16,36 +16,12 @@ const identitySignals = [
   }
 ];
 
-const storyStages = [
-  {
-    label: 'Before',
-    title: 'Isolated alerts',
-    detail: 'Each control plane looks acceptable until the machine identity path crosses boundaries.'
-  },
-  {
-    label: 'During',
-    title: 'Evidence stitching',
-    detail: 'Identity collection joins IAM, Kubernetes, repository, and OIDC signals into one chain.'
-  },
-  {
-    label: 'After',
-    title: 'Safe remediation',
-    detail: 'Owners get the affected workload, blast-radius context, and a recommended next step.'
-  }
-];
-
 export function ProblemFramingSection() {
   return (
     <section className="idt-section idt-problem-frame" aria-labelledby="problem-frame-title">
       <div className="idt-problem-frame-grid">
         <div className="idt-problem-copy">
-          <p className="idt-eyebrow">Why teams miss machine identity risk</p>
-          <h2 id="problem-frame-title">Signals only matter when they reveal the path.</h2>
-          <p>
-            IAM policies, Kubernetes RBAC, repository exposure, and OIDC workflow identities are reviewed in separate
-            tools. Identrail connects them into one operating view, then shows blast radius, ownership, and the next
-            action.
-          </p>
+          <h2 id="problem-frame-title">Connect identity signals. Reveal the path.</h2>
         </div>
 
         <div className="idt-problem-path-visual" role="group" aria-label="Identity signals converge into the Identrail trust graph">
@@ -66,26 +42,15 @@ export function ProblemFramingSection() {
           </div>
 
           <div className="idt-problem-map-core">
-            <p>Identrail trust graph</p>
-            <strong>One connected machine identity path</strong>
+            <p>Risk graph output</p>
+            <strong>From signal to owner-ready fix</strong>
             <div aria-label="Trust graph outputs">
-              <span>Source evidence</span>
-              <span>Blast radius</span>
-              <span>First safe fix</span>
+              <span>Evidence</span>
+              <span>Reachable impact</span>
+              <span>Recommended fix</span>
             </div>
           </div>
         </div>
-      </div>
-
-      <div className="idt-problem-timeline" role="list" aria-label="Risk evidence workflow">
-        {storyStages.map((stage, index) => (
-          <article role="listitem" key={stage.title}>
-            <span>{String(index + 1).padStart(2, '0')}</span>
-            <small>{stage.label}</small>
-            <h3>{stage.title}</h3>
-            <p>{stage.detail}</p>
-          </article>
-        ))}
       </div>
     </section>
   );
