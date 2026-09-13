@@ -3000,28 +3000,6 @@ body {
   margin: 0;
 }
 
-.idt-problem-signals {
-  display: grid;
-  gap: 0.7rem;
-}
-
-.idt-problem-signals article {
-  border: 1px solid rgba(153, 172, 205, 0.2);
-  border-radius: 12px;
-  background: rgba(10, 15, 24, 0.56);
-  padding: 0.86rem 0.9rem;
-}
-
-.idt-problem-signals h3 {
-  margin: 0 0 0.32rem;
-  font-size: 0.96rem;
-}
-
-.idt-problem-signals p {
-  color: #adbdd4;
-  font-size: 0.86rem;
-}
-
 .idt-demo-list-row {
   gap: 0.2rem;
 }
@@ -3793,7 +3771,6 @@ html[data-theme='light'] .idt-form-note,
 html[data-theme='light'] .idt-form-trust-note,
 html[data-theme='light'] .idt-faq-item p,
 html[data-theme='light'] .idt-problem-frame p,
-html[data-theme='light'] .idt-problem-signals p,
 html[data-theme='light'] .idt-demo-follow-up,
 html[data-theme='light'] .idt-adoption-note {
   color: #3f5273;
@@ -3860,7 +3837,6 @@ html[data-theme='light'] .idt-graph-visual,
 html[data-theme='light'] .idt-hero-graph-caption,
 html[data-theme='light'] .idt-faq-item,
 html[data-theme='light'] .idt-steps li,
-html[data-theme='light'] .idt-problem-signals article,
 html[data-theme='light'] .idt-quote-card,
 html[data-theme='light'] .idt-demo-toolbar,
 html[data-theme='light'] .idt-deployment-panel,
@@ -9633,8 +9609,7 @@ body {
   letter-spacing: 0.11em;
 }
 
-.idt-proof-architecture-list,
-.idt-problem-signals {
+.idt-proof-architecture-list {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
@@ -9669,77 +9644,6 @@ body {
 .idt-problem-frame p,
 .idt-command-copy p {
   color: rgba(226, 233, 224, 0.76);
-}
-
-.idt-problem-map {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.65rem;
-  align-items: stretch;
-}
-
-.idt-problem-map::after {
-  content: '';
-  position: absolute;
-  left: 8%;
-  right: 8%;
-  top: calc(50% - 1px);
-  border-top: 1px solid rgba(184, 243, 214, 0.22);
-  pointer-events: none;
-}
-
-.idt-problem-map-source,
-.idt-problem-map-core {
-  position: relative;
-  z-index: 1;
-  min-height: 118px;
-  border: 1px solid rgba(229, 236, 222, 0.16);
-  border-radius: 8px;
-  background: rgba(10, 14, 15, 0.82);
-  padding: 0.9rem;
-  display: grid;
-  align-content: center;
-  gap: 0.3rem;
-}
-
-.idt-problem-map-core {
-  grid-column: 1 / -1;
-  min-height: 132px;
-  border-color: rgba(184, 243, 214, 0.38);
-  background:
-    linear-gradient(135deg, rgba(184, 243, 214, 0.13), transparent 45%),
-    rgba(11, 17, 16, 0.94);
-}
-
-.idt-problem-map-source span,
-.idt-problem-map-core span {
-  color: #f1f4ed;
-  font-size: 1rem;
-  font-weight: 800;
-}
-
-.idt-problem-map-source small,
-.idt-problem-map-core small {
-  color: rgba(213, 223, 211, 0.68);
-  font-size: 0.78rem;
-  line-height: 1.45;
-}
-
-.idt-problem-signals {
-  margin-top: 1rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.idt-problem-signals article {
-  border-radius: 8px;
-  border-color: rgba(229, 236, 222, 0.14);
-  background: rgba(8, 12, 13, 0.7);
-  padding: 1rem;
-}
-
-.idt-problem-signals h3 {
-  color: #eff3e9;
 }
 
 .idt-command-center {
@@ -10175,9 +10079,7 @@ html[data-theme='light'] .idt-hero-metrics dd {
 }
 
 html[data-theme='light'] .idt-hero-trust-cues li,
-html[data-theme='light'] .idt-problem-map-source,
 html[data-theme='light'] .idt-problem-map-core,
-html[data-theme='light'] .idt-problem-signals article,
 html[data-theme='light'] .idt-command-surface,
 html[data-theme='light'] .idt-command-metrics div,
 html[data-theme='light'] .idt-command-list li,
@@ -10188,18 +10090,14 @@ html[data-theme='light'] .idt-command-playbook li {
   box-shadow: 0 16px 34px rgba(42, 69, 58, 0.08);
 }
 
-html[data-theme='light'] .idt-problem-map-source span,
 html[data-theme='light'] .idt-problem-map-core span,
-html[data-theme='light'] .idt-problem-signals h3,
 html[data-theme='light'] .idt-command-metrics strong,
 html[data-theme='light'] .idt-command-list li,
 html[data-theme='light'] .idt-command-playbook li {
   color: #15251f;
 }
 
-html[data-theme='light'] .idt-problem-map-source small,
 html[data-theme='light'] .idt-problem-map-core small,
-html[data-theme='light'] .idt-problem-signals p,
 html[data-theme='light'] .idt-command-metrics small {
   color: #51675f;
 }
@@ -10290,7 +10188,6 @@ html[data-theme='light'] .idt-tour-report {
   }
 
   .idt-proof-architecture-list,
-  .idt-problem-signals,
   .idt-command-detail-grid,
   .idt-command-metrics,
   .idt-proof-strip-head {
@@ -10313,7 +10210,6 @@ html[data-theme='light'] .idt-tour-report {
   }
 
   .idt-hero-metrics,
-  .idt-problem-map,
   .idt-command-tabs,
   .idt-tour-finding-grid,
   .idt-proof-metrics {
@@ -10324,10 +10220,6 @@ html[data-theme='light'] .idt-tour-report {
   .idt-command-copy h2 {
     font-size: 2.35rem;
     max-width: 14ch;
-  }
-
-  .idt-problem-map::after {
-    display: none;
   }
 
   .idt-command-center {
@@ -11315,7 +11207,6 @@ html[data-theme='light'] .idt-section {
 .idt-faq-group,
 .idt-faq-item,
 .idt-steps li,
-.idt-problem-signals article,
 .idt-command-surface,
 .idt-command-metrics div,
 .idt-command-list li,
@@ -11338,7 +11229,6 @@ html[data-theme='light'] .idt-table-wrap,
 html[data-theme='light'] .idt-faq-group,
 html[data-theme='light'] .idt-faq-item,
 html[data-theme='light'] .idt-steps li,
-html[data-theme='light'] .idt-problem-signals article,
 html[data-theme='light'] .idt-command-surface,
 html[data-theme='light'] .idt-command-metrics div,
 html[data-theme='light'] .idt-command-list li,
@@ -11384,12 +11274,10 @@ html[data-theme='light'] .idt-command-playbook li {
   color: var(--idt-z-muted);
 }
 
-html[data-theme='light'] .idt-problem-map-source,
 html[data-theme='light'] .idt-problem-map-core {
   background: #ffffff;
 }
 
-html[data-theme='light'] .idt-problem-map-source span,
 html[data-theme='light'] .idt-problem-map-core span {
   color: var(--idt-z-text);
 }
@@ -15001,7 +14889,7 @@ html[data-theme='light'] .idt-trust-strip,
 }
 
 .idt-problem-copy h2 {
-  max-width: 13.8ch;
+  max-width: 14.8ch;
   color: #111827;
   font-size: 3.35rem;
   font-weight: 580;
@@ -15023,7 +14911,7 @@ html[data-theme='light'] .idt-trust-strip,
   grid-template-columns: minmax(190px, 0.74fr) 84px minmax(280px, 1fr);
   gap: 1rem;
   align-items: center;
-  min-height: 360px;
+  min-height: 300px;
   padding: 1.2rem;
   overflow: hidden;
   border-radius: 28px;
@@ -15116,7 +15004,7 @@ html[data-theme='light'] .idt-trust-strip,
 }
 
 .idt-problem-path-spine {
-  height: 250px;
+  height: 190px;
 }
 
 .idt-problem-path-spine::before {
@@ -15155,7 +15043,9 @@ html[data-theme='light'] .idt-trust-strip,
 }
 
 .idt-problem-map-core {
-  min-height: 278px;
+  display: grid;
+  gap: 0.3rem;
+  min-height: 220px;
   align-content: center;
   padding: 1.4rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -15200,70 +15090,6 @@ html[data-theme='light'] .idt-trust-strip,
   color: rgba(255, 255, 255, 0.78);
   font-size: 0.68rem;
   font-weight: 720;
-}
-
-.idt-problem-timeline {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
-  margin-top: 2.4rem;
-}
-
-.idt-problem-timeline::before {
-  content: '';
-  position: absolute;
-  left: 2.4rem;
-  right: 2.4rem;
-  top: 2rem;
-  height: 1px;
-  background: linear-gradient(90deg, rgba(108, 55, 221, 0), rgba(108, 55, 221, 0.3), rgba(26, 162, 109, 0.3), rgba(26, 162, 109, 0));
-}
-
-.idt-problem-timeline article {
-  position: relative;
-  min-height: 178px;
-  padding: 1.18rem;
-  border: 1px solid rgba(25, 29, 40, 0.1);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 18px 44px rgba(17, 24, 39, 0.07);
-}
-
-.idt-problem-timeline article > span {
-  width: 2rem;
-  height: 2rem;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  background: #6c37dd;
-  color: #ffffff;
-  font-size: 0.72rem;
-  font-weight: 820;
-}
-
-.idt-problem-timeline article small {
-  display: block;
-  margin-top: 1rem;
-  color: #6c37dd;
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.idt-problem-timeline article h3 {
-  margin: 0.36rem 0 0;
-  color: #151922;
-  font-size: 1.04rem;
-  font-weight: 780;
-}
-
-.idt-problem-timeline article p {
-  margin-top: 0.48rem;
-  color: #556174;
-  font-size: 0.88rem;
-  line-height: 1.58;
 }
 
 html[data-theme='light'] .idt-problem-map-core {
@@ -15350,13 +15176,6 @@ html[data-theme='light'] .idt-problem-map-core div span {
     font-size: 1.38rem;
   }
 
-  .idt-problem-timeline {
-    grid-template-columns: 1fr;
-  }
-
-  .idt-problem-timeline::before {
-    display: none;
-  }
 }
 
 @keyframes idtHeroNodePulse {
@@ -18253,7 +18072,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-problem-copy > p {
 }
 
 .idt-home-after-stack .idt-problem-path-visual {
-  min-height: 560px;
+  min-height: 390px;
   grid-template-columns: minmax(220px, 0.52fr) 88px minmax(320px, 1fr);
   padding: 1px;
   border: 1px solid #262626;
@@ -18315,7 +18134,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-problem-source-card small {
 
 .idt-home-after-stack .idt-problem-frame .idt-problem-map-core,
 html[data-theme='light'] .idt-home-after-stack .idt-problem-frame .idt-problem-map-core {
-  min-height: calc(560px - 2px);
+  min-height: calc(390px - 2px);
   border: 0;
   border-left: 1px solid #262626;
   border-radius: 0 7px 7px 0;
@@ -18348,42 +18167,10 @@ html[data-theme='light'] .idt-home-after-stack .idt-problem-frame .idt-problem-m
   color: #18181b;
 }
 
-.idt-home-after-stack .idt-problem-timeline {
-  gap: 1px;
-  margin-top: clamp(2rem, 4vw, 3.2rem);
-  background: #262626;
-}
-
-.idt-home-after-stack .idt-problem-timeline::before {
-  display: none;
-}
-
-.idt-home-after-stack .idt-problem-timeline article,
-html[data-theme='light'] .idt-home-after-stack .idt-problem-timeline article {
-  min-height: 260px;
-  border: 0;
-  border-radius: 0;
-  background: #050505;
-  box-shadow: none;
-}
-
-.idt-home-after-stack .idt-problem-timeline article > span {
-  border-radius: 8px;
-  background: #ffffff;
-  color: #000000;
-}
-
-.idt-home-after-stack .idt-problem-timeline article small {
-  color: #a1a1aa;
-}
-
-.idt-home-after-stack .idt-problem-timeline article h3 {
-  color: #ffffff;
-  font-size: 1.2rem;
-}
-
-.idt-home-after-stack .idt-problem-timeline article p {
-  color: #a1a1aa;
+.idt-home-after-stack .idt-problem-copy h2,
+html[data-theme='light'] .idt-home-after-stack .idt-problem-copy h2 {
+  max-width: 16.5ch;
+  font-size: clamp(2.6rem, 4.3vw, 3.8rem);
 }
 
 .idt-home-after-stack .idt-command-center,
@@ -19107,13 +18894,12 @@ html[data-theme='light'] .idt-home-after-stack .idt-home-final-cta .idt-final-ct
 
   .idt-home-after-stack .idt-problem-frame .idt-problem-map-core,
   html[data-theme='light'] .idt-home-after-stack .idt-problem-frame .idt-problem-map-core {
-    min-height: 250px;
+    min-height: 200px;
     border-left: 0;
     border-top: 1px solid #262626;
     border-radius: 0 0 7px 7px;
   }
 
-  .idt-home-after-stack .idt-problem-timeline,
   .idt-home-after-stack .idt-workflow-track,
   .idt-home-after-stack .idt-adoption-grid {
     grid-template-columns: 1fr;
