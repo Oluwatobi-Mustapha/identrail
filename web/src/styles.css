@@ -14897,14 +14897,6 @@ html[data-theme='light'] .idt-trust-strip,
   letter-spacing: 0;
 }
 
-.idt-problem-copy > p {
-  max-width: 55ch;
-  margin-top: 1.25rem;
-  color: #4e596c;
-  font-size: 1.05rem;
-  line-height: 1.72;
-}
-
 .idt-problem-path-visual {
   position: relative;
   display: grid;
@@ -15141,10 +15133,6 @@ html[data-theme='light'] .idt-problem-map-core div span {
 
   .idt-problem-copy h2 {
     font-size: 2.55rem;
-  }
-
-  .idt-problem-copy > p {
-    font-size: 1rem;
   }
 
   .idt-problem-path-visual {
@@ -18009,11 +17997,9 @@ html[data-theme='light'] .idt-home-after-stack .idt-product-tour-copy h2 {
 }
 
 .idt-home-after-stack .idt-section-title p,
-.idt-home-after-stack .idt-problem-copy > p,
 .idt-home-after-stack .idt-command-copy > p,
 .idt-home-after-stack .idt-product-tour-copy p:not(.idt-eyebrow),
 html[data-theme='light'] .idt-home-after-stack .idt-section-title p,
-html[data-theme='light'] .idt-home-after-stack .idt-problem-copy > p,
 html[data-theme='light'] .idt-home-after-stack .idt-command-copy > p,
 html[data-theme='light'] .idt-home-after-stack .idt-product-tour-copy p:not(.idt-eyebrow) {
   max-width: 46rem;
@@ -18064,11 +18050,6 @@ html[data-theme='light'] .idt-home-after-stack .idt-problem-frame {
   grid-template-columns: minmax(300px, 0.48fr) minmax(0, 1.52fr);
   gap: clamp(2rem, 5vw, 5rem);
   align-items: center;
-}
-
-.idt-home-after-stack .idt-problem-copy > p,
-html[data-theme='light'] .idt-home-after-stack .idt-problem-copy > p {
-  color: #a1a1aa;
 }
 
 .idt-home-after-stack .idt-problem-path-visual {
@@ -18169,7 +18150,8 @@ html[data-theme='light'] .idt-home-after-stack .idt-problem-frame .idt-problem-m
 
 .idt-home-after-stack .idt-problem-copy h2,
 html[data-theme='light'] .idt-home-after-stack .idt-problem-copy h2 {
-  max-width: 16.5ch;
+  max-width: 14ch;
+  margin-top: 0;
   font-size: clamp(2.6rem, 4.3vw, 3.8rem);
 }
 

@@ -21,12 +21,7 @@ export function ProblemFramingSection() {
     <section className="idt-section idt-problem-frame" aria-labelledby="problem-frame-title">
       <div className="idt-problem-frame-grid">
         <div className="idt-problem-copy">
-          <p className="idt-eyebrow">Why teams miss machine identity risk</p>
-          <h2 id="problem-frame-title">Signals only matter when they reveal the path.</h2>
-          <p>
-            Identrail joins identity evidence into one path, so teams can see blast radius, ownership, and the safest
-            fix.
-          </p>
+          <h2 id="problem-frame-title">Connect identity signals. Reveal the path.</h2>
         </div>
 
         <div className="idt-problem-path-visual" role="group" aria-label="Identity signals converge into the Identrail trust graph">

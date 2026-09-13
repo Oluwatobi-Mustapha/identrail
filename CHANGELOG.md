@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- Simplify the homepage risk story by removing its repeated workflow cards, tightening the empty trust-graph panel, and focusing the copy on evidence, reachable impact, and the recommended fix.
+- Simplify the homepage risk story by removing its repeated workflow cards, reducing the framing to one focused headline, tightening the empty trust-graph panel, and clarifying the evidence, reachable impact, and recommended fix outputs.
 - Link the homepage Docker pull count directly to Identrail on Docker Hub.
 - Correct AWS service-level coverage diagnostics so permission failures are
   reported as non-retryable, and keep the findings table and detail drawer

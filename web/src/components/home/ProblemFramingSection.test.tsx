@@ -7,13 +7,10 @@ describe('ProblemFramingSection', () => {
     render(<ProblemFramingSection />);
 
     expect(
-      screen.getByRole('heading', { name: 'Signals only matter when they reveal the path.' })
+      screen.getByRole('heading', { name: 'Connect identity signals. Reveal the path.' })
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        'Identrail joins identity evidence into one path, so teams can see blast radius, ownership, and the safest fix.'
-      )
-    ).toBeInTheDocument();
+    expect(screen.queryByText('Why teams miss machine identity risk')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Identrail joins identity evidence/)).not.toBeInTheDocument();
     expect(screen.getByText('From signal to owner-ready fix')).toBeInTheDocument();
     expect(screen.getByText('Risk graph output')).toBeInTheDocument();
     expect(screen.getByText('Reachable impact')).toBeInTheDocument();
