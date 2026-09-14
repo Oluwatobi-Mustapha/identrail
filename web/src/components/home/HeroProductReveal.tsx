@@ -200,7 +200,7 @@ export function HeroProductReveal() {
           </div>
           <div>
             <span>Status</span>
-            <strong>{kubernetesActiveIndex >= 3 ? 'Ready' : 'Reviewing'}</strong>
+            <strong>{kubernetesActiveIndex >= KUBERNETES_STEPS.length - 1 ? 'Ready' : 'Reviewing'}</strong>
           </div>
         </div>
 
