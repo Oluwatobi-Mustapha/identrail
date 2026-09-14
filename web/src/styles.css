@@ -18386,10 +18386,13 @@ html[data-theme='light'] .idt-home-after-stack .idt-workflow-section .idt-sectio
   border-radius: 0;
   background: #050505;
   color: #ffffff;
+  display: flex;
+  flex-direction: column;
 }
 
 .idt-home-after-stack .idt-workflow-track h3 {
-  margin-top: 5rem;
+  margin-top: 3.25rem;
+  margin-bottom: 0.9rem;
   color: #ffffff;
   font-size: 1.45rem;
   line-height: 1.08;
@@ -18397,6 +18400,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-workflow-section .idt-sectio
 
 .idt-home-after-stack .idt-workflow-track li > p {
   color: #a1a1aa;
+  line-height: 1.55;
 }
 
 .idt-home-after-stack .idt-workflow-stage,
@@ -18941,6 +18945,7 @@ html[data-theme='light'] .idt-home-after-stack .idt-workflow-output {
   border-radius: 8px;
   background: #111111;
   color: #ffffff;
+  margin-top: auto;
 }
 
 .idt-product-graph-band .idt-demo-surface,
