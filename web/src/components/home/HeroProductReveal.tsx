@@ -204,11 +204,11 @@ export function HeroProductReveal() {
           </div>
         </div>
 
-        <div className="idt-path-input" aria-label="Detected service account">
+        <div className="idt-path-input" aria-label="Illustrative service account">
           <span>SA</span>
           payments-api service account
         </div>
-        <div className="idt-path-input" aria-label="Detected workload identity">
+        <div className="idt-path-input" aria-label="Illustrative workload identity">
           <span>OIDC</span>
           Federation signal linked
         </div>
