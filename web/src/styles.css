@@ -14174,7 +14174,7 @@ html[data-theme='light'] .idt-hero,
   width: min(100% - 3rem, 1760px);
   grid-template-columns: minmax(340px, 0.6fr) minmax(760px, 1.4fr);
   gap: clamp(3rem, 4.8vw, 5.6rem);
-  min-height: 800px;
+  min-height: 860px;
 }
 
 .idt-hero-copy {
@@ -14206,7 +14206,7 @@ html[data-theme='light'] .idt-hero,
   --idt-preview-dashboard-left: clamp(14.75rem, 25%, 18rem);
   --idt-preview-phone-overlap: clamp(2.7rem, 4.4vw, 3.85rem);
   --idt-preview-phone-left: calc(var(--idt-preview-dashboard-left) - var(--idt-preview-phone-width) + var(--idt-preview-phone-overlap));
-  min-height: 800px;
+  min-height: 860px;
   margin-top: 0;
   overflow: hidden;
   transform: translateX(clamp(-0.75rem, calc(1.4vw - 0.8rem), 1.15rem));
