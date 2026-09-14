@@ -108,7 +108,7 @@ export function HeroProductReveal() {
           <span />
           <span />
           <div className="idt-window-status">
-            <span className="idt-window-pill is-preview">Example workspace</span>
+<span className="idt-window-pill">Example workspace</span>
           </div>
         </div>
 
