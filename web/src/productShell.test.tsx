@@ -3429,19 +3429,11 @@ describe('ProductOverviewPage', () => {
       finished_at: `2026-05-${17 - index}T11:01:00Z`,
       error_message: 'Scan timed out'
     }));
-    const historicalSuccessfulScan = {
-      ...queuedRepoScan,
-      id: 'repo-scan-historical-success',
-      status: 'succeeded',
-      started_at: '2026-04-01T11:00:00Z',
-      finished_at: '2026-04-01T11:01:00Z',
-      finding_count: 0
-    };
-    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockImplementation(async (filters) =>
-      filters?.cursor
-        ? { items: [historicalSuccessfulScan] }
-        : { items: recentFailedScans, next_cursor: 'older-scans' }
-    );
+    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({
+      items: recentFailedScans,
+      next_cursor: 'older-scans',
+      has_successful_scan: true
+    });
     vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
 
     const { ProductOverviewPage } = await import('./productShell');
@@ -3459,7 +3451,57 @@ describe('ProductOverviewPage', () => {
     const agenticRiskCard = within(domainPosture).getByRole('link', { name: /AI \/ Agentic Risk/i });
     expect(within(agenticRiskCard).getByText('No findings')).toBeInTheDocument();
     expect(within(agenticRiskCard).getByText('No signals detected')).toBeInTheDocument();
-    await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(1));
+  });
+
+  it('withholds no-signals messaging when open findings are truncated', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
+    vi.spyOn(api.apiClient, 'listRepoScans').mockResolvedValue({
+      items: [{
+        ...queuedRepoScan,
+        id: 'repo-scan-complete-overview',
+        status: 'succeeded',
+        finding_count: 51
+      }],
+      has_successful_scan: true
+    });
+    const nonAgenticFinding: Finding = {
+      id: 'finding-overview-non-agentic',
+      scan_id: 'repo-scan-complete-overview',
+      type: 'repo_misconfiguration',
+      severity: 'medium',
+      title: 'Default branch protection is missing',
+      human_summary: 'The default branch does not require pull request reviews.',
+      repository: 'owner/repo',
+      detector: 'github_default_branch_unprotected',
+      evidence: { adapter_source: 'github_posture' },
+      remediation: 'Enable branch protection with required reviews.',
+      created_at: '2026-05-17T11:00:00Z'
+    };
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({
+      items: [nonAgenticFinding],
+      next_cursor: 'more-findings'
+    });
+
+    const { ProductOverviewPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const domainPosture = await screen.findByRole('region', { name: 'Domain posture' });
+    const agenticRiskCard = within(domainPosture).getByRole('link', { name: /AI \/ Agentic Risk/i });
+    expect(within(agenticRiskCard).getByText('More findings')).toBeInTheDocument();
+    expect(within(agenticRiskCard).getByText('More findings to review')).toBeInTheDocument();
+    expect(within(agenticRiskCard).queryByText('No signals detected')).not.toBeInTheDocument();
   });
 });
 

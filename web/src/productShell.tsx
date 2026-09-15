@@ -768,7 +768,6 @@ const OVERVIEW_FINDING_LIMIT = 50;
 const OVERVIEW_RISK_DISPLAY_LIMIT = 8;
 const OVERVIEW_SCAN_LIMIT = 5;
 const OVERVIEW_SCAN_FETCH_LIMIT = 50;
-const OVERVIEW_SCAN_MAX_PAGES = 20;
 const OVERVIEW_PROJECT_PAGE_LIMIT = 100;
 const ENVIRONMENT_SELECTOR_LIMIT = 50;
 const AI_RISKS_REPO_FINDINGS_PAGE_LIMIT = 100;
@@ -1135,43 +1134,26 @@ type OverviewScanLoadResult = {
 };
 
 async function listOverviewScans(auth: RequestAuthContext): Promise<OverviewScanLoadResult> {
-  const recentScans: RepoScanRecord[] = [];
-  const seenCursors = new Set<string>();
-  let cursor: string | undefined;
-  let hasSuccessfulScan = false;
-  let historyComplete = false;
+  const response = await apiClient.listRepoScans(
+    {
+      limit: OVERVIEW_SCAN_FETCH_LIMIT,
+      sort_by: 'started_at',
+      sort_order: 'desc'
+    },
+    auth
+  );
+  const hasServerSummary = typeof response.has_successful_scan === 'boolean';
+  const hasSuccessfulScan = hasServerSummary
+    ? response.has_successful_scan === true
+    : response.items.some((scan) => repoScanStatusTone(scan.status) === 'success');
 
-  for (let page = 0; page < OVERVIEW_SCAN_MAX_PAGES; page += 1) {
-    const response = await apiClient.listRepoScans(
-      {
-        limit: OVERVIEW_SCAN_FETCH_LIMIT,
-        cursor,
-        sort_by: 'started_at',
-        sort_order: 'desc'
-      },
-      auth
-    );
-    if (page === 0) {
-      recentScans.push(...response.items.slice(0, OVERVIEW_SCAN_LIMIT));
-    }
-    if (response.items.some((scan) => repoScanStatusTone(scan.status) === 'success')) {
-      hasSuccessfulScan = true;
-      break;
-    }
-
-    const nextCursor = response.next_cursor?.trim();
-    if (!nextCursor) {
-      historyComplete = true;
-      break;
-    }
-    if (seenCursors.has(nextCursor)) {
-      throw new Error('Overview scan pagination returned a repeated cursor');
-    }
-    seenCursors.add(nextCursor);
-    cursor = nextCursor;
-  }
-
-  return { items: recentScans, hasSuccessfulScan, historyComplete };
+  return {
+    items: response.items.slice(0, OVERVIEW_SCAN_LIMIT),
+    hasSuccessfulScan,
+    // Older API deployments may not include the summary. In that case, a
+    // cursor means the visible page cannot establish the full history.
+    historyComplete: hasServerSummary || !response.next_cursor?.trim()
+  };
 }
 
 function emptyOverviewConnectionRollup(): OverviewConnectionRollup {
@@ -33339,6 +33321,7 @@ export function ProductOverviewPage() {
   );
   const [hasHistoricalSuccessfulScan, setHasHistoricalSuccessfulScan] = useState(false);
   const [scanHistoryComplete, setScanHistoryComplete] = useState(true);
+  const [findingsHistoryComplete, setFindingsHistoryComplete] = useState(true);
   const [, setInviteSkipTick] = useState(0);
   const [connectorConfiguredFromOnboarding, setConnectorConfiguredFromOnboarding] = useState(false);
   const [onboardingConnectorProvider, setOnboardingConnectorProvider] = useState<SourceProvider | null>(null);
@@ -33403,6 +33386,7 @@ export function ProductOverviewPage() {
       setSourceConnectionRollups(emptyOverviewConnectionRollups());
       setHasHistoricalSuccessfulScan(false);
       setScanHistoryComplete(true);
+      setFindingsHistoryComplete(true);
       return;
     }
 
@@ -33413,6 +33397,7 @@ export function ProductOverviewPage() {
       setError('');
       setHasHistoricalSuccessfulScan(false);
       setScanHistoryComplete(true);
+      setFindingsHistoryComplete(true);
       try {
         const auth = buildProductAuthContext(scope);
         const activeProjectItems = await listOverviewProjects(scope.workspaceID, { include_archived: false }, auth);
@@ -33450,6 +33435,7 @@ export function ProductOverviewPage() {
             .slice()
             .sort((left, right) => severityRank(right.severity) - severityRank(left.severity))
         );
+        setFindingsHistoryComplete(!findingResponse.next_cursor?.trim());
         setSourceConnectionRollups(connectionRollups);
       } catch (err) {
         if (!mounted || !isCurrentProductAuthSessionVersion(requestSessionVersion)) {
@@ -33459,6 +33445,7 @@ export function ProductOverviewPage() {
         setSourceConnectionRollups(emptyOverviewConnectionRollups());
         setHasHistoricalSuccessfulScan(false);
         setScanHistoryComplete(true);
+        setFindingsHistoryComplete(true);
       } finally {
         if (mounted && isCurrentProductAuthSessionVersion(requestSessionVersion)) {
           setLoading(false);
@@ -33528,6 +33515,7 @@ export function ProductOverviewPage() {
     awsRollup.connectedCount > 0 ||
     kubernetesRollup.connectedCount > 0;
   const hasGitHubFindingEvidence = repoFindings.length > 0;
+  const hasMoreGitHubFindings = !findingsHistoryComplete;
   const hasGitHubEvidence = repoScans.length > 0 || hasGitHubFindingEvidence;
   const hasGitHubCompletedEvidence = hasAnySuccessfulScan || hasGitHubFindingEvidence;
   const hasGitHubConnectorEvidence = hasGitHubEvidence || onboardingConnectorProvider === 'github';
@@ -33619,7 +33607,7 @@ export function ProductOverviewPage() {
       state: agenticRiskState,
       statusLabel:
         agenticRiskState === 'no_data' && hasGitHubCompletedEvidence
-          ? 'No findings'
+          ? hasMoreGitHubFindings ? 'More findings' : 'No findings'
           : agenticRiskState === 'no_data' && hasGitHubConnectorEvidence
             ? githubAgenticAwaitingStatus
             : OVERVIEW_DOMAIN_STATE_LABELS[agenticRiskState],
@@ -33628,6 +33616,8 @@ export function ProductOverviewPage() {
           ? 'Connector off'
           : agenticRiskFindings.length > 0
             ? formatCountLabel(agenticRiskFindings.length, 'signal')
+            : hasGitHubCompletedEvidence && hasMoreGitHubFindings
+              ? 'More findings to review'
             : hasGitHubCompletedEvidence
               ? 'No signals detected'
               : hasGitHubConnectorEvidence
