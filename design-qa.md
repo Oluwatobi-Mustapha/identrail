@@ -37,7 +37,7 @@ The remaining P3 polish note is that domain labels in the narrow top navigation 
 - Colors and visual tokens: posture and failed-scan states use warning amber, connector success remains green, unavailable remains neutral, and no-high-priority remains visually quiet.
 - Image quality and asset fidelity: AWS, GitHub, and Kubernetes marks use the existing vector brand assets at consistent scale; no placeholder or CSS-drawn substitutes were introduced.
 - Copy and content: ambiguous `Pending`, `Unknown source collection`, `Action needed`, and generic remediation fallback copy were replaced with state-specific language.
-- Accessibility and interaction: semantic headings, named regions, links, status text, and descriptions are present; browser console warnings/errors are absent.
+- Accessibility and interaction: semantic headings, named regions, links, status text, and descriptions are present; no application errors were reported. The local CSP blocks the optional external Vercel Analytics script during localhost QA.
 
 ## Implementation checklist
 

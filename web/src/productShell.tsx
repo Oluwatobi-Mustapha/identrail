@@ -767,6 +767,8 @@ const ENVIRONMENT_QUERY_PARAM = 'environment';
 const OVERVIEW_FINDING_LIMIT = 50;
 const OVERVIEW_RISK_DISPLAY_LIMIT = 8;
 const OVERVIEW_SCAN_LIMIT = 5;
+const OVERVIEW_SCAN_FETCH_LIMIT = 50;
+const OVERVIEW_SCAN_MAX_PAGES = 20;
 const OVERVIEW_PROJECT_PAGE_LIMIT = 100;
 const ENVIRONMENT_SELECTOR_LIMIT = 50;
 const AI_RISKS_REPO_FINDINGS_PAGE_LIMIT = 100;
@@ -1124,6 +1126,52 @@ async function listOverviewProjects(
   } while (cursor);
 
   return items;
+}
+
+type OverviewScanLoadResult = {
+  items: RepoScanRecord[];
+  hasSuccessfulScan: boolean;
+  historyComplete: boolean;
+};
+
+async function listOverviewScans(auth: RequestAuthContext): Promise<OverviewScanLoadResult> {
+  const recentScans: RepoScanRecord[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  let hasSuccessfulScan = false;
+  let historyComplete = false;
+
+  for (let page = 0; page < OVERVIEW_SCAN_MAX_PAGES; page += 1) {
+    const response = await apiClient.listRepoScans(
+      {
+        limit: OVERVIEW_SCAN_FETCH_LIMIT,
+        cursor,
+        sort_by: 'started_at',
+        sort_order: 'desc'
+      },
+      auth
+    );
+    if (page === 0) {
+      recentScans.push(...response.items.slice(0, OVERVIEW_SCAN_LIMIT));
+    }
+    if (response.items.some((scan) => repoScanStatusTone(scan.status) === 'success')) {
+      hasSuccessfulScan = true;
+      break;
+    }
+
+    const nextCursor = response.next_cursor?.trim();
+    if (!nextCursor) {
+      historyComplete = true;
+      break;
+    }
+    if (seenCursors.has(nextCursor)) {
+      throw new Error('Overview scan pagination returned a repeated cursor');
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+
+  return { items: recentScans, hasSuccessfulScan, historyComplete };
 }
 
 function emptyOverviewConnectionRollup(): OverviewConnectionRollup {
@@ -33289,6 +33337,8 @@ export function ProductOverviewPage() {
   const [sourceConnectionRollups, setSourceConnectionRollups] = useState<OverviewConnectionRollups>(
     emptyOverviewConnectionRollups()
   );
+  const [hasHistoricalSuccessfulScan, setHasHistoricalSuccessfulScan] = useState(false);
+  const [scanHistoryComplete, setScanHistoryComplete] = useState(true);
   const [, setInviteSkipTick] = useState(0);
   const [connectorConfiguredFromOnboarding, setConnectorConfiguredFromOnboarding] = useState(false);
   const [onboardingConnectorProvider, setOnboardingConnectorProvider] = useState<SourceProvider | null>(null);
@@ -33351,6 +33401,8 @@ export function ProductOverviewPage() {
       setError('Choose a workspace before loading the overview.');
       setLoading(false);
       setSourceConnectionRollups(emptyOverviewConnectionRollups());
+      setHasHistoricalSuccessfulScan(false);
+      setScanHistoryComplete(true);
       return;
     }
 
@@ -33359,6 +33411,8 @@ export function ProductOverviewPage() {
       const requestSessionVersion = currentProductAuthSessionVersion();
       setLoading(true);
       setError('');
+      setHasHistoricalSuccessfulScan(false);
+      setScanHistoryComplete(true);
       try {
         const auth = buildProductAuthContext(scope);
         const activeProjectItems = await listOverviewProjects(scope.workspaceID, { include_archived: false }, auth);
@@ -33368,7 +33422,7 @@ export function ProductOverviewPage() {
         primeEnvironmentScopeCache(scope, activeProjectItems);
         primeGitHubControlCenterDataCache(scope, activeProjectItems, sourceAvailability.github, auth);
         const [scanResponse, findingResponse, connectionRollups] = await Promise.all([
-          apiClient.listRepoScans({ limit: OVERVIEW_SCAN_LIMIT }, auth),
+          listOverviewScans(auth),
           apiClient.listRepoFindings(
             {
               limit: OVERVIEW_FINDING_LIMIT,
@@ -33389,6 +33443,8 @@ export function ProductOverviewPage() {
             .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
         );
         setRepoScans(scanResponse.items);
+        setHasHistoricalSuccessfulScan(scanResponse.hasSuccessfulScan);
+        setScanHistoryComplete(scanResponse.historyComplete);
         setRepoFindings(
           findingResponse.items
             .slice()
@@ -33401,6 +33457,8 @@ export function ProductOverviewPage() {
         }
         setError(formatAPIError(err, 'Unable to load workspace overview'));
         setSourceConnectionRollups(emptyOverviewConnectionRollups());
+        setHasHistoricalSuccessfulScan(false);
+        setScanHistoryComplete(true);
       } finally {
         if (mounted && isCurrentProductAuthSessionVersion(requestSessionVersion)) {
           setLoading(false);
@@ -33457,7 +33515,7 @@ export function ProductOverviewPage() {
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
   const connectSourcesProvider = DOMAIN_NAV_ORDER.find((provider) => sourceAvailability[provider].available) ?? 'aws';
   const connectSourcesPath = scope ? buildScopedPath(scope, `${connectSourcesProvider}/connect`) : '/app';
-  const hasAnySuccessfulScan = succeededScanCount > 0;
+  const hasAnySuccessfulScan = succeededScanCount > 0 || hasHistoricalSuccessfulScan;
   const awsRollup = sourceConnectionRollups.aws;
   const kubernetesRollup = sourceConnectionRollups.kubernetes;
   // A source counts as connected when either (a) onboarding records a connector
@@ -33471,18 +33529,23 @@ export function ProductOverviewPage() {
     kubernetesRollup.connectedCount > 0;
   const hasGitHubFindingEvidence = repoFindings.length > 0;
   const hasGitHubEvidence = repoScans.length > 0 || hasGitHubFindingEvidence;
-  const hasGitHubCompletedEvidence = succeededScanCount > 0 || hasGitHubFindingEvidence;
+  const hasGitHubCompletedEvidence = hasAnySuccessfulScan || hasGitHubFindingEvidence;
   const hasGitHubConnectorEvidence = hasGitHubEvidence || onboardingConnectorProvider === 'github';
   const hasActiveGitHubScan = repoScans.some((scan) => isActiveScanStatus(scan.status));
   const hasGitHubScanWithoutCompletedEvidence = repoScans.length > 0 && !hasGitHubCompletedEvidence;
+  const hasUnknownGitHubScanHistory = hasGitHubScanWithoutCompletedEvidence && !scanHistoryComplete;
   const githubAgenticAwaitingStatus = hasActiveGitHubScan
     ? 'Scan in progress'
+    : hasUnknownGitHubScanHistory
+      ? 'Scan history incomplete'
+      : hasGitHubScanWithoutCompletedEvidence
+        ? 'Scan incomplete'
+        : 'No scan yet';
+  const githubAgenticAwaitingMetric = hasUnknownGitHubScanHistory
+    ? 'Review scan history'
     : hasGitHubScanWithoutCompletedEvidence
-      ? 'Scan incomplete'
-      : 'No scan yet';
-  const githubAgenticAwaitingMetric = hasGitHubScanWithoutCompletedEvidence
-    ? 'Awaiting scan completion'
-    : 'Awaiting first scan';
+      ? 'Awaiting scan completion'
+      : 'Awaiting first scan';
   const scanActionPath = hasGitHubConnectorEvidence ? githubPath : connectSourcesPath;
   const highPriorityCount = highPriorityFindings.length;
   const activeEnvironmentCount = activeProjects.length;
@@ -33490,7 +33553,7 @@ export function ProductOverviewPage() {
     ? 'shell'
     : failedScanCount > 0 && succeededScanCount === 0
       ? 'degraded'
-      : succeededScanCount > 0 || hasGitHubFindingEvidence
+      : hasAnySuccessfulScan || hasGitHubFindingEvidence
         ? 'connected'
         : hasGitHubConnectorEvidence
         ? 'no_data'
@@ -33645,12 +33708,18 @@ export function ProductOverviewPage() {
   }
   if (nextActions.length < 3) {
     nextActions.push({
-      id: hasAnySuccessfulScan ? 'scans' : 'scan-start',
-      label: hasAnySuccessfulScan ? 'Review scan results' : 'Run a scan',
+      id: hasAnySuccessfulScan || hasUnknownGitHubScanHistory ? 'scans' : 'scan-start',
+      label: hasAnySuccessfulScan
+        ? 'Review scan results'
+        : hasUnknownGitHubScanHistory
+          ? 'Review scan history'
+          : 'Run a scan',
       description: hasAnySuccessfulScan
         ? 'Check recent evidence and repository coverage.'
-        : 'Complete a scan to produce current evidence.',
-      to: hasAnySuccessfulScan ? githubPath : scanActionPath,
+        : hasUnknownGitHubScanHistory
+          ? 'Confirm whether earlier scans completed successfully.'
+          : 'Complete a scan to produce current evidence.',
+      to: hasAnySuccessfulScan || hasUnknownGitHubScanHistory ? githubPath : scanActionPath,
       tone: 'neutral'
     });
   }
@@ -33840,9 +33909,21 @@ export function ProductOverviewPage() {
               </div>
             ) : (
               <AppShellEmptyState
-                title={hasAnySuccessfulScan ? 'No high-priority findings' : 'No completed scan'}
-                body={hasAnySuccessfulScan ? 'Completed scans have no open critical or high findings.' : 'Complete a scan to check for critical and high findings.'}
-                action={hasAnySuccessfulScan ? undefined : { label: 'Run a scan', to: connectSourcesPath }}
+                title={hasAnySuccessfulScan
+                  ? 'No high-priority findings'
+                  : hasUnknownGitHubScanHistory
+                    ? 'Scan history incomplete'
+                    : 'No completed scan'}
+                body={hasAnySuccessfulScan
+                  ? 'Completed scans have no open critical or high findings.'
+                  : hasUnknownGitHubScanHistory
+                    ? 'Recent scans do not show whether earlier evidence completed successfully.'
+                    : 'Complete a scan to check for critical and high findings.'}
+                action={hasAnySuccessfulScan
+                  ? undefined
+                  : hasUnknownGitHubScanHistory
+                    ? { label: 'Review scan history', to: githubPath }
+                    : { label: 'Run a scan', to: scanActionPath }}
               />
             )}
           </section>

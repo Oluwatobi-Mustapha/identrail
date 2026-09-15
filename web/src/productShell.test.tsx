@@ -3413,6 +3413,54 @@ describe('ProductOverviewPage', () => {
     expect(within(agenticRiskCard).queryByText('No signals detected')).not.toBeInTheDocument();
     expect(await screen.findByText('No completed scan')).toBeInTheDocument();
   });
+
+  it('preserves completed evidence when it falls beyond the recent scan page', async () => {
+    vi.resetModules();
+    mockConnectorFeatureFlags({ aws: true, github: true, kubernetes: true });
+    mockBackendFeatures({ github: true, kubernetes: true });
+
+    const api = await import('./api/client');
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [] });
+    const recentFailedScans = Array.from({ length: 5 }, (_, index) => ({
+      ...queuedRepoScan,
+      id: `repo-scan-failed-${index}`,
+      status: 'failed',
+      started_at: `2026-05-${17 - index}T11:00:00Z`,
+      finished_at: `2026-05-${17 - index}T11:01:00Z`,
+      error_message: 'Scan timed out'
+    }));
+    const historicalSuccessfulScan = {
+      ...queuedRepoScan,
+      id: 'repo-scan-historical-success',
+      status: 'succeeded',
+      started_at: '2026-04-01T11:00:00Z',
+      finished_at: '2026-04-01T11:01:00Z',
+      finding_count: 0
+    };
+    const listRepoScans = vi.spyOn(api.apiClient, 'listRepoScans').mockImplementation(async (filters) =>
+      filters?.cursor
+        ? { items: [historicalSuccessfulScan] }
+        : { items: recentFailedScans, next_cursor: 'older-scans' }
+    );
+    vi.spyOn(api.apiClient, 'listRepoFindings').mockResolvedValue({ items: [] });
+
+    const { ProductOverviewPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID" element={<ProductOverviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('No high-priority findings')).toBeInTheDocument();
+    expect(screen.queryByText('No completed scan')).not.toBeInTheDocument();
+    const domainPosture = screen.getByRole('region', { name: 'Domain posture' });
+    const agenticRiskCard = within(domainPosture).getByRole('link', { name: /AI \/ Agentic Risk/i });
+    expect(within(agenticRiskCard).getByText('No findings')).toBeInTheDocument();
+    expect(within(agenticRiskCard).getByText('No signals detected')).toBeInTheDocument();
+    await waitFor(() => expect(listRepoScans).toHaveBeenCalledTimes(2));
+  });
 });
 
 describe('Domain-first app routes', () => {
