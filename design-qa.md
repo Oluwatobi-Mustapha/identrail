@@ -1,8 +1,13 @@
 # Overview design QA
 
-source visual truth path: `/var/folders/9_/n9tflcy14dqbjp3c763y3_br0000gp/T/codex-clipboard-2c4d79c3-11b7-4722-9802-986ddf4bf255.png`
+source visual truth: [overview-source.png](docs/static/images/pr-1871/overview-source.png)
 
-implementation screenshot path: `http://127.0.0.1:5174/app/tenant-a/workspace-a` (browser-rendered CUA captures from the QA session; desktop and narrow captures were inspected after the final change)
+implementation under test: `http://127.0.0.1:5174/app/tenant-a/workspace-a`
+
+implementation captures:
+
+- [desktop overview](docs/static/images/pr-1871/overview-desktop.png)
+- [narrow overview](docs/static/images/pr-1871/overview-narrow.png)
 
 viewport: desktop `1440 x 900 CSS px`, narrow `720 x 900 CSS px`
 

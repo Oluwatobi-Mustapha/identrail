@@ -3287,9 +3287,11 @@ describe('ProductOverviewPage', () => {
 
     const domainPosture = await screen.findByRole('region', { name: 'Domain posture' });
     const githubCard = within(domainPosture).getByRole('link', { name: /GitHub/i });
+    const agenticRiskCard = within(domainPosture).getByRole('link', { name: /AI \/ Agentic Risk/i });
 
     await waitFor(() => expect(within(githubCard).getByText('No scan yet')).toBeInTheDocument());
     expect(within(githubCard).getByText('Awaiting first scan')).toBeInTheDocument();
+    expect(within(agenticRiskCard).getByText('Awaiting first scan')).toBeInTheDocument();
     expect(githubCard).toHaveAttribute('href', '/app/tenant-a/workspace-a/github');
     expect(screen.queryByRole('link', { name: 'Connect GitHub' })).not.toBeInTheDocument();
   });
@@ -3396,12 +3398,19 @@ describe('ProductOverviewPage', () => {
 
     const nextActions = screen.getByRole('region', { name: 'Recommended next actions' });
     const actionLinks = within(nextActions).getAllByRole('link');
+    const agenticRiskCard = within(screen.getByRole('region', { name: 'Domain posture' }))
+      .getByRole('link', { name: /AI \/ Agentic Risk/i });
     expect(actionLinks[0]).toHaveTextContent('Review 1 failed scan');
     expect(actionLinks[0]).toHaveTextContent('Check the reported error, then run the scan again.');
     expect(actionLinks[1]).toHaveTextContent('Connect AWS');
     expect(actionLinks[1]).toHaveTextContent('AWS is not connected to this workspace.');
     expect(actionLinks[2]).toHaveTextContent('Run a scan');
     expect(actionLinks[2]).toHaveTextContent('Complete a scan to produce current evidence.');
+    expect(actionLinks[2]).toHaveAttribute('href', '/app/tenant-a/workspace-a/github');
+    expect(within(agenticRiskCard).getByText('Scan incomplete')).toBeInTheDocument();
+    expect(within(agenticRiskCard).getByText('Awaiting scan completion')).toBeInTheDocument();
+    expect(within(agenticRiskCard).queryByText('No findings')).not.toBeInTheDocument();
+    expect(within(agenticRiskCard).queryByText('No signals detected')).not.toBeInTheDocument();
     expect(await screen.findByText('No completed scan')).toBeInTheDocument();
   });
 });

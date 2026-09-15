@@ -33471,7 +33471,19 @@ export function ProductOverviewPage() {
     kubernetesRollup.connectedCount > 0;
   const hasGitHubFindingEvidence = repoFindings.length > 0;
   const hasGitHubEvidence = repoScans.length > 0 || hasGitHubFindingEvidence;
+  const hasGitHubCompletedEvidence = succeededScanCount > 0 || hasGitHubFindingEvidence;
   const hasGitHubConnectorEvidence = hasGitHubEvidence || onboardingConnectorProvider === 'github';
+  const hasActiveGitHubScan = repoScans.some((scan) => isActiveScanStatus(scan.status));
+  const hasGitHubScanWithoutCompletedEvidence = repoScans.length > 0 && !hasGitHubCompletedEvidence;
+  const githubAgenticAwaitingStatus = hasActiveGitHubScan
+    ? 'Scan in progress'
+    : hasGitHubScanWithoutCompletedEvidence
+      ? 'Scan incomplete'
+      : 'No scan yet';
+  const githubAgenticAwaitingMetric = hasGitHubScanWithoutCompletedEvidence
+    ? 'Awaiting scan completion'
+    : 'Awaiting first scan';
+  const scanActionPath = hasGitHubConnectorEvidence ? githubPath : connectSourcesPath;
   const highPriorityCount = highPriorityFindings.length;
   const activeEnvironmentCount = activeProjects.length;
   const githubState: OverviewDomainState = !sourceAvailability.github.available && !hasGitHubConnectorEvidence
@@ -33543,17 +33555,21 @@ export function ProductOverviewPage() {
       provider: 'github',
       state: agenticRiskState,
       statusLabel:
-        agenticRiskState === 'no_data' && hasGitHubEvidence
+        agenticRiskState === 'no_data' && hasGitHubCompletedEvidence
           ? 'No findings'
-          : OVERVIEW_DOMAIN_STATE_LABELS[agenticRiskState],
+          : agenticRiskState === 'no_data' && hasGitHubConnectorEvidence
+            ? githubAgenticAwaitingStatus
+            : OVERVIEW_DOMAIN_STATE_LABELS[agenticRiskState],
       metric:
         agenticRiskState === 'shell'
           ? 'Connector off'
           : agenticRiskFindings.length > 0
             ? formatCountLabel(agenticRiskFindings.length, 'signal')
-            : hasGitHubEvidence
+            : hasGitHubCompletedEvidence
               ? 'No signals detected'
-              : 'Connect a source first',
+              : hasGitHubConnectorEvidence
+                ? githubAgenticAwaitingMetric
+                : 'Connect a source first',
       to: agenticRiskState === 'not_connected' ? githubPath : githubAgenticRiskPath
     }
   ];
@@ -33634,7 +33650,7 @@ export function ProductOverviewPage() {
       description: hasAnySuccessfulScan
         ? 'Check recent evidence and repository coverage.'
         : 'Complete a scan to produce current evidence.',
-      to: hasAnySuccessfulScan ? githubPath : connectSourcesPath,
+      to: hasAnySuccessfulScan ? githubPath : scanActionPath,
       tone: 'neutral'
     });
   }
