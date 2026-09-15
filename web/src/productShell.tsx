@@ -335,7 +335,7 @@ const OVERVIEW_DOMAIN_STATE_LABELS: Record<OverviewDomainState, string> = {
   connected: 'Connected',
   degraded: 'Needs review',
   not_connected: 'Not connected',
-  no_data: 'Pending',
+  no_data: 'No scan yet',
   shell: 'Unavailable'
 };
 
@@ -1934,7 +1934,7 @@ function summarizeRepoScanSourceHealth(scan: RepoScanRecord): string {
     case 'unavailable':
       return 'Unavailable source collection';
     case 'unknown':
-      return 'Unknown source collection';
+      return 'Source details unavailable';
     default:
       return '';
   }
@@ -33457,7 +33457,6 @@ export function ProductOverviewPage() {
   const workspacesPath = scope ? buildScopedPath(scope, 'workspaces') : '/app';
   const connectSourcesProvider = DOMAIN_NAV_ORDER.find((provider) => sourceAvailability[provider].available) ?? 'aws';
   const connectSourcesPath = scope ? buildScopedPath(scope, `${connectSourcesProvider}/connect`) : '/app';
-  const connectSourcesLabel = `Connect ${PRODUCT_DOMAIN_CONFIGS[connectSourcesProvider].navLabel}`;
   const hasAnySuccessfulScan = succeededScanCount > 0;
   const awsRollup = sourceConnectionRollups.aws;
   const kubernetesRollup = sourceConnectionRollups.kubernetes;
@@ -33498,6 +33497,7 @@ export function ProductOverviewPage() {
     label: string;
     provider: SourceProvider;
     state: OverviewDomainState;
+    statusLabel: string;
     metric: string;
     to: string;
   }> = [
@@ -33506,6 +33506,7 @@ export function ProductOverviewPage() {
       label: 'AWS',
       provider: 'aws',
       state: awsState,
+      statusLabel: OVERVIEW_DOMAIN_STATE_LABELS[awsState],
       metric: awsState === 'shell' ? 'Connector off' : overviewConnectionMetric(awsRollup, 'account'),
       to: awsState === 'not_connected' ? awsConnectPath : awsPath
     },
@@ -33514,6 +33515,7 @@ export function ProductOverviewPage() {
       label: 'GitHub',
       provider: 'github',
       state: githubState,
+      statusLabel: OVERVIEW_DOMAIN_STATE_LABELS[githubState],
       metric:
         githubState === 'shell'
           ? 'Connector off'
@@ -33521,7 +33523,9 @@ export function ProductOverviewPage() {
           ? formatCountLabel(repoScans.length, 'scan')
           : hasGitHubFindingEvidence
             ? formatCountLabel(repoFindings.length, 'finding')
-            : 'No scans',
+            : hasGitHubConnectorEvidence
+              ? 'Awaiting first scan'
+              : 'Connect GitHub',
       to: highPriorityCount > 0 ? findingsPath : githubPath
     },
     {
@@ -33529,6 +33533,7 @@ export function ProductOverviewPage() {
       label: 'Kubernetes',
       provider: 'kubernetes',
       state: kubernetesState,
+      statusLabel: OVERVIEW_DOMAIN_STATE_LABELS[kubernetesState],
       metric: kubernetesState === 'shell' ? 'Connector off' : overviewConnectionMetric(kubernetesRollup, 'cluster'),
       to: kubernetesState === 'not_connected' ? kubernetesConnectPath : kubernetesPath
     },
@@ -33537,12 +33542,18 @@ export function ProductOverviewPage() {
       label: 'AI / Agentic Risk',
       provider: 'github',
       state: agenticRiskState,
+      statusLabel:
+        agenticRiskState === 'no_data' && hasGitHubEvidence
+          ? 'No findings'
+          : OVERVIEW_DOMAIN_STATE_LABELS[agenticRiskState],
       metric:
         agenticRiskState === 'shell'
           ? 'Connector off'
           : agenticRiskFindings.length > 0
             ? formatCountLabel(agenticRiskFindings.length, 'signal')
-            : 'No signals',
+            : hasGitHubEvidence
+              ? 'No signals detected'
+              : 'Connect a source first',
       to: agenticRiskState === 'not_connected' ? githubPath : githubAgenticRiskPath
     }
   ];
@@ -33550,31 +33561,60 @@ export function ProductOverviewPage() {
     item.state === 'connected' || item.state === 'degraded' || item.state === 'no_data'
   ).length;
   const hasDomainDegradation = domainPosture.some((item) => item.state === 'degraded');
-  const postureLabel = highPriorityCount > 0 || failedScanCount > 0 || hasDomainDegradation ? 'Action needed' : 'Stable';
-  const coverageLabel = `${activeDomainCount}/${domainPosture.length}`;
+  const hasDomainSetupGap = domainPosture.some((item) => item.state === 'not_connected' || item.state === 'shell');
+  const postureTone: 'danger' | 'warning' | 'neutral' = highPriorityCount > 0
+    ? 'danger'
+    : failedScanCount > 0 || hasDomainDegradation || hasDomainSetupGap
+      ? 'warning'
+      : 'neutral';
+  const postureLabel = highPriorityCount > 0
+    ? 'High-priority risk'
+    : failedScanCount > 0
+      ? 'Scan needs review'
+      : hasDomainDegradation
+        ? 'Coverage needs review'
+        : hasDomainSetupGap
+          ? 'Coverage incomplete'
+          : 'Stable';
+  const activeDomainsLabel = `${activeDomainCount} of ${domainPosture.length}`;
   const evidenceLabel = repoScans.length > 0 ? formatCountLabel(repoScans.length, 'scan') : 'No scans';
-  const nextActions: Array<{ id: string; label: string; to: string; tone?: 'danger' | 'warning' | 'neutral' }> = [];
+  const firstSourceGap = domainPosture.find((item) => item.state === 'not_connected' || item.state === 'shell');
+  const nextActions: Array<{
+    id: string;
+    label: string;
+    description: string;
+    to: string;
+    tone?: 'danger' | 'warning' | 'neutral';
+  }> = [];
   if (highPriorityCount > 0) {
     nextActions.push({
       id: 'priority',
-      label: 'Review priority findings',
+      label: `Review ${formatCountLabel(highPriorityCount, 'high-priority finding')}`,
+      description: 'Critical and high findings need triage.',
       to: findingsPath,
       tone: 'danger'
-    });
-  }
-  if (!hasConnectedSource) {
-    nextActions.push({
-      id: 'connect',
-      label: connectSourcesLabel,
-      to: connectSourcesPath,
-      tone: 'warning'
     });
   }
   if (failedScanCount > 0) {
     nextActions.push({
       id: 'scan',
-      label: 'Review scan health',
-      to: findingsPath,
+      label: `Review ${formatCountLabel(failedScanCount, 'failed scan')}`,
+      description: 'Check the reported error, then run the scan again.',
+      to: githubPath,
+      tone: 'warning'
+    });
+  }
+  if (firstSourceGap) {
+    const sourceGapLabel = firstSourceGap.state === 'not_connected'
+      ? `Connect ${firstSourceGap.label}`
+      : `Review ${firstSourceGap.label} availability`;
+    nextActions.push({
+      id: 'connect',
+      label: sourceGapLabel,
+      description: firstSourceGap.state === 'not_connected'
+        ? `${firstSourceGap.label} is not connected to this workspace.`
+        : `${firstSourceGap.label} is unavailable in this workspace.`,
+      to: firstSourceGap.to,
       tone: 'warning'
     });
   }
@@ -33582,24 +33622,29 @@ export function ProductOverviewPage() {
     nextActions.push({
       id: 'agentic',
       label: 'Open agentic risk',
+      description: `${formatCountLabel(agenticRiskFindings.length, 'open signal')} need review.`,
       to: githubAgenticRiskPath,
       tone: 'danger'
     });
   }
-  nextActions.push(
-    {
+  if (nextActions.length < 3) {
+    nextActions.push({
       id: 'remediation',
-      label: 'Open remediation',
+      label: 'Review remediation',
+      description: 'See safe fixes for open GitHub findings.',
       to: githubRemediationPath,
       tone: highPriorityCount > 0 ? 'warning' : 'neutral'
-    },
-    {
+    });
+  }
+  if (nextActions.length < 3) {
+    nextActions.push({
       id: 'governance',
-      label: 'Check governance',
+      label: 'Review governance',
+      description: 'Check connector and policy coverage.',
       to: awsGovernancePath,
       tone: 'neutral'
-    }
-  );
+    });
+  }
   const visibleActions = nextActions.slice(0, 3);
   const onboardingChecklist: Array<{
     id: string;
@@ -33718,7 +33763,7 @@ export function ProductOverviewPage() {
         ) : null}
 
         <div className="idt-overview-metrics" aria-label="Command center summary">
-          <article className={`idt-overview-metric-card${postureLabel === 'Action needed' ? ' is-attention' : ''}`}>
+          <article className={`idt-overview-metric-card${postureTone === 'danger' ? ' is-attention' : postureTone === 'warning' ? ' is-warning' : ''}`}>
             <span className="idt-overview-metric-label">Posture</span>
             <strong>{postureLabel}</strong>
           </article>
@@ -33727,11 +33772,11 @@ export function ProductOverviewPage() {
             <strong>{highPriorityCount}</strong>
           </article>
           <article className="idt-overview-metric-card">
-            <span className="idt-overview-metric-label">Coverage</span>
-            <strong>{coverageLabel}</strong>
+            <span className="idt-overview-metric-label">Active domains</span>
+            <strong>{activeDomainsLabel}</strong>
           </article>
           <article className="idt-overview-metric-card">
-            <span className="idt-overview-metric-label">Evidence</span>
+            <span className="idt-overview-metric-label">Scan evidence</span>
             <strong>{evidenceLabel}</strong>
           </article>
         </div>
@@ -33741,7 +33786,7 @@ export function ProductOverviewPage() {
             <Link key={item.id} to={item.to} className={`idt-overview-domain-card is-${item.state}`}>
               <div className="idt-overview-domain-card-top">
                 <SourceLogoMark provider={item.provider} className="is-row" decorative />
-                <span className={`idt-overview-state-pill is-${item.state}`}>{OVERVIEW_DOMAIN_STATE_LABELS[item.state]}</span>
+                <span className={`idt-overview-state-pill is-${item.state}`}>{item.statusLabel}</span>
               </div>
               <strong>{item.label}</strong>
               <span>{item.metric}</span>
@@ -33777,23 +33822,23 @@ export function ProductOverviewPage() {
               </div>
             ) : (
               <AppShellEmptyState
-                title="No priority findings"
-                body="Critical and high findings appear here."
+                title={hasAnySuccessfulScan ? 'No high-priority findings' : 'No completed scan'}
+                body={hasAnySuccessfulScan ? 'Completed scans have no open critical or high findings.' : 'Complete a scan to check for critical and high findings.'}
                 action={hasAnySuccessfulScan ? undefined : { label: 'Run a scan', to: connectSourcesPath }}
               />
             )}
           </section>
 
-          <section className="idt-overview-card">
+          <section className="idt-overview-card" aria-label="Recommended next actions">
             <div className="idt-overview-card-header">
               <h3>Next actions</h3>
-              <Link className="idt-premium-text-link" to={githubRemediationPath}>Open remediation</Link>
             </div>
             <div className="idt-overview-action-list">
               {visibleActions.map((item) => (
                 <Link key={item.id} to={item.to} className={`idt-overview-action-row is-${item.tone ?? 'neutral'}`}>
                   <span>
                     <strong>{item.label}</strong>
+                    <small>{item.description}</small>
                   </span>
                   <ChevronRight size={16} aria-hidden="true" />
                 </Link>
