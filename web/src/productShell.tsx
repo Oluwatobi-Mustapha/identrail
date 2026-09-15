@@ -33629,11 +33629,13 @@ export function ProductOverviewPage() {
   }
   if (nextActions.length < 3) {
     nextActions.push({
-      id: 'remediation',
-      label: 'Review remediation',
-      description: 'See safe fixes for open GitHub findings.',
-      to: githubRemediationPath,
-      tone: highPriorityCount > 0 ? 'warning' : 'neutral'
+      id: hasAnySuccessfulScan ? 'scans' : 'scan-start',
+      label: hasAnySuccessfulScan ? 'Review scan results' : 'Run a scan',
+      description: hasAnySuccessfulScan
+        ? 'Check recent evidence and repository coverage.'
+        : 'Complete a scan to produce current evidence.',
+      to: hasAnySuccessfulScan ? githubPath : connectSourcesPath,
+      tone: 'neutral'
     });
   }
   if (nextActions.length < 3) {

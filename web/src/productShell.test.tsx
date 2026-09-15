@@ -3400,7 +3400,8 @@ describe('ProductOverviewPage', () => {
     expect(actionLinks[0]).toHaveTextContent('Check the reported error, then run the scan again.');
     expect(actionLinks[1]).toHaveTextContent('Connect AWS');
     expect(actionLinks[1]).toHaveTextContent('AWS is not connected to this workspace.');
-    expect(actionLinks[2]).toHaveTextContent('Review remediation');
+    expect(actionLinks[2]).toHaveTextContent('Run a scan');
+    expect(actionLinks[2]).toHaveTextContent('Complete a scan to produce current evidence.');
     expect(await screen.findByText('No completed scan')).toBeInTheDocument();
   });
 });
