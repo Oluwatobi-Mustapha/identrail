@@ -2337,6 +2337,90 @@ func TestMemoryStoreDeleteCascadesPurgeAWSPlatformBaselines(t *testing.T) {
 	})
 }
 
+func TestMemoryStoreDeleteProjectPurgesProjectScopedScanHistory(t *testing.T) {
+	store, ctx := setupMemoryBaselineCascadeStore(t)
+	if err := store.UpsertProject(ctx, TenancyProject{WorkspaceID: "ws-1", ProjectID: "project-b", Name: "Project B", Slug: "project-b"}); err != nil {
+		t.Fatalf("upsert second project: %v", err)
+	}
+
+	store.scans["scan-a"] = ScanRecord{ID: "scan-a", TenantID: "tenant-a", WorkspaceID: "ws-1", ProjectID: "project-a"}
+	store.scanIDs = append(store.scanIDs, "scan-a")
+	store.scanFindings["scan-a"] = []string{"scan-a|finding-a"}
+	store.findings["scan-a|finding-a"] = domain.Finding{ID: "finding-a", ScanID: "scan-a"}
+	store.triageStates[findingScopeKey(Scope{TenantID: "tenant-a", WorkspaceID: "ws-1"}, "finding-a")] = FindingTriageState{FindingID: "finding-a"}
+	store.repoScans["repo-a"] = RepoScanRecord{
+		ID: "repo-a", TenantID: "tenant-a", WorkspaceID: "ws-1",
+		Source: RepoScanSource{ProjectID: "project-a"},
+	}
+	store.repoScanIDs = append(store.repoScanIDs, "repo-a")
+	store.repoFindingIDs["repo-a"] = []string{"repo-a|finding-repo-a"}
+	store.repoFindings["repo-a|finding-repo-a"] = domain.Finding{ID: "finding-repo-a", ScanID: "repo-a"}
+	repoOnlyTriageKey := findingScopeKey(Scope{TenantID: "tenant-a", WorkspaceID: "ws-1"}, "finding-repo-a")
+	store.triageStates[repoOnlyTriageKey] = FindingTriageState{FindingID: "finding-repo-a"}
+	store.triageEvents[repoOnlyTriageKey] = []FindingTriageEvent{{FindingID: "finding-repo-a"}}
+	store.repoCursors["cursor-a"] = RepoScanCursor{
+		TenantID: "tenant-a", WorkspaceID: "ws-1", Source: RepoScanSource{ProjectID: "project-a"},
+	}
+
+	store.scans["scan-b"] = ScanRecord{ID: "scan-b", TenantID: "tenant-a", WorkspaceID: "ws-1", ProjectID: "project-b"}
+	store.scanIDs = append(store.scanIDs, "scan-b")
+	store.scanFindings["scan-b"] = []string{"scan-b|finding-a"}
+	store.findings["scan-b|finding-a"] = domain.Finding{ID: "finding-a", ScanID: "scan-b"}
+	store.repoScans["repo-b"] = RepoScanRecord{
+		ID: "repo-b", TenantID: "tenant-a", WorkspaceID: "ws-1",
+		Source: RepoScanSource{ProjectID: "project-b"},
+	}
+	store.repoScanIDs = append(store.repoScanIDs, "repo-b")
+
+	if err := store.DeleteProject(ctx, "ws-1", "project-a"); err != nil {
+		t.Fatalf("delete project: %v", err)
+	}
+	if _, exists := store.scans["scan-a"]; exists {
+		t.Fatal("expected project scan history to be purged")
+	}
+	if _, exists := store.findings["scan-a|finding-a"]; exists {
+		t.Fatal("expected project findings to be purged")
+	}
+	if _, exists := store.triageStates[findingScopeKey(Scope{TenantID: "tenant-a", WorkspaceID: "ws-1"}, "finding-a")]; !exists {
+		t.Fatal("expected shared triage state to remain for the surviving finding")
+	}
+	if _, exists := store.repoScans["repo-a"]; exists {
+		t.Fatal("expected project repository scan history to be purged")
+	}
+	if _, exists := store.repoFindings["repo-a|finding-repo-a"]; exists {
+		t.Fatal("expected project repository findings to be purged")
+	}
+	if _, exists := store.triageStates[repoOnlyTriageKey]; exists {
+		t.Fatal("expected repository-only triage state to be purged")
+	}
+	if _, exists := store.triageEvents[repoOnlyTriageKey]; exists {
+		t.Fatal("expected repository-only triage history to be purged")
+	}
+	if _, exists := store.repoCursors["cursor-a"]; exists {
+		t.Fatal("expected project repository cursor to be purged")
+	}
+	if _, exists := store.scans["scan-b"]; !exists {
+		t.Fatal("expected another project scan to remain")
+	}
+	if _, exists := store.repoScans["repo-b"]; !exists {
+		t.Fatal("expected another project repository scan to remain")
+	}
+	hasID := func(ids []string, want string) bool {
+		for _, id := range ids {
+			if id == want {
+				return true
+			}
+		}
+		return false
+	}
+	if hasID(store.scanIDs, "scan-a") || !hasID(store.scanIDs, "scan-b") {
+		t.Fatalf("unexpected scan index after project purge: %v", store.scanIDs)
+	}
+	if hasID(store.repoScanIDs, "repo-a") || !hasID(store.repoScanIDs, "repo-b") {
+		t.Fatalf("unexpected repository scan index after project purge: %v", store.repoScanIDs)
+	}
+}
+
 func setupMemoryBaselineCascadeStore(t *testing.T) (*MemoryStore, context.Context) {
 	t.Helper()
 	store := NewMemoryStore()

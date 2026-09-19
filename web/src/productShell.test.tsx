@@ -15674,6 +15674,129 @@ describe('Domain-first app routes', () => {
     expect(payload.project_id).not.toBe('default-environment');
   });
 
+  it('requires the environment key before deleting an environment', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    const project = {
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: 'production-platform',
+      name: 'Production Platform',
+      slug: 'production-platform',
+      description: 'Production boundary.',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z'
+    };
+    vi.spyOn(api.apiClient, 'listProjects').mockResolvedValue({ items: [project] });
+    const deleteProject = vi.spyOn(api.apiClient, 'deleteProject').mockResolvedValue(undefined);
+
+    const { ProductProjectsPage } = await import('./productShell');
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/projects']}>
+        <Routes>
+          <Route path="/app/:tenantID/:workspaceID/projects" element={<ProductProjectsPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Environments' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete environment' }));
+
+    const modal = screen.getByRole('dialog', { name: 'Delete Production Platform' });
+    const continueButton = within(modal).getByTestId('idt-danger-modal-continue');
+    expect(continueButton).toBeDisabled();
+    fireEvent.change(within(modal).getByTestId('idt-danger-modal-typed'), { target: { value: project.project_id } });
+    expect(continueButton).toBeEnabled();
+    fireEvent.click(continueButton);
+
+    await waitFor(() => expect(deleteProject).toHaveBeenCalledWith(
+      'workspace-a',
+      'production-platform',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    ));
+    await waitFor(() => expect(screen.queryByText('Production Platform')).not.toBeInTheDocument());
+  });
+
+  it('does not apply a pending delete to the next workspace', async () => {
+    mockBackendFeatures({ github: true, kubernetes: true });
+    const api = await import('./api/client');
+    const workspaceAProject = {
+      tenant_id: 'tenant-a',
+      workspace_id: 'workspace-a',
+      project_id: 'shared-environment',
+      name: 'Workspace A Environment',
+      slug: 'shared-environment',
+      description: 'Workspace A boundary.',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-02T00:00:00Z'
+    };
+    const workspaceBProject = {
+      ...workspaceAProject,
+      workspace_id: 'workspace-b',
+      name: 'Workspace B Environment',
+      description: 'Workspace B boundary.'
+    };
+    vi.spyOn(api.apiClient, 'listProjects').mockImplementation(async (workspaceID) => ({
+      items: [workspaceID === 'workspace-a' ? workspaceAProject : workspaceBProject]
+    }));
+    let resolveDelete!: () => void;
+    const deleteProject = vi.spyOn(api.apiClient, 'deleteProject').mockImplementation(
+      () => new Promise<void>((resolve) => {
+        resolveDelete = resolve;
+      })
+    );
+
+    const { ProductProjectsPage } = await import('./productShell');
+    function WorkspaceSwitcher() {
+      const navigate = useNavigate();
+      return (
+        <button type="button" onClick={() => navigate('/app/tenant-a/workspace-b/projects')}>
+          Switch workspace
+        </button>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/app/tenant-a/workspace-a/projects']}>
+        <Routes>
+          <Route
+            path="/app/:tenantID/:workspaceID/projects"
+            element={
+              <>
+                <WorkspaceSwitcher />
+                <ProductProjectsPage />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Workspace A Environment')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete environment' }));
+    const modal = screen.getByRole('dialog', { name: 'Delete Workspace A Environment' });
+    fireEvent.change(within(modal).getByTestId('idt-danger-modal-typed'), {
+      target: { value: workspaceAProject.project_id }
+    });
+    fireEvent.click(within(modal).getByTestId('idt-danger-modal-continue'));
+
+    await waitFor(() => expect(deleteProject).toHaveBeenCalledWith(
+      'workspace-a',
+      'shared-environment',
+      expect.objectContaining({ tenantID: 'tenant-a', workspaceID: 'workspace-a' })
+    ));
+    fireEvent.click(screen.getByRole('button', { name: 'Switch workspace' }));
+
+    expect(await screen.findByText('Workspace B Environment')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    resolveDelete();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(deleteProject).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Workspace B Environment')).toBeInTheDocument();
+  });
+
   it('opens nested GitHub AI risk routes from the sidebar domain flyout', async () => {
     mockConnectorFeatureFlags({ github: true, kubernetes: true });
     mockBackendFeatures({ github: true, kubernetes: true });
