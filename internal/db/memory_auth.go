@@ -289,6 +289,16 @@ func (m *MemoryStore) HardDeleteUser(ctx context.Context, userID string, now tim
 			delete(m.sessions, key)
 		}
 	}
+	// A hard-deleted account must not remain as an active-looking workspace
+	// member. The membership map is not backed by a foreign-key cascade in the
+	// memory store, so remove both UUID-bound rows and legacy rows that used the
+	// local user id directly. This also prevents the purged email/role from
+	// surviving in member-management responses after the account is gone.
+	for key, member := range m.members {
+		if member.UserUUID == id || member.UserID == id {
+			delete(m.members, key)
+		}
+	}
 	m.mu.Unlock()
 	audit.WriteAction(ctx, audit.AuditEvent{
 		Action:       "auth.user.hard_delete",

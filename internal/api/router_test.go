@@ -4514,7 +4514,7 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 	if whoamiBody.Principal.Type != "subject" || whoamiBody.Principal.ID != "user-1" {
 		t.Fatalf("unexpected principal payload: %+v", whoamiBody.Principal)
 	}
-	if len(whoamiBody.Roles) != 1 || whoamiBody.Roles[0] != "analyst" {
+	if len(whoamiBody.Roles) != 2 || whoamiBody.Roles[0] != "authenticated" || whoamiBody.Roles[1] != "admin" {
 		t.Fatalf("unexpected roles payload: %+v", whoamiBody.Roles)
 	}
 	if len(whoamiBody.Scopes) != 1 || whoamiBody.Scopes[0] != "read" {

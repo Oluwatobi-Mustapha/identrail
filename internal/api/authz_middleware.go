@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/identrail/identrail/internal/audit"
 	"github.com/identrail/identrail/internal/db"
 	"github.com/identrail/identrail/internal/telemetry"
@@ -685,7 +686,7 @@ func buildPolicyInputFromGinContext(c *gin.Context, policy routePolicy, writeKey
 			ID:          subjectID,
 			TenantID:    firstNonEmpty(authContextString(c, "auth.tenant_id"), strings.TrimSpace(scope.TenantID)),
 			WorkspaceID: firstNonEmpty(authContextString(c, "auth.workspace_id"), strings.TrimSpace(scope.WorkspaceID)),
-			Roles:       policyRolesFromAuth(c, writeKeys, scopedKeys),
+			Roles:       policyRolesFromAuthWithStore(c, writeKeys, scopedKeys, store),
 		},
 		Action: strings.ToLower(strings.TrimSpace(policy.Action)),
 		Resource: PolicyResource{
@@ -929,6 +930,16 @@ func trustedAttributesFromStore(ctx context.Context, store db.Store, entityKind 
 }
 
 func policyRolesFromAuth(c *gin.Context, writeKeys []string, scopedKeys map[string][]string) []string {
+	return policyRolesFromAuthWithStore(c, writeKeys, scopedKeys, nil)
+}
+
+// policyRolesFromAuthWithStore keeps workspace membership roles authoritative
+// for authenticated subjects. Provider-issued role claims are useful for
+// service principals, but they must not let a viewer claim "admin" (or make an
+// actual admin look like a viewer) when the scoped membership row says
+// otherwise. API keys and subjects without a membership row retain their
+// existing scope/claim behavior for machine-to-machine access.
+func policyRolesFromAuthWithStore(c *gin.Context, writeKeys []string, scopedKeys map[string][]string, store db.Store) []string {
 	if c == nil {
 		return nil
 	}
@@ -954,6 +965,24 @@ func policyRolesFromAuth(c *gin.Context, writeKeys []string, scopedKeys map[stri
 			roles[normalized] = struct{}{}
 		}
 	}
+	member, found, err := trustedWorkspaceMembership(c, store)
+	if err != nil {
+		// A membership lookup failure must not fail open to provider claims.
+		// Keep the generic authenticated role so self-service reads can still
+		// return a useful response while workspace-scoped grants fail closed.
+		return []string{"authenticated"}
+	}
+	if found {
+		for _, role := range []string{"owner", "admin", "analyst", "viewer", scopeRead, scopeWrite, scopeAdmin} {
+			delete(roles, role)
+		}
+		roles["authenticated"] = struct{}{}
+		if strings.EqualFold(strings.TrimSpace(member.Status), "active") {
+			if role := strings.ToLower(strings.TrimSpace(member.Role)); role != "" {
+				roles[role] = struct{}{}
+			}
+		}
+	}
 	if len(roles) > 0 {
 		result := make([]string, 0, len(roles))
 		for role := range roles {
@@ -976,6 +1005,63 @@ func policyRolesFromAuth(c *gin.Context, writeKeys []string, scopedKeys map[stri
 		legacyRoles = append(legacyRoles, scopeWrite)
 	}
 	return legacyRoles
+}
+
+func trustedWorkspaceMembership(c *gin.Context, store db.Store) (db.TenancyWorkspaceMember, bool, error) {
+	if c == nil || store == nil {
+		return db.TenancyWorkspaceMember{}, false, nil
+	}
+	subject := authContextString(c, "auth.subject")
+	if subject == "" {
+		return db.TenancyWorkspaceMember{}, false, nil
+	}
+	if c.Request == nil {
+		return db.TenancyWorkspaceMember{}, false, nil
+	}
+	scope := db.ScopeFromContext(c.Request.Context())
+	if strings.TrimSpace(scope.TenantID) == "" || strings.TrimSpace(scope.WorkspaceID) == "" {
+		return db.TenancyWorkspaceMember{}, false, nil
+	}
+	scopedCtx := db.WithScope(c.Request.Context(), scope)
+	if _, err := uuid.Parse(subject); err == nil {
+		member, err := store.GetWorkspaceMemberByUserUUID(scopedCtx, scope.WorkspaceID, subject)
+		if err == nil {
+			if !trustedMembershipAccountIsActive(scopedCtx, store, member) {
+				member.Status = "suspended"
+			}
+			return member, true, nil
+		}
+		if !errors.Is(err, db.ErrNotFound) {
+			return db.TenancyWorkspaceMember{}, false, err
+		}
+	}
+	members, err := store.ListWorkspaceMembers(scopedCtx, scope.WorkspaceID, 5000)
+	if err != nil {
+		return db.TenancyWorkspaceMember{}, false, err
+	}
+	for _, member := range members {
+		if strings.TrimSpace(member.UserID) == subject {
+			if !trustedMembershipAccountIsActive(scopedCtx, store, member) {
+				member.Status = "suspended"
+			}
+			return member, true, nil
+		}
+	}
+	return db.TenancyWorkspaceMember{}, false, nil
+}
+
+func trustedMembershipAccountIsActive(ctx context.Context, store db.Store, member db.TenancyWorkspaceMember) bool {
+	if strings.ToLower(strings.TrimSpace(member.Status)) != "active" {
+		return false
+	}
+	if strings.TrimSpace(member.UserUUID) == "" {
+		return true
+	}
+	user, err := store.GetUser(ctx, member.UserUUID)
+	if err != nil {
+		return errors.Is(err, db.ErrNotFound)
+	}
+	return strings.EqualFold(strings.TrimSpace(user.Status), "active")
 }
 
 func authClaimRoles(c *gin.Context) []string {

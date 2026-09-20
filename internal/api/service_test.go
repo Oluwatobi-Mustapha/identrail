@@ -3699,6 +3699,15 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed workspace-b: %v", err)
 	}
+	workspaceCCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-c"})
+	if err := store.UpsertWorkspace(workspaceCCtx, db.TenancyWorkspace{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-c",
+		DisplayName: "Workspace C",
+		Slug:        "workspace-c",
+	}); err != nil {
+		t.Fatalf("seed workspace-c: %v", err)
+	}
 	workspaceACtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 	if err := store.UpsertWorkspaceMember(workspaceACtx, db.TenancyWorkspaceMember{
 		TenantID:    "tenant-a",
@@ -3722,6 +3731,17 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed workspace-b member: %v", err)
 	}
+	if err := store.UpsertWorkspaceMember(workspaceCCtx, db.TenancyWorkspaceMember{
+		TenantID:    "tenant-a",
+		WorkspaceID: "workspace-c",
+		MemberID:    "member-c",
+		UserID:      "user-1",
+		UserUUID:    userUUID,
+		Role:        "admin",
+		Status:      "removed",
+	}); err != nil {
+		t.Fatalf("seed removed workspace-c member: %v", err)
+	}
 
 	contextSnapshot, err := svc.ResolveWhoAmIContext(scopeCtx, "user-1")
 	if err != nil {
@@ -3737,7 +3757,12 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 		t.Fatalf("unexpected active workspace member: %+v", contextSnapshot.ActiveWorkspace.Member)
 	}
 	if len(contextSnapshot.Workspaces) != 2 {
-		t.Fatalf("expected 2 workspace contexts, got %d", len(contextSnapshot.Workspaces))
+		t.Fatalf("expected only active memberships in workspace contexts, got %d", len(contextSnapshot.Workspaces))
+	}
+	for _, item := range contextSnapshot.Workspaces {
+		if item.Workspace.WorkspaceID == "workspace-c" {
+			t.Fatal("removed workspace membership must not appear in whoami contexts")
+		}
 	}
 
 	switched, err := svc.ResolveActiveWorkspace(scopeCtx, "user-1", "workspace-b")

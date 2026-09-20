@@ -1260,11 +1260,13 @@ func TestPostgresStoreWorkspaceMemberCRUD(t *testing.T) {
 
 	row := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "member_id", "user_id", "user_uuid", "email", "role", "status", "joined_at", "updated_at"}).
 		AddRow("tenant-a", "workspace-a", "member-1", "user-1", "", "user@example.com", "admin", "active", now, now)
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
-		 FROM tenancy_workspace_members
-		 WHERE tenant_id = $1
-		   AND workspace_id = $2
-		   AND member_id = $3`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT m.tenant_id, m.workspace_id, m.member_id, m.user_id, COALESCE(m.user_uuid::text, ''), m.email, m.role, m.status, m.joined_at, m.updated_at
+		 FROM tenancy_workspace_members m
+		 LEFT JOIN users u ON u.id = m.user_uuid
+		 WHERE m.tenant_id = $1
+		   AND m.workspace_id = $2
+		   AND (u.id IS NULL OR u.status = 'active')
+		   AND m.member_id = $3`)).
 		WithArgs("tenant-a", "workspace-a", "member-1").
 		WillReturnRows(row)
 
@@ -1278,11 +1280,13 @@ func TestPostgresStoreWorkspaceMemberCRUD(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "member_id", "user_id", "user_uuid", "email", "role", "status", "joined_at", "updated_at"}).
 		AddRow("tenant-a", "workspace-a", "member-1", "user-1", "", "user@example.com", "admin", "active", now, now)
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
-		 FROM tenancy_workspace_members
-		 WHERE tenant_id = $1
-		   AND workspace_id = $2
-		 ORDER BY joined_at ASC
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT m.tenant_id, m.workspace_id, m.member_id, m.user_id, COALESCE(m.user_uuid::text, ''), m.email, m.role, m.status, m.joined_at, m.updated_at
+		 FROM tenancy_workspace_members m
+		 LEFT JOIN users u ON u.id = m.user_uuid
+		 WHERE m.tenant_id = $1
+		   AND m.workspace_id = $2
+		   AND (u.id IS NULL OR u.status = 'active')
+		 ORDER BY m.joined_at ASC
 		 LIMIT $3`)).
 		WithArgs("tenant-a", "workspace-a", 100).
 		WillReturnRows(rows)
@@ -1759,7 +1763,7 @@ func TestPostgresStoreListSoleOwnerWorkspaces(t *testing.T) {
 		       AND other.user_uuid <> NULLIF($1, '')::uuid
 		       AND other.status = 'active'
 		       AND other.role = 'owner'
-		       AND (other_u.id IS NULL OR other_u.status <> 'deleted')
+			       AND (other_u.id IS NULL OR other_u.status = 'active')
 		 )
 		 ORDER BY w.workspace_id ASC`)).
 		WithArgs("11111111-1111-1111-1111-111111111111").
@@ -2064,10 +2068,10 @@ func TestPostgresStoreListWorkspaceStrandedActiveMembersReturnsStranded(t *testi
 	}
 }
 
-func TestPostgresStoreListWorkspaceStrandedActiveMembersPinsDeletedOwnerExclusion(t *testing.T) {
-	// Codex round-10 cross-store parity pin: the SQL must carry the
-	// `NOT (m.role = 'owner' AND mu.id IS NOT NULL AND mu.status = 'deleted')`
-	// predicate so a soft-deleted co-owner is excluded from the
+func TestPostgresStoreListWorkspaceStrandedActiveMembersPinsInactiveOwnerExclusion(t *testing.T) {
+	// Cross-store parity pin: the SQL must carry the
+	// `(mu.id IS NULL OR mu.status = 'active')` predicate so an inactive
+	// linked account is excluded from the
 	// stranded list, matching the memory store. Without this the
 	// postgres path would return a phantom transfer target for the
 	// 409 sole_owner_requires_transfer response. A regression that
@@ -2092,12 +2096,12 @@ func TestPostgresStoreListWorkspaceStrandedActiveMembersPinsDeletedOwnerExclusio
 		WithArgs("tenant-a", "workspace-a").
 		WillReturnRows(wsRows)
 
-	// The stranded query is expected to contain the deleted-owner
+	// The stranded query is expected to contain the inactive-account
 	// exclusion predicate verbatim. sqlmock matches against this
 	// substring; if the predicate goes missing, the regex does not
 	// match and the call errors here.
 	emptyMembers := sqlmock.NewRows([]string{"tenant_id", "workspace_id", "member_id", "user_id", "user_uuid", "email", "role", "status", "joined_at", "updated_at"})
-	mock.ExpectQuery(regexp.QuoteMeta(`NOT (m.role = 'owner' AND mu.id IS NOT NULL AND mu.status = 'deleted')`)).
+	mock.ExpectQuery(regexp.QuoteMeta(`(mu.id IS NULL OR mu.status = 'active')`)).
 		WithArgs("tenant-a", "workspace-a", "11111111-1111-1111-1111-111111111111").
 		WillReturnRows(emptyMembers)
 

@@ -639,6 +639,24 @@ func TestMemoryHardDeleteUserPurgesPIIAndIdentities(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed identity: %v", err)
 	}
+	scopeCtx := WithScope(ctx, Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(scopeCtx, TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopeCtx, TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopeCtx, TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-purge",
+		UserID:      "purge-subject",
+		UserUUID:    user.ID,
+		Email:       user.PrimaryEmail,
+		Role:        "viewer",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed workspace membership: %v", err)
+	}
 	if _, err := store.SoftDeleteUser(ctx, user.ID, now); err != nil {
 		t.Fatalf("soft delete: %v", err)
 	}
@@ -654,6 +672,9 @@ func TestMemoryHardDeleteUserPurgesPIIAndIdentities(t *testing.T) {
 	}
 	if _, err := store.GetUserIdentity(ctx, "workos", "subject-purge"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected identity removed, got %v", err)
+	}
+	if _, err := store.GetWorkspaceMember(scopeCtx, "workspace-a", "member-purge"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected hard-deleted account membership removed, got %v", err)
 	}
 }
 
