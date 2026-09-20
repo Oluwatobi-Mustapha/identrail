@@ -4068,8 +4068,19 @@ func TestRouterTenancyEndpointsCRUDFlow(t *testing.T) {
 	}
 
 	memberResp := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/members", `{"member_id":"member-1","user_id":"user-1","email":"user1@example.com","role":"admin","status":"active"}`)
-	if memberResp.Code != http.StatusOK {
-		t.Fatalf("expected member upsert 200, got %d body=%s", memberResp.Code, memberResp.Body.String())
+	if memberResp.Code != http.StatusForbidden {
+		t.Fatalf("expected API-key member upsert 403, got %d body=%s", memberResp.Code, memberResp.Body.String())
+	}
+	memberScope := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertWorkspaceMember(memberScope, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-1",
+		UserID:      "user-1",
+		Email:       "user1@example.com",
+		Role:        "admin",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed member for read assertions: %v", err)
 	}
 
 	listMembersResp := doRequest(http.MethodGet, "/v1/workspaces/workspace-a/members?role=admin&status=active", "")
@@ -4182,8 +4193,8 @@ func TestRouterTenancyEndpointsCRUDFlow(t *testing.T) {
 	}
 
 	deleteMemberResp := doRequest(http.MethodDelete, "/v1/workspaces/workspace-a/members/member-1", "")
-	if deleteMemberResp.Code != http.StatusNoContent {
-		t.Fatalf("expected member delete 204, got %d body=%s", deleteMemberResp.Code, deleteMemberResp.Body.String())
+	if deleteMemberResp.Code != http.StatusForbidden {
+		t.Fatalf("expected API-key member delete 403, got %d body=%s", deleteMemberResp.Code, deleteMemberResp.Body.String())
 	}
 
 	// DELETE /v1/workspaces/:id is now an owner-only soft delete (see
@@ -4854,8 +4865,8 @@ func TestRouterTenancyErrorPaths(t *testing.T) {
 	doRequest(http.MethodPost, "/v1/workspaces", `{"workspace_id":"workspace-a","display_name":"WS","slug":"ws-a"}`)
 
 	memberInvalid := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/members", `{"member_id":"","user_id":"","email":"","role":"","status":""}`)
-	if memberInvalid.Code != http.StatusBadRequest {
-		t.Fatalf("expected member invalid data 400, got %d body=%s", memberInvalid.Code, memberInvalid.Body.String())
+	if memberInvalid.Code != http.StatusForbidden {
+		t.Fatalf("expected API-key member invalid write 403, got %d body=%s", memberInvalid.Code, memberInvalid.Body.String())
 	}
 
 	projectInvalid := doRequest(http.MethodPost, "/v1/workspaces/workspace-a/projects", `{"project_id":"","name":"","slug":""}`)

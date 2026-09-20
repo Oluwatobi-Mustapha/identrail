@@ -1518,6 +1518,16 @@ func effectiveWhoAmIRoles(c *gin.Context, snapshot WhoAmIContext) []string {
 	return effective
 }
 
+func workspaceMemberCallerSubject(c *gin.Context) string {
+	if subject := authContextString(c, "auth.subject"); subject != "" {
+		return subject
+	}
+	if authContextString(c, "auth.api_key") != "" {
+		return workspaceMemberAPIKeyCaller
+	}
+	return ""
+}
+
 func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service, featureConnectorAWS bool, featureConnectorGitHubV2 bool) {
 	v1.GET("/organizations/current", func(c *gin.Context) {
 		if svc == nil {
@@ -1969,7 +1979,7 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			c.Request.Context(),
 			c.Param("workspace_id"),
 			request,
-			authContextString(c, "auth.subject"),
+			workspaceMemberCallerSubject(c),
 		)
 		if err != nil {
 			if errors.Is(err, ErrInvalidTenancyRequest) {
@@ -2022,7 +2032,7 @@ func registerTenancyRoutes(v1 *gin.RouterGroup, logger *zap.Logger, svc *Service
 			c.Request.Context(),
 			c.Param("workspace_id"),
 			c.Param("member_id"),
-			authContextString(c, "auth.subject"),
+			workspaceMemberCallerSubject(c),
 		); err != nil {
 			if errors.Is(err, ErrWorkspaceAdminRequired) {
 				c.JSON(http.StatusForbidden, gin.H{"error": "workspace owner or admin role required", "code": "admin_required"})

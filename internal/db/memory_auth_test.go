@@ -649,8 +649,7 @@ func TestMemoryHardDeleteUserPurgesPIIAndIdentities(t *testing.T) {
 	if err := store.UpsertWorkspaceMember(scopeCtx, TenancyWorkspaceMember{
 		WorkspaceID: "workspace-a",
 		MemberID:    "member-purge",
-		UserID:      "purge-subject",
-		UserUUID:    user.ID,
+		UserID:      "subject-purge",
 		Email:       user.PrimaryEmail,
 		Role:        "viewer",
 		Status:      "active",
@@ -673,8 +672,8 @@ func TestMemoryHardDeleteUserPurgesPIIAndIdentities(t *testing.T) {
 	if _, err := store.GetUserIdentity(ctx, "workos", "subject-purge"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected identity removed, got %v", err)
 	}
-	if _, err := store.GetWorkspaceMember(scopeCtx, "workspace-a", "member-purge"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("expected hard-deleted account membership removed, got %v", err)
+	if _, err := store.GetWorkspaceMemberByUserID(scopeCtx, "workspace-a", "subject-purge"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected hard-deleted legacy membership removed, got %v", err)
 	}
 }
 

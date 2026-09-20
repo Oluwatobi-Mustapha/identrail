@@ -860,6 +860,42 @@ func (m *MemoryStore) GetWorkspaceMemberByUserUUID(ctx context.Context, workspac
 		if member.TenantID == scope.TenantID &&
 			member.WorkspaceID == resolvedWorkspaceID &&
 			member.UserUUID == normalizedUserUUID {
+			user, ok := m.users[member.UserUUID]
+			if !ok || user.Status != "active" {
+				return TenancyWorkspaceMember{}, ErrNotFound
+			}
+			return member, nil
+		}
+	}
+	return TenancyWorkspaceMember{}, ErrNotFound
+}
+
+// GetWorkspaceMemberByUserID returns one scoped workspace member by its
+// provider subject. Legacy membership rows use this field when user_uuid is
+// unavailable, so callers must not enumerate the entire workspace to resolve
+// one subject.
+func (m *MemoryStore) GetWorkspaceMemberByUserID(ctx context.Context, workspaceID string, userID string) (TenancyWorkspaceMember, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	normalizedUserID := strings.TrimSpace(userID)
+	for _, member := range m.members {
+		if member.TenantID == scope.TenantID &&
+			member.WorkspaceID == resolvedWorkspaceID &&
+			member.UserID == normalizedUserID {
+			if member.UserUUID != "" {
+				if user, ok := m.users[member.UserUUID]; ok && user.Status != "active" {
+					return TenancyWorkspaceMember{}, ErrNotFound
+				}
+			}
 			return member, nil
 		}
 	}

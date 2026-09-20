@@ -632,6 +632,11 @@ var ErrWorkspaceOwnerRequired = errors.New("workspace owner role required")
 // attempted by a caller without an active owner or admin membership.
 var ErrWorkspaceAdminRequired = errors.New("workspace admin role required")
 
+// workspaceMemberAPIKeyCaller marks an authenticated API-key request at the
+// service boundary. API keys can carry platform scopes, but they do not map to
+// an active workspace membership and therefore cannot create or delete one.
+const workspaceMemberAPIKeyCaller = "\x00identrail-api-key"
+
 // ErrWorkspaceNotReactivatable indicates a reactivate request hit a
 // workspace that is not in the suspended state. Soft-deleted workspaces
 // must go through cancel-deletion (which enforces the grace window)
@@ -3609,7 +3614,11 @@ func (s *Service) requireWorkspaceOwner(ctx context.Context, workspaceID string,
 		}
 		return err
 	}
-	if member.Status != "active" || member.Role != "owner" {
+	active, activeErr := s.workspaceMemberIsActive(ctx, member)
+	if activeErr != nil {
+		return activeErr
+	}
+	if !active || member.Role != "owner" {
 		return ErrWorkspaceOwnerRequired
 	}
 	return nil
@@ -3751,12 +3760,15 @@ func (s *Service) DeleteWorkspaceMemberAs(ctx context.Context, workspaceID strin
 // requireWorkspaceAdmin is the service-level membership gate for workspace
 // administration. Route RBAC is intentionally not enough: bearer-token role
 // claims can be stale or misconfigured, while this lookup is bound to the
-// caller and target workspace. API-key callers have no subject and remain
-// governed by the central scope policy; an empty subject is therefore treated
-// as trusted only at this internal service boundary.
+// caller and target workspace. An empty subject is trusted only by internal
+// provisioning callers; HTTP handlers mark API-key callers explicitly so
+// platform scopes cannot be used to assign workspace roles.
 func (s *Service) requireWorkspaceAdmin(ctx context.Context, workspaceID string, callerSubject string) error {
 	if _, err := s.Store.GetWorkspace(ctx, workspaceID); err != nil {
 		return err
+	}
+	if strings.TrimSpace(callerSubject) == workspaceMemberAPIKeyCaller {
+		return ErrWorkspaceAdminRequired
 	}
 	if strings.TrimSpace(callerSubject) == "" {
 		return nil
@@ -5072,41 +5084,50 @@ func (s *Service) lookupWorkspaceMemberBySubject(
 			return db.TenancyWorkspaceMember{}, false, err
 		}
 		if err == nil {
-			if s.workspaceMemberIsActive(ctx, member) {
+			active, activeErr := s.workspaceMemberIsActive(ctx, member)
+			if activeErr != nil {
+				return db.TenancyWorkspaceMember{}, false, activeErr
+			}
+			if active {
 				return member, true, nil
 			}
 			return db.TenancyWorkspaceMember{}, false, nil
 		}
 	}
-	members, err := s.ListWorkspaceMembers(ctx, workspaceID, "", "", maxCursorFetchLimit)
-	if err != nil {
-		return db.TenancyWorkspaceMember{}, false, err
-	}
-	for _, member := range members {
-		if strings.TrimSpace(member.UserID) != normalizedSubject {
-			continue
+	member, err := s.Store.GetWorkspaceMemberByUserID(ctx, workspaceID, normalizedSubject)
+	if err == nil {
+		active, activeErr := s.workspaceMemberIsActive(ctx, member)
+		if activeErr != nil {
+			return db.TenancyWorkspaceMember{}, false, activeErr
 		}
-		if s.workspaceMemberIsActive(ctx, member) {
+		if active {
 			return member, true, nil
 		}
+		return db.TenancyWorkspaceMember{}, false, nil
+	}
+	if !errors.Is(err, db.ErrNotFound) {
+		return db.TenancyWorkspaceMember{}, false, err
 	}
 	return db.TenancyWorkspaceMember{}, false, nil
 }
 
-func (s *Service) workspaceMemberIsActive(ctx context.Context, member db.TenancyWorkspaceMember) bool {
+func (s *Service) workspaceMemberIsActive(ctx context.Context, member db.TenancyWorkspaceMember) (bool, error) {
 	if strings.ToLower(strings.TrimSpace(member.Status)) != "active" {
-		return false
+		return false, nil
 	}
 	if strings.TrimSpace(member.UserUUID) == "" {
-		return true
+		return true, nil
 	}
 	user, err := s.Store.GetUser(ctx, member.UserUUID)
 	if err != nil {
-		// Legacy membership rows may not have a corresponding local user row;
-		// the membership status remains the authoritative signal for those rows.
-		return errors.Is(err, db.ErrNotFound)
+		// A linked membership with no corresponding account is orphaned and
+		// must fail closed, while an unlinked legacy row is handled above.
+		if errors.Is(err, db.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
 	}
-	return strings.EqualFold(strings.TrimSpace(user.Status), "active")
+	return strings.EqualFold(strings.TrimSpace(user.Status), "active"), nil
 }
 
 func firstNonEmptyTag(tags map[string]string, keys ...string) string {

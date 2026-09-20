@@ -374,17 +374,24 @@ func (p *PostgresStore) HardDeleteUser(ctx context.Context, userID string, now t
 		}
 		return User{}, err
 	}
+	// Membership rows are intentionally removed rather than left behind with
+	// a NULL user_uuid. Keeping them would preserve the deleted account's role
+	// and email in workspace responses and make the account appear to retain
+	// access after permanent purge. Legacy rows store the provider subject in
+	// user_id, so the identity mapping must be read before it is deleted.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM tenancy_workspace_members
+		 WHERE user_uuid = NULLIF($1, '')::uuid
+		    OR user_id = $1
+		    OR user_id IN (
+			 SELECT subject FROM user_identities
+			 WHERE user_id = NULLIF($1, '')::uuid
+		    )`, id); err != nil {
+		return User{}, err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM user_identities WHERE user_id = NULLIF($1, '')::uuid`, id); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = NULLIF($1, '')::uuid`, id); err != nil {
-		return User{}, err
-	}
-	// Membership rows are intentionally removed rather than left behind with
-	// a NULL user_uuid. Keeping them would preserve the deleted account's role
-	// and email in workspace responses and make the account appear to retain
-	// access after permanent purge.
-	if _, err := tx.ExecContext(ctx, `DELETE FROM tenancy_workspace_members WHERE user_uuid = NULLIF($1, '')::uuid OR user_id = $1`, id); err != nil {
 		return User{}, err
 	}
 	if err := tx.Commit(); err != nil {

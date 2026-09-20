@@ -166,6 +166,55 @@ func TestServiceWorkspaceMemberWritesRequireActiveAdminMembership(t *testing.T) 
 	if err := svc.DeleteWorkspaceMemberAs(ctx, "workspace-a", "member-new", viewer.ID); !errors.Is(err, ErrWorkspaceAdminRequired) {
 		t.Fatalf("expected viewer member delete to be denied, got %v", err)
 	}
+
+	admin, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "admin@example.com",
+		DisplayName:  "Workspace Admin",
+	})
+	if err != nil {
+		t.Fatalf("upsert admin: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-admin",
+		UserID:      "subj-admin",
+		UserUUID:    admin.ID,
+		Email:       admin.PrimaryEmail,
+		Role:        "admin",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed admin membership: %v", err)
+	}
+	adminRequest := request
+	adminRequest.MemberID = "member-admin-created"
+	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", adminRequest, admin.ID); err != nil {
+		t.Fatalf("expected admin member write to succeed, got %v", err)
+	}
+	if err := svc.DeleteWorkspaceMemberAs(ctx, "workspace-a", adminRequest.MemberID, admin.ID); err != nil {
+		t.Fatalf("expected admin member delete to succeed, got %v", err)
+	}
+
+	suspendedOwner, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "suspended-owner@example.com",
+		DisplayName:  "Suspended Owner",
+	})
+	if err != nil {
+		t.Fatalf("upsert suspended owner: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-suspended-owner",
+		UserID:      "subj-suspended-owner",
+		UserUUID:    suspendedOwner.ID,
+		Email:       suspendedOwner.PrimaryEmail,
+		Role:        "owner",
+		Status:      "suspended",
+	}); err != nil {
+		t.Fatalf("seed suspended owner membership: %v", err)
+	}
+	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", request, suspendedOwner.ID); !errors.Is(err, ErrWorkspaceAdminRequired) {
+		t.Fatalf("expected suspended owner member write to be denied, got %v", err)
+	}
 }
 
 func TestServiceRequireWorkspaceOwnerRefusesInactiveOwner(t *testing.T) {

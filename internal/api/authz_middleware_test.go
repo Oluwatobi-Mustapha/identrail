@@ -455,6 +455,49 @@ func TestPolicyRolesFromAuthUsesScopedMembershipOverStaleClaims(t *testing.T) {
 	}
 }
 
+func TestPolicyRolesFromAuthDropsUnassignedProviderRoles(t *testing.T) {
+	store := db.NewMemoryStore()
+	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	scopedCtx := db.WithScope(context.Background(), scope)
+	if err := store.UpsertOrganization(scopedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/workspaces/workspace-a/members", nil)
+	c.Request = c.Request.WithContext(scopedCtx)
+	c.Set("auth.subject", "unassigned-subject")
+	c.Set("auth.roles", []string{"admin", "viewer"})
+	c.Set("auth.scope_set", newScopeSet([]string{scopeWrite}))
+	roles := policyRolesFromAuthWithStore(c, nil, nil, store)
+	if len(roles) != 3 || roles[0] != "authenticated" || roles[1] != scopeRead || roles[2] != scopeWrite {
+		t.Fatalf("expected authenticated plus explicit scope roles, got %v", roles)
+	}
+
+	missingUserUUID := "00000000-0000-0000-0000-000000000099"
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "orphan-member",
+		UserID:      "orphan-subject",
+		UserUUID:    missingUserUUID,
+		Role:        "owner",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed orphan membership: %v", err)
+	}
+	c.Set("auth.subject", missingUserUUID)
+	c.Set("auth.roles", []string{"owner"})
+	c.Set("auth.scope_set", newScopeSet(nil))
+	roles = policyRolesFromAuthWithStore(c, nil, nil, store)
+	if len(roles) != 1 || roles[0] != "authenticated" {
+		t.Fatalf("expected orphaned membership to fail closed, got %v", roles)
+	}
+}
+
 func TestRequireCentralPolicyMiddlewareWriteDeniedForReadRole(t *testing.T) {
 	r := newPolicyTestRouter(newScopeSet([]string{scopeRead}), true, nil)
 	w := httptest.NewRecorder()

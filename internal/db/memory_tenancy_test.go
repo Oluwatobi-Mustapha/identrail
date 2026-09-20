@@ -39,6 +39,13 @@ func TestMemoryStoreTenancyCRUD(t *testing.T) {
 	if _, err := store.GetWorkspace(ctx, "workspace-a"); err != nil {
 		t.Fatalf("get workspace: %v", err)
 	}
+	if _, err := store.UpsertUser(ctx, User{
+		ID:           "00000000-0000-0000-0000-000000000001",
+		PrimaryEmail: "user@example.com",
+		Status:       "active",
+	}); err != nil {
+		t.Fatalf("upsert workspace member user: %v", err)
+	}
 	workspaces, err := store.ListWorkspaces(ctx, 20)
 	if err != nil {
 		t.Fatalf("list workspaces: %v", err)

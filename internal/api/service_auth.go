@@ -908,7 +908,11 @@ func (s *Service) GetCurrentUserContext(ctx context.Context, current sessionauth
 	}
 	scopedCtx := db.WithScope(ctx, db.Scope{TenantID: result.OrgID, WorkspaceID: result.WorkspaceID})
 	if member, err := s.Store.GetWorkspaceMemberByUserUUID(scopedCtx, result.WorkspaceID, result.User.ID); err == nil {
-		if member.Status == "active" {
+		active, activeErr := s.workspaceMemberIsActive(scopedCtx, member)
+		if activeErr != nil {
+			return CurrentUserContext{}, activeErr
+		}
+		if active {
 			result.Role = member.Role
 		}
 	} else if !errors.Is(err, db.ErrNotFound) {

@@ -907,14 +907,64 @@ func (p *PostgresStore) GetWorkspaceMemberByUserUUID(ctx context.Context, worksp
 	}
 	row := p.queryRowContext(
 		ctx,
-		`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
-		 FROM tenancy_workspace_members
-		 WHERE tenant_id = $1
-		   AND workspace_id = $2
-		   AND user_uuid = NULLIF($3, '')::uuid`,
+		`SELECT m.tenant_id, m.workspace_id, m.member_id, m.user_id, COALESCE(m.user_uuid::text, ''), m.email, m.role, m.status, m.joined_at, m.updated_at
+		 FROM tenancy_workspace_members m
+		 LEFT JOIN users u ON u.id = m.user_uuid
+		 WHERE m.tenant_id = $1
+		   AND m.workspace_id = $2
+		   AND u.id IS NOT NULL
+		   AND u.status = 'active'
+		   AND m.user_uuid = NULLIF($3, '')::uuid`,
 		scope.TenantID,
 		resolvedWorkspaceID,
 		strings.TrimSpace(userUUID),
+	)
+	var member TenancyWorkspaceMember
+	if err := row.Scan(
+		&member.TenantID,
+		&member.WorkspaceID,
+		&member.MemberID,
+		&member.UserID,
+		&member.UserUUID,
+		&member.Email,
+		&member.Role,
+		&member.Status,
+		&member.JoinedAt,
+		&member.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return TenancyWorkspaceMember{}, ErrNotFound
+		}
+		return TenancyWorkspaceMember{}, err
+	}
+	return member, nil
+}
+
+// GetWorkspaceMemberByUserID returns one scoped workspace member by its
+// provider subject. Legacy membership rows use this field when user_uuid is
+// unavailable, so callers must not enumerate the entire workspace to resolve
+// one subject.
+func (p *PostgresStore) GetWorkspaceMemberByUserID(ctx context.Context, workspaceID string, userID string) (TenancyWorkspaceMember, error) {
+	scope, err := RequireScope(ctx)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	resolvedWorkspaceID, err := ResolveScopedWorkspaceID(scope, workspaceID)
+	if err != nil {
+		return TenancyWorkspaceMember{}, err
+	}
+	row := p.queryRowContext(
+		ctx,
+		`SELECT m.tenant_id, m.workspace_id, m.member_id, m.user_id, COALESCE(m.user_uuid::text, ''), m.email, m.role, m.status, m.joined_at, m.updated_at
+		 FROM tenancy_workspace_members m
+		 LEFT JOIN users u ON u.id = m.user_uuid
+		 WHERE m.tenant_id = $1
+		   AND m.workspace_id = $2
+		   AND (u.id IS NULL OR u.status = 'active')
+		   AND m.user_id = $3`,
+		scope.TenantID,
+		resolvedWorkspaceID,
+		strings.TrimSpace(userID),
 	)
 	var member TenancyWorkspaceMember
 	if err := row.Scan(

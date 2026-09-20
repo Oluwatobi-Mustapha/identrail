@@ -3451,6 +3451,7 @@ type Store interface {
 	UpsertWorkspaceMember(ctx context.Context, member TenancyWorkspaceMember) error
 	GetWorkspaceMember(ctx context.Context, workspaceID string, memberID string) (TenancyWorkspaceMember, error)
 	GetWorkspaceMemberByUserUUID(ctx context.Context, workspaceID string, userUUID string) (TenancyWorkspaceMember, error)
+	GetWorkspaceMemberByUserID(ctx context.Context, workspaceID string, userID string) (TenancyWorkspaceMember, error)
 	ListWorkspaceMembers(ctx context.Context, workspaceID string, limit int) ([]TenancyWorkspaceMember, error)
 	DeleteWorkspaceMember(ctx context.Context, workspaceID string, memberID string) error
 	UpsertProject(ctx context.Context, project TenancyProject) error

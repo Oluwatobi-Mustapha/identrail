@@ -35,6 +35,15 @@ func (f fakeScanner) Run(context.Context) (app.ScanResult, error) {
 	return f.result, nil
 }
 
+type getUserErrorStore struct {
+	db.Store
+	err error
+}
+
+func (s *getUserErrorStore) GetUser(context.Context, string) (db.User, error) {
+	return db.User{}, s.err
+}
+
 type unscopedConnectorFallbackStore struct {
 	db.Store
 	items         []db.TenancyConnectorWithState
@@ -3709,6 +3718,14 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 		t.Fatalf("seed workspace-c: %v", err)
 	}
 	workspaceACtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if _, err := store.UpsertUser(context.Background(), db.User{
+		ID:           userUUID,
+		PrimaryEmail: "user1@example.com",
+		DisplayName:  "User One",
+		Status:       "active",
+	}); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
 	if err := store.UpsertWorkspaceMember(workspaceACtx, db.TenancyWorkspaceMember{
 		TenantID:    "tenant-a",
 		WorkspaceID: "workspace-a",
@@ -3782,6 +3799,41 @@ func TestServiceResolveWhoAmIContextAndActiveWorkspace(t *testing.T) {
 	}
 	if switchedByUUID.Member == nil || switchedByUUID.Member.MemberID != "member-b" {
 		t.Fatalf("unexpected uuid switched member: %+v", switchedByUUID.Member)
+	}
+
+	if _, err := svc.ResolveActiveWorkspace(scopeCtx, "user-1", "workspace-c"); !errors.Is(err, ErrWorkspaceAccessDenied) {
+		t.Fatalf("expected removed workspace membership to deny switching, got %v", err)
+	}
+}
+
+func TestServiceResolveWhoAmIContextPropagatesUserLookupErrors(t *testing.T) {
+	store := db.NewMemoryStore()
+	scopeCtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
+	if err := store.UpsertOrganization(scopeCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopeCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	user, err := store.UpsertUser(context.Background(), db.User{PrimaryEmail: "member@example.com", Status: "active"})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopeCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-a",
+		UserID:      "subject-a",
+		UserUUID:    user.ID,
+		Role:        "admin",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed membership: %v", err)
+	}
+
+	databaseErr := errors.New("database temporarily unavailable")
+	svc := NewService(&getUserErrorStore{Store: store, err: databaseErr}, fakeScanner{}, "aws")
+	if _, err := svc.ResolveWhoAmIContext(scopeCtx, "subject-a"); !errors.Is(err, databaseErr) {
+		t.Fatalf("expected user lookup error to propagate, got %v", err)
 	}
 }
 

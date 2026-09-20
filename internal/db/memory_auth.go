@@ -273,9 +273,13 @@ func (m *MemoryStore) HardDeleteUser(ctx context.Context, userID string, now tim
 	user.Status = "deleted"
 	user.UpdatedAt = when
 	m.users[id] = user
+	legacySubjects := make(map[string]struct{})
 	for identityID, identity := range m.userIdentityByID {
 		if identity.UserID != id {
 			continue
+		}
+		if subject := strings.TrimSpace(identity.Subject); subject != "" {
+			legacySubjects[subject] = struct{}{}
 		}
 		delete(m.userIdentityByID, identityID)
 		for key, mappedID := range m.userIdentityByProviderSubject {
@@ -295,7 +299,8 @@ func (m *MemoryStore) HardDeleteUser(ctx context.Context, userID string, now tim
 	// local user id directly. This also prevents the purged email/role from
 	// surviving in member-management responses after the account is gone.
 	for key, member := range m.members {
-		if member.UserUUID == id || member.UserID == id {
+		_, legacySubjectMatch := legacySubjects[member.UserID]
+		if member.UserUUID == id || member.UserID == id || legacySubjectMatch {
 			delete(m.members, key)
 		}
 	}
