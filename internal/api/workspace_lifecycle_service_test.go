@@ -128,6 +128,46 @@ func TestServiceRequireWorkspaceOwnerRefusesNonOwner(t *testing.T) {
 	}
 }
 
+func TestServiceWorkspaceMemberWritesRequireActiveAdminMembership(t *testing.T) {
+	svc, ctx, ownerUUID := setupWorkspaceLifecycleServiceHarness(t)
+	store := svc.Store.(*db.MemoryStore)
+	viewer, err := store.UpsertUser(context.Background(), db.User{
+		PrimaryEmail: "viewer@example.com",
+		DisplayName:  "Viewer",
+	})
+	if err != nil {
+		t.Fatalf("upsert viewer: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(ctx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-viewer",
+		UserID:      "subj-viewer",
+		UserUUID:    viewer.ID,
+		Email:       viewer.PrimaryEmail,
+		Role:        "viewer",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed viewer membership: %v", err)
+	}
+
+	request := WorkspaceMemberUpsertRequest{
+		MemberID: "member-new",
+		UserID:   "subj-new",
+		Email:    "new@example.com",
+		Role:     "viewer",
+		Status:   "invited",
+	}
+	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", request, viewer.ID); !errors.Is(err, ErrWorkspaceAdminRequired) {
+		t.Fatalf("expected viewer member write to be denied, got %v", err)
+	}
+	if _, err := svc.UpsertWorkspaceMemberAs(ctx, "workspace-a", request, ownerUUID); err != nil {
+		t.Fatalf("expected owner member write to succeed, got %v", err)
+	}
+	if err := svc.DeleteWorkspaceMemberAs(ctx, "workspace-a", "member-new", viewer.ID); !errors.Is(err, ErrWorkspaceAdminRequired) {
+		t.Fatalf("expected viewer member delete to be denied, got %v", err)
+	}
+}
+
 func TestServiceRequireWorkspaceOwnerRefusesInactiveOwner(t *testing.T) {
 	// An owner whose membership status is suspended/removed must not
 	// satisfy the owner gate — they cannot perform destructive actions

@@ -628,6 +628,10 @@ var ErrWorkspaceDeletionGraceExpired = errors.New("workspace deletion grace peri
 // is the authoritative gate so role claims alone cannot bypass membership.
 var ErrWorkspaceOwnerRequired = errors.New("workspace owner role required")
 
+// ErrWorkspaceAdminRequired indicates a membership-management write was
+// attempted by a caller without an active owner or admin membership.
+var ErrWorkspaceAdminRequired = errors.New("workspace admin role required")
+
 // ErrWorkspaceNotReactivatable indicates a reactivate request hit a
 // workspace that is not in the suspended state. Soft-deleted workspaces
 // must go through cancel-deletion (which enforces the grace window)
@@ -3678,6 +3682,19 @@ func (s *Service) UpsertWorkspaceMember(
 	workspaceID string,
 	request WorkspaceMemberUpsertRequest,
 ) (db.TenancyWorkspaceMember, error) {
+	return s.UpsertWorkspaceMemberAs(ctx, workspaceID, request, "")
+}
+
+// UpsertWorkspaceMemberAs creates or updates one scoped workspace member after
+// validating the caller's active owner/admin membership. An empty caller is
+// reserved for trusted internal provisioning; HTTP handlers must pass the
+// authenticated subject so provider claims cannot replace the membership row.
+func (s *Service) UpsertWorkspaceMemberAs(
+	ctx context.Context,
+	workspaceID string,
+	request WorkspaceMemberUpsertRequest,
+	callerSubject string,
+) (db.TenancyWorkspaceMember, error) {
 	ctx = s.scopeContext(ctx)
 	scope, err := db.RequireScope(ctx)
 	if err != nil {
@@ -3685,6 +3702,9 @@ func (s *Service) UpsertWorkspaceMember(
 	}
 	normalizedWorkspaceID, err := db.ResolveScopedWorkspaceID(scope, workspaceID)
 	if err != nil {
+		return db.TenancyWorkspaceMember{}, err
+	}
+	if err := s.requireWorkspaceAdmin(ctx, normalizedWorkspaceID, callerSubject); err != nil {
 		return db.TenancyWorkspaceMember{}, err
 	}
 	normalized, err := db.NormalizeTenancyWorkspaceMemberForWrite(db.TenancyWorkspaceMember{
@@ -3713,8 +3733,47 @@ func (s *Service) GetWorkspaceMember(ctx context.Context, workspaceID string, me
 
 // DeleteWorkspaceMember removes one scoped workspace member.
 func (s *Service) DeleteWorkspaceMember(ctx context.Context, workspaceID string, memberID string) error {
+	return s.DeleteWorkspaceMemberAs(ctx, workspaceID, memberID, "")
+}
+
+// DeleteWorkspaceMemberAs removes one member after validating the caller's
+// active owner/admin membership. An empty caller is reserved for trusted
+// internal maintenance; HTTP handlers must pass the authenticated subject.
+func (s *Service) DeleteWorkspaceMemberAs(ctx context.Context, workspaceID string, memberID string, callerSubject string) error {
 	ctx = s.scopeContext(ctx)
-	return s.Store.DeleteWorkspaceMember(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(memberID))
+	normalizedWorkspaceID := strings.TrimSpace(workspaceID)
+	if err := s.requireWorkspaceAdmin(ctx, normalizedWorkspaceID, callerSubject); err != nil {
+		return err
+	}
+	return s.Store.DeleteWorkspaceMember(ctx, normalizedWorkspaceID, strings.TrimSpace(memberID))
+}
+
+// requireWorkspaceAdmin is the service-level membership gate for workspace
+// administration. Route RBAC is intentionally not enough: bearer-token role
+// claims can be stale or misconfigured, while this lookup is bound to the
+// caller and target workspace. API-key callers have no subject and remain
+// governed by the central scope policy; an empty subject is therefore treated
+// as trusted only at this internal service boundary.
+func (s *Service) requireWorkspaceAdmin(ctx context.Context, workspaceID string, callerSubject string) error {
+	if _, err := s.Store.GetWorkspace(ctx, workspaceID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(callerSubject) == "" {
+		return nil
+	}
+	member, found, err := s.lookupWorkspaceMemberBySubject(ctx, workspaceID, callerSubject)
+	if err != nil {
+		return err
+	}
+	if !found || strings.ToLower(strings.TrimSpace(member.Status)) != "active" {
+		return ErrWorkspaceAdminRequired
+	}
+	switch strings.ToLower(strings.TrimSpace(member.Role)) {
+	case "owner", "admin":
+		return nil
+	default:
+		return ErrWorkspaceAdminRequired
+	}
 }
 
 // ListProjects returns projects for one scoped workspace.
@@ -3790,6 +3849,13 @@ func (s *Service) ResolveWhoAmIContext(ctx context.Context, subject string) (Who
 		member, memberFound, err := s.lookupWorkspaceMemberBySubject(workspaceScope, workspace.WorkspaceID, normalizedSubject)
 		if err != nil {
 			return WhoAmIContext{}, err
+		}
+		// Browser/OIDC subjects must only receive workspaces where they have
+		// an active membership. Returning every tenant workspace (or a removed
+		// membership row) made the switcher present access the caller could not
+		// actually use and made member/admin boundaries look inconsistent.
+		if normalizedSubject != "" && !memberFound {
+			continue
 		}
 		workspaceContext := WorkspaceContext{
 			Workspace: workspace,
@@ -5006,34 +5072,41 @@ func (s *Service) lookupWorkspaceMemberBySubject(
 			return db.TenancyWorkspaceMember{}, false, err
 		}
 		if err == nil {
-			if strings.ToLower(strings.TrimSpace(member.Status)) == "active" {
+			if s.workspaceMemberIsActive(ctx, member) {
 				return member, true, nil
 			}
-			return member, true, nil
+			return db.TenancyWorkspaceMember{}, false, nil
 		}
 	}
 	members, err := s.ListWorkspaceMembers(ctx, workspaceID, "", "", maxCursorFetchLimit)
 	if err != nil {
 		return db.TenancyWorkspaceMember{}, false, err
 	}
-	var fallback db.TenancyWorkspaceMember
-	fallbackSet := false
 	for _, member := range members {
 		if strings.TrimSpace(member.UserID) != normalizedSubject {
 			continue
 		}
-		if strings.ToLower(strings.TrimSpace(member.Status)) == "active" {
+		if s.workspaceMemberIsActive(ctx, member) {
 			return member, true, nil
 		}
-		if !fallbackSet {
-			fallback = member
-			fallbackSet = true
-		}
-	}
-	if fallbackSet {
-		return fallback, true, nil
 	}
 	return db.TenancyWorkspaceMember{}, false, nil
+}
+
+func (s *Service) workspaceMemberIsActive(ctx context.Context, member db.TenancyWorkspaceMember) bool {
+	if strings.ToLower(strings.TrimSpace(member.Status)) != "active" {
+		return false
+	}
+	if strings.TrimSpace(member.UserUUID) == "" {
+		return true
+	}
+	user, err := s.Store.GetUser(ctx, member.UserUUID)
+	if err != nil {
+		// Legacy membership rows may not have a corresponding local user row;
+		// the membership status remains the authoritative signal for those rows.
+		return errors.Is(err, db.ErrNotFound)
+	}
+	return strings.EqualFold(strings.TrimSpace(user.Status), "active")
 }
 
 func firstNonEmptyTag(tags map[string]string, keys ...string) string {

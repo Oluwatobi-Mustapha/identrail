@@ -1272,7 +1272,7 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { level: 1, name: /Owner User/i })).toBeInTheDocument();
-    expect(await screen.findByText(/No workspace selected yet/i)).toBeInTheDocument();
+		 expect(await screen.findByText(/No workspace membership selected/i)).toBeInTheDocument();
     expect(await screen.findByText(/current browser/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Back to app/i })).toHaveAttribute('href', '/app');
   });

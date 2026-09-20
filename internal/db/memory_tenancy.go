@@ -425,6 +425,11 @@ func (m *MemoryStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, wo
 		if member.Status != "active" {
 			continue
 		}
+		if member.UserUUID != "" {
+			if user, ok := m.users[member.UserUUID]; ok && user.Status != "active" {
+				continue
+			}
+		}
 		if member.UserUUID == normalizedUserUUID {
 			if member.Role == "owner" {
 				callerIsOwner = true
@@ -432,7 +437,7 @@ func (m *MemoryStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, wo
 			continue
 		}
 		if member.Role == "owner" {
-			if owner, ok := m.users[member.UserUUID]; ok && owner.Status == "deleted" {
+			if owner, ok := m.users[member.UserUUID]; ok && owner.Status != "active" {
 				continue
 			}
 			otherLiveOwners++
@@ -829,6 +834,11 @@ func (m *MemoryStore) GetWorkspaceMember(ctx context.Context, workspaceID string
 	if !exists {
 		return TenancyWorkspaceMember{}, ErrNotFound
 	}
+	if member.UserUUID != "" {
+		if user, ok := m.users[member.UserUUID]; ok && user.Status != "active" {
+			return TenancyWorkspaceMember{}, ErrNotFound
+		}
+	}
 	return member, nil
 }
 
@@ -972,7 +982,7 @@ func (m *MemoryStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID stri
 			userOwns[key] = struct{}{}
 			continue
 		}
-		if owner, ok := m.users[member.UserUUID]; ok && owner.Status == "deleted" {
+		if owner, ok := m.users[member.UserUUID]; ok && owner.Status != "active" {
 			continue
 		}
 		otherLiveOwners[key]++
@@ -1015,6 +1025,11 @@ func (m *MemoryStore) ListWorkspaceMembers(ctx context.Context, workspaceID stri
 	for _, member := range m.members {
 		if member.TenantID != scope.TenantID || member.WorkspaceID != normalizedWorkspaceID {
 			continue
+		}
+		if member.UserUUID != "" {
+			if user, ok := m.users[member.UserUUID]; ok && user.Status != "active" {
+				continue
+			}
 		}
 		members = append(members, member)
 	}

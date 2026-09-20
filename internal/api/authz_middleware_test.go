@@ -405,6 +405,56 @@ func TestPolicyRolesFromAuthClaims(t *testing.T) {
 	}
 }
 
+func TestPolicyRolesFromAuthUsesScopedMembershipOverStaleClaims(t *testing.T) {
+	store := db.NewMemoryStore()
+	scope := db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"}
+	scopedCtx := db.WithScope(context.Background(), scope)
+	if err := store.UpsertOrganization(scopedCtx, db.TenancyOrganization{DisplayName: "Tenant A", Slug: "tenant-a"}); err != nil {
+		t.Fatalf("seed organization: %v", err)
+	}
+	if err := store.UpsertWorkspace(scopedCtx, db.TenancyWorkspace{WorkspaceID: "workspace-a", DisplayName: "Workspace A", Slug: "workspace-a"}); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-a",
+		UserID:      "subject-a",
+		Role:        "viewer",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("seed viewer membership: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/workspaces/workspace-a/members", nil)
+	c.Request = c.Request.WithContext(scopedCtx)
+	c.Set("auth.subject", "subject-a")
+	c.Set("auth.roles", []string{"owner"})
+	roles := policyRolesFromAuthWithStore(c, nil, nil, store)
+	if strings.Contains(strings.Join(roles, ","), "owner") || strings.Contains(strings.Join(roles, ","), "admin") {
+		t.Fatalf("stale owner claim must not survive scoped membership resolution: %v", roles)
+	}
+	if len(roles) != 2 || roles[0] != "authenticated" || roles[1] != "viewer" {
+		t.Fatalf("expected authenticated+viewer roles, got %v", roles)
+	}
+
+	if err := store.UpsertWorkspaceMember(scopedCtx, db.TenancyWorkspaceMember{
+		WorkspaceID: "workspace-a",
+		MemberID:    "member-a",
+		UserID:      "subject-a",
+		Role:        "admin",
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("promote membership: %v", err)
+	}
+	c.Set("auth.roles", []string{"viewer"})
+	roles = policyRolesFromAuthWithStore(c, nil, nil, store)
+	if len(roles) != 2 || roles[0] != "admin" || roles[1] != "authenticated" {
+		t.Fatalf("expected scoped admin role to override stale viewer claim, got %v", roles)
+	}
+}
+
 func TestRequireCentralPolicyMiddlewareWriteDeniedForReadRole(t *testing.T) {
 	r := newPolicyTestRouter(newScopeSet([]string{scopeRead}), true, nil)
 	w := httptest.NewRecorder()

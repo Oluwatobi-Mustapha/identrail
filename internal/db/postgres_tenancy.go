@@ -456,7 +456,7 @@ func (p *PostgresStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, 
 		   AND m.workspace_id = $2
 		   AND m.status = 'active'
 		   AND m.user_uuid IS DISTINCT FROM NULLIF($3, '')::uuid
-		   AND NOT (m.role = 'owner' AND mu.id IS NOT NULL AND mu.status = 'deleted')
+			AND (mu.id IS NULL OR mu.status = 'active')
 		   AND EXISTS (
 		       SELECT 1 FROM tenancy_workspace_members caller
 		       WHERE caller.tenant_id = m.tenant_id
@@ -474,7 +474,7 @@ func (p *PostgresStore) ListWorkspaceStrandedActiveMembers(ctx context.Context, 
 		         AND other.user_uuid IS DISTINCT FROM NULLIF($3, '')::uuid
 		         AND other.status = 'active'
 		         AND other.role = 'owner'
-		         AND (other_u.id IS NULL OR other_u.status <> 'deleted')
+			   AND (other_u.id IS NULL OR other_u.status = 'active')
 		   )
 		 ORDER BY m.member_id ASC`,
 		scope.TenantID,
@@ -863,11 +863,13 @@ func (p *PostgresStore) GetWorkspaceMember(ctx context.Context, workspaceID stri
 	}
 	row := p.queryRowContext(
 		ctx,
-		`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
-		 FROM tenancy_workspace_members
-		 WHERE tenant_id = $1
-		   AND workspace_id = $2
-		   AND member_id = $3`,
+		`SELECT m.tenant_id, m.workspace_id, m.member_id, m.user_id, COALESCE(m.user_uuid::text, ''), m.email, m.role, m.status, m.joined_at, m.updated_at
+		 FROM tenancy_workspace_members m
+		 LEFT JOIN users u ON u.id = m.user_uuid
+		 WHERE m.tenant_id = $1
+		   AND m.workspace_id = $2
+		   AND (u.id IS NULL OR u.status = 'active')
+		   AND m.member_id = $3`,
 		scope.TenantID,
 		resolvedWorkspaceID,
 		memberID,
@@ -1140,7 +1142,7 @@ func (p *PostgresStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID st
 		       AND other.user_uuid <> NULLIF($1, '')::uuid
 		       AND other.status = 'active'
 		       AND other.role = 'owner'
-		       AND (other_u.id IS NULL OR other_u.status <> 'deleted')
+			       AND (other_u.id IS NULL OR other_u.status = 'active')
 		 )
 		 ORDER BY w.workspace_id ASC`,
 		normalizedUserUUID,
@@ -1178,11 +1180,13 @@ func (p *PostgresStore) ListWorkspaceMembers(ctx context.Context, workspaceID st
 	}
 	rows, err := p.queryContext(
 		ctx,
-		`SELECT tenant_id, workspace_id, member_id, user_id, COALESCE(user_uuid::text, ''), email, role, status, joined_at, updated_at
-		 FROM tenancy_workspace_members
-		 WHERE tenant_id = $1
-		   AND workspace_id = $2
-		 ORDER BY joined_at ASC
+		`SELECT m.tenant_id, m.workspace_id, m.member_id, m.user_id, COALESCE(m.user_uuid::text, ''), m.email, m.role, m.status, m.joined_at, m.updated_at
+		 FROM tenancy_workspace_members m
+		 LEFT JOIN users u ON u.id = m.user_uuid
+		 WHERE m.tenant_id = $1
+		   AND m.workspace_id = $2
+		   AND (u.id IS NULL OR u.status = 'active')
+		 ORDER BY m.joined_at ASC
 		 LIMIT $3`,
 		scope.TenantID,
 		resolvedWorkspaceID,
