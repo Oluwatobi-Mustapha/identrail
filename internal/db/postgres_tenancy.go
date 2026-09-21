@@ -1189,7 +1189,7 @@ func (p *PostgresStore) ListSoleOwnerWorkspaces(ctx context.Context, userUUID st
 		     LEFT JOIN users other_u ON other_u.id = other.user_uuid
 		     WHERE other.tenant_id = w.tenant_id
 		       AND other.workspace_id = w.workspace_id
-		       AND other.user_uuid <> NULLIF($1, '')::uuid
+			   AND other.user_uuid IS DISTINCT FROM NULLIF($1, '')::uuid
 		       AND other.status = 'active'
 		       AND other.role = 'owner'
 			       AND (other_u.id IS NULL OR other_u.status = 'active')

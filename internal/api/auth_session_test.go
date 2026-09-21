@@ -709,7 +709,7 @@ func TestCurrentUserContextLoadsUserAndHandlesMissingScopeObjects(t *testing.T) 
 	if err != nil {
 		t.Fatalf("expected missing tenancy objects to be tolerated, got %v", err)
 	}
-	if scopedContext.OrgID != "missing-tenant" || scopedContext.WorkspaceID != "missing-workspace" || scopedContext.Role != "" {
+	if scopedContext.OrgID != "" || scopedContext.WorkspaceID != "" || scopedContext.ProjectID != "" || scopedContext.Role != "" {
 		t.Fatalf("unexpected missing-object context: %+v", scopedContext)
 	}
 
@@ -743,7 +743,8 @@ func TestCurrentUserContextLoadsUserAndHandlesMissingScopeObjects(t *testing.T) 
 	if err != nil {
 		t.Fatalf("get removed-member context: %v", err)
 	}
-	if removedMemberContext.Role != "" {
+	if removedMemberContext.OrgID != "" || removedMemberContext.WorkspaceID != "" || removedMemberContext.ProjectID != "" ||
+		removedMemberContext.Organization != nil || removedMemberContext.Workspace != nil || removedMemberContext.Project != nil || removedMemberContext.Role != "" {
 		t.Fatalf("expected removed member role to be omitted, got %+v", removedMemberContext)
 	}
 

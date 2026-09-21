@@ -1065,7 +1065,10 @@ func trustedMembershipAccountIsActive(ctx context.Context, store db.Store, membe
 		return false
 	}
 	if strings.TrimSpace(member.UserUUID) == "" {
-		return true
+		// A legacy provider-subject row is not sufficient evidence of account
+		// ownership. Without the linked user row, a stale or orphaned subject
+		// must not grant the membership role.
+		return false
 	}
 	user, err := store.GetUser(ctx, member.UserUUID)
 	if err != nil {

@@ -5116,12 +5116,14 @@ func (s *Service) workspaceMemberIsActive(ctx context.Context, member db.Tenancy
 		return false, nil
 	}
 	if strings.TrimSpace(member.UserUUID) == "" {
-		return true, nil
+		// Legacy subject-only memberships cannot prove that the current account
+		// owns the row. Treat them as inactive until they are linked to a user.
+		return false, nil
 	}
 	user, err := s.Store.GetUser(ctx, member.UserUUID)
 	if err != nil {
-		// A linked membership with no corresponding account is orphaned and
-		// must fail closed, while an unlinked legacy row is handled above.
+		// A linked membership with no corresponding account is orphaned and must
+		// fail closed.
 		if errors.Is(err, db.ErrNotFound) {
 			return false, nil
 		}

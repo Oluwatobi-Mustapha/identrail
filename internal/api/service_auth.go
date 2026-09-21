@@ -912,11 +912,20 @@ func (s *Service) GetCurrentUserContext(ctx context.Context, current sessionauth
 		if activeErr != nil {
 			return CurrentUserContext{}, activeErr
 		}
-		if active {
-			result.Role = member.Role
+		if !active {
+			result.OrgID = ""
+			result.WorkspaceID = ""
+			result.ProjectID = ""
+			return result, nil
 		}
+		result.Role = member.Role
 	} else if !errors.Is(err, db.ErrNotFound) {
 		return CurrentUserContext{}, err
+	} else {
+		result.OrgID = ""
+		result.WorkspaceID = ""
+		result.ProjectID = ""
+		return result, nil
 	}
 	if organization, err := s.Store.GetOrganization(scopedCtx); err == nil {
 		result.Organization = &organization

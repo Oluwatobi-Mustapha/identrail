@@ -273,13 +273,18 @@ func (m *MemoryStore) HardDeleteUser(ctx context.Context, userID string, now tim
 	user.Status = "deleted"
 	user.UpdatedAt = when
 	m.users[id] = user
-	legacySubjects := make(map[string]struct{})
+	targetSubjects := make(map[string]struct{})
+	ambiguousSubjects := make(map[string]struct{})
 	for identityID, identity := range m.userIdentityByID {
+		if subject := strings.TrimSpace(identity.Subject); subject != "" {
+			if identity.UserID == id {
+				targetSubjects[subject] = struct{}{}
+			} else {
+				ambiguousSubjects[subject] = struct{}{}
+			}
+		}
 		if identity.UserID != id {
 			continue
-		}
-		if subject := strings.TrimSpace(identity.Subject); subject != "" {
-			legacySubjects[subject] = struct{}{}
 		}
 		delete(m.userIdentityByID, identityID)
 		for key, mappedID := range m.userIdentityByProviderSubject {
@@ -299,8 +304,12 @@ func (m *MemoryStore) HardDeleteUser(ctx context.Context, userID string, now tim
 	// local user id directly. This also prevents the purged email/role from
 	// surviving in member-management responses after the account is gone.
 	for key, member := range m.members {
-		_, legacySubjectMatch := legacySubjects[member.UserID]
-		if member.UserUUID == id || member.UserID == id || legacySubjectMatch {
+		_, ambiguousLocalID := ambiguousSubjects[member.UserID]
+		_, targetSubjectMatch := targetSubjects[member.UserID]
+		if ambiguousLocalID {
+			targetSubjectMatch = false
+		}
+		if member.UserUUID == id || (member.UserID == id && !ambiguousLocalID) || targetSubjectMatch {
 			delete(m.members, key)
 		}
 	}

@@ -381,10 +381,25 @@ func (p *PostgresStore) HardDeleteUser(ctx context.Context, userID string, now t
 	// user_id, so the identity mapping must be read before it is deleted.
 	if _, err := tx.ExecContext(ctx, `DELETE FROM tenancy_workspace_members
 		 WHERE user_uuid = NULLIF($1, '')::uuid
-		    OR user_id = $1
+		    OR (
+			 user_id = $1
+			 AND NOT EXISTS (
+				 SELECT 1
+				 FROM user_identities other_identity
+				 WHERE other_identity.subject = tenancy_workspace_members.user_id
+				   AND other_identity.user_id <> NULLIF($1, '')::uuid
+			 )
+		    )
 		    OR user_id IN (
-			 SELECT subject FROM user_identities
-			 WHERE user_id = NULLIF($1, '')::uuid
+			 SELECT identity.subject
+			 FROM user_identities identity
+			 WHERE identity.user_id = NULLIF($1, '')::uuid
+			   AND NOT EXISTS (
+				 SELECT 1
+				 FROM user_identities other_identity
+				 WHERE other_identity.subject = identity.subject
+				   AND other_identity.user_id <> NULLIF($1, '')::uuid
+			   )
 		    )`, id); err != nil {
 		return User{}, err
 	}

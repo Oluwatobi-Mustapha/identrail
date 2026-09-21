@@ -4444,6 +4444,20 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed workspace-b: %v", err)
 	}
+	userOne, err := store.UpsertUser(context.Background(), db.User{
+		ID:           "11111111-1111-1111-1111-111111111111",
+		PrimaryEmail: "user1@example.com",
+	})
+	if err != nil {
+		t.Fatalf("seed user-1: %v", err)
+	}
+	userTwo, err := store.UpsertUser(context.Background(), db.User{
+		ID:           "22222222-2222-2222-2222-222222222222",
+		PrimaryEmail: "user2@example.com",
+	})
+	if err != nil {
+		t.Fatalf("seed user-2: %v", err)
+	}
 
 	workspaceACtx := db.WithScope(context.Background(), db.Scope{TenantID: "tenant-a", WorkspaceID: "workspace-a"})
 	if err := store.UpsertWorkspaceMember(workspaceACtx, db.TenancyWorkspaceMember{
@@ -4451,6 +4465,7 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 		WorkspaceID: "workspace-a",
 		MemberID:    "member-a",
 		UserID:      "user-1",
+		UserUUID:    userOne.ID,
 		Email:       "user1@example.com",
 		Role:        "admin",
 		Status:      "active",
@@ -4462,6 +4477,7 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 		WorkspaceID: "workspace-b",
 		MemberID:    "member-b",
 		UserID:      "user-1",
+		UserUUID:    userOne.ID,
 		Email:       "user1@example.com",
 		Role:        "viewer",
 		Status:      "active",
@@ -4473,6 +4489,7 @@ func TestRouterWhoAmIAndActiveWorkspaceContext(t *testing.T) {
 		WorkspaceID: "workspace-a",
 		MemberID:    "member-outsider",
 		UserID:      "user-2",
+		UserUUID:    userTwo.ID,
 		Email:       "user2@example.com",
 		Role:        "viewer",
 		Status:      "removed",
