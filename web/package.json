@@ -17,11 +17,15 @@
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "input-otp": "^1.5.0",
     "lucide-react": "^1.47.0",
+    "motion": "^13.4.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "react-router": "^8.4.0"
+    "react-router": "^8.4.0",
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@emnapi/core": "^1.11.2",

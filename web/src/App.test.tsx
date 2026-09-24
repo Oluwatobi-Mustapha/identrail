@@ -541,21 +541,23 @@ describe('App', () => {
     expect(document.body.scrollTop).toBe(640);
   });
 
-  it('renders pricing page routes and key elements', () => {
+  it('renders pricing page routes and key elements', async () => {
     setCurrentPath('/pricing');
     render(<App />);
 
-    expect(
-      screen.getByRole('heading', {
-        level: 1,
-        name: /Pricing aligned to how teams adopt machine identity security/i
-      })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /Pricing that matches your control boundary/i })).toBeInTheDocument();
 
     expect(screen.getByRole('button', { name: /Annual/i })).toBeInTheDocument();
-    expect(screen.getByText(/Choose deployment model/i)).toBeInTheDocument();
-    expect(screen.getByText(/Procurement ready/i)).toBeInTheDocument();
+    expect(screen.getByText(/Choose your control boundary/i)).toBeInTheDocument();
+    expect(screen.getByText(/Compare what changes by plan/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Procurement ready/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Talk to Enterprise/i })).toBeInTheDocument();
+
+    expect(screen.getAllByRole('button', { name: /Annual/i })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: /Monthly/i }));
+    await waitFor(() => expect(document.querySelector('.idt-pricing-card.is-featured .idt-price-value')).toHaveTextContent('39'));
+    fireEvent.click(screen.getByRole('button', { name: /Annual/i }));
+    await waitFor(() => expect(document.querySelector('.idt-pricing-card.is-featured .idt-price-value')).toHaveTextContent('30'));
   });
 
   it('renders the full-bleed product page story', () => {
