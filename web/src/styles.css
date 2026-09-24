@@ -13324,7 +13324,11 @@ html[data-theme='light'] .idt-pricing-decision-console {
   transition: background var(--idt-motion-standard) var(--idt-motion-ease), color var(--idt-motion-standard) var(--idt-motion-ease);
 }
 
-.ui-toggle-group__item:hover,
+.ui-toggle-group__item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--pricing-bright);
+}
+
 .ui-toggle-group__item[data-state='on'] {
   background: #ffffff;
   color: #09090b;

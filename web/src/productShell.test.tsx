@@ -4287,6 +4287,7 @@ describe('Domain-first app routes', () => {
       ]
     });
     vi.spyOn(api.apiClient, 'getAWSProjectConnection').mockResolvedValue({ connection: disconnectedAWS });
+    const coverageDashboardAPIs = mockAWSCoverageDashboardAPIs(api);
 
     const { ProductAWSAccountsPage } = await import('./productShell');
 
@@ -4305,6 +4306,11 @@ describe('Domain-first app routes', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(screen.queryByText(/0 of 1 scanned/i)).not.toBeInTheDocument();
     expect(screen.queryByText('Degraded')).not.toBeInTheDocument();
+    expect(coverageDashboardAPIs.getCoveragePlan).not.toHaveBeenCalled();
+    expect(coverageDashboardAPIs.getAccountRegionCoverage).not.toHaveBeenCalled();
+    expect(coverageDashboardAPIs.getFanOutExecution).not.toHaveBeenCalled();
+    expect(coverageDashboardAPIs.getOrganizationsTopology).not.toHaveBeenCalled();
+    expect(coverageDashboardAPIs.getStackSetOnboarding).not.toHaveBeenCalled();
   });
 
   it('keeps AWS account inventory usable when Organizations arrays are null', async () => {
