@@ -3453,7 +3453,7 @@ function PricingPage() {
 
           <motion.div className="idt-pricing-card-motion" {...(shouldReduceMotion ? { initial: false } : { initial: { opacity: 0, y: 12 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true, amount: 0.25 }, transition: { duration: 0.36, delay: 0.06 } })}>
             <Card as="article" className="idt-pricing-card is-featured">
-              <Badge className="idt-badge">Most Popular</Badge>
+              <Badge className="idt-pricing-featured-badge">Most Popular</Badge>
               <h2>Pro</h2>
               <p className="idt-price">
                 <AnimatePresence initial={false} mode="wait">

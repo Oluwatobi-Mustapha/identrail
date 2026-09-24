@@ -35,6 +35,7 @@ export function ToggleGroupItem({ className, value, children, onClick, ...props 
 
   return (
     <button
+      {...props}
       type="button"
       className={cn('ui-toggle-group__item', className)}
       data-state={isActive ? 'on' : 'off'}
@@ -43,7 +44,6 @@ export function ToggleGroupItem({ className, value, children, onClick, ...props 
         onClick?.(event);
         context?.onValueChange?.(value);
       }}
-      {...props}
     >
       {children}
     </button>

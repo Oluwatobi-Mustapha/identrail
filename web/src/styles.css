@@ -2090,32 +2090,6 @@ h2 {
   font-size: 0.88rem;
 }
 
-.idt-pricing-toggle {
-  display: inline-flex;
-  border: 1px solid var(--idt-line);
-  border-radius: 999px;
-  overflow: hidden;
-  margin-bottom: 1rem;
-}
-
-.idt-pricing-toggle button {
-  border: 0;
-  background: transparent;
-  color: #d8e7ff;
-  min-height: 40px;
-  padding: 0 1rem;
-  font-weight: 700;
-}
-
-.idt-pricing-toggle button span {
-  color: #c8d5f3;
-  margin-left: 0.2rem;
-}
-
-.idt-pricing-toggle button.is-active {
-  background: var(--idt-accent-soft);
-}
-
 .idt-pricing-note {
   margin: 0 0 1.05rem;
   color: #cdd8ef;
@@ -4229,20 +4203,6 @@ html[data-theme='light'] .idt-muted-strong {
 html[data-theme='light'] .idt-badge {
   background: rgba(30, 58, 107, 0.12);
   color: #16315d;
-}
-
-html[data-theme='light'] .idt-pricing-toggle {
-  border-color: rgba(21, 39, 70, 0.21);
-  background: rgba(234, 242, 254, 0.94);
-}
-
-html[data-theme='light'] .idt-pricing-toggle button {
-  color: #446086;
-}
-
-html[data-theme='light'] .idt-pricing-toggle button.is-active {
-  color: #152e58;
-  background: rgba(255, 255, 255, 0.98);
 }
 
 html[data-theme='light'] .idt-demo-edge-path {
@@ -13422,8 +13382,11 @@ html[data-theme='light'] .idt-pricing-decision-console {
   min-height: 3rem;
 }
 
-.idt-pricing-card-motion > .idt-pricing-card > .idt-price-value {
+.idt-pricing-card-motion > .idt-pricing-card > .idt-price .idt-price-value {
   display: inline-block;
+  margin-left: 0;
+  color: inherit;
+  font-size: inherit;
 }
 
 .idt-pricing-card-motion > .idt-pricing-card > ul {
@@ -13456,6 +13419,16 @@ html[data-theme='light'] .idt-pricing-decision-console {
   font-size: 0.68rem;
   font-weight: 850;
   line-height: 1.2;
+}
+
+.idt-pricing-page .idt-pricing-featured-badge,
+html[data-theme='light'] .idt-pricing-page .idt-pricing-featured-badge {
+  border-radius: 8px;
+  background: #000000;
+  color: #ffffff;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 0.3rem 0.7rem;
 }
 
 .ui-separator {
@@ -13711,116 +13684,6 @@ html[data-theme='light'] .idt-product-page .idt-product-cta-row h2 {
   display: grid;
   align-content: center;
   gap: 0.9rem;
-}
-
-.idt-pricing-hero-toggle {
-  width: fit-content;
-  display: flex;
-  gap: 0.28rem;
-  padding: 0.3rem;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
-}
-
-.idt-pricing-hero-toggle span,
-.idt-pricing-hero-toggle strong {
-  border-radius: 6px;
-  padding: 0.54rem 0.7rem;
-  font-size: 0.72rem;
-}
-
-.idt-pricing-hero-toggle span {
-  color: #64748b;
-}
-
-.idt-pricing-hero-toggle strong {
-  background: #0f172a;
-  color: #ffffff;
-}
-
-.idt-pricing-hero-plans {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.8rem;
-}
-
-.idt-pricing-hero-plans div,
-.idt-pricing-hero-procurement,
-.idt-pricing-hero-matrix {
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
-}
-
-.idt-pricing-hero-plans div {
-  min-height: 132px;
-  padding: 0.95rem;
-}
-
-.idt-pricing-hero-plans .is-featured {
-  background: linear-gradient(145deg, #6d37dd, #3f1d9a);
-  color: #ffffff;
-  transform: translateY(-0.7rem);
-}
-
-.idt-pricing-hero-plans span,
-.idt-pricing-hero-plans p {
-  color: inherit;
-  font-size: 0.7rem;
-}
-
-.idt-pricing-hero-plans strong {
-  display: block;
-  margin: 0.45rem 0 0.25rem;
-  font-size: 1.9rem;
-}
-
-.idt-pricing-hero-matrix {
-  display: grid;
-  grid-template-columns: 1.2fr repeat(3, 0.52fr);
-  overflow: hidden;
-}
-
-.idt-pricing-hero-matrix > * {
-  padding: 0.55rem 0.65rem;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.07);
-  color: #334155;
-  font-size: 0.7rem;
-}
-
-.idt-pricing-hero-matrix span {
-  background: #f8fafc;
-  color: #64748b;
-  font-weight: 800;
-}
-
-.idt-pricing-hero-matrix b {
-  color: #0f9f68;
-}
-
-.idt-pricing-hero-procurement {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-  padding: 0.8rem;
-}
-
-.idt-pricing-hero-procurement strong {
-  color: #0f172a;
-  font-size: 0.82rem;
-}
-
-.idt-pricing-hero-procurement span {
-  border-radius: 999px;
-  padding: 0.3rem 0.52rem;
-  background: #ecfdf5;
-  color: #116149;
-  font-size: 0.64rem;
-  font-weight: 800;
 }
 
 .idt-docs-hero-visual {
@@ -14220,8 +14083,7 @@ html[data-theme='light'] .idt-page-hero-visual .idt-blog-hero-featured h3 {
   .idt-docs-preview-shell,
   .idt-blog-hero-visual,
   .idt-about-hero-visual,
-  .idt-enterprise-hero-visual,
-  .idt-pricing-hero-plans {
+  .idt-enterprise-hero-visual {
     grid-template-columns: 1fr;
   }
 
@@ -14257,15 +14119,6 @@ html[data-theme='light'] .idt-page-hero-visual .idt-blog-hero-featured h3 {
     inset: auto;
     width: auto;
     margin-top: 0.8rem;
-  }
-
-  .idt-pricing-hero-plans .is-featured {
-    transform: none;
-  }
-
-  .idt-pricing-hero-matrix {
-    grid-template-columns: 1fr 0.62fr 0.62fr 0.62fr;
-    overflow-x: auto;
   }
 
   .idt-about-orbit {
@@ -20309,8 +20162,6 @@ html[data-theme='light'] .idt-not-found-page .idt-card .idt-btn {
   margin-top: 0.85rem;
 }
 
-.idt-pricing-page .idt-pricing-toggle,
-html[data-theme='light'] .idt-pricing-page .idt-pricing-toggle,
 .idt-docs-page .idt-search,
 html[data-theme='light'] .idt-docs-page .idt-search {
   border: 1px solid #303030;
@@ -20318,17 +20169,6 @@ html[data-theme='light'] .idt-docs-page .idt-search {
   background: #080808;
   color: #ffffff;
   box-shadow: none;
-}
-
-.idt-pricing-page .idt-pricing-toggle button,
-html[data-theme='light'] .idt-pricing-page .idt-pricing-toggle button {
-  color: #a1a1aa;
-}
-
-.idt-pricing-page .idt-pricing-toggle button.is-active,
-html[data-theme='light'] .idt-pricing-page .idt-pricing-toggle button.is-active {
-  background: #ffffff;
-  color: #000000;
 }
 
 .idt-pricing-page .idt-pricing-note,
@@ -20368,13 +20208,6 @@ html[data-theme='light'] .idt-pricing-page .idt-pricing-card.is-featured li {
   color: #000000;
 }
 
-.idt-pricing-page .idt-badge,
-html[data-theme='light'] .idt-pricing-page .idt-badge {
-  border-radius: 8px;
-  background: #000000;
-  color: #ffffff;
-}
-
 .idt-pricing-page .idt-table-wrap,
 html[data-theme='light'] .idt-pricing-page .idt-table-wrap {
   border: 1px solid #242424;
@@ -20405,19 +20238,11 @@ html[data-theme='light'] .idt-pricing-page .idt-compare-table thead th {
   color: #000000;
 }
 
-.idt-pricing-hero-toggle,
-.idt-pricing-hero-plans div,
-.idt-pricing-hero-procurement,
-.idt-pricing-hero-matrix,
 .idt-docs-search-preview,
 .idt-docs-preview-shell,
 .idt-blog-hero-featured,
 .idt-blog-hero-stack article,
 .idt-blog-hero-radar,
-html[data-theme='light'] .idt-pricing-hero-toggle,
-html[data-theme='light'] .idt-pricing-hero-plans div,
-html[data-theme='light'] .idt-pricing-hero-procurement,
-html[data-theme='light'] .idt-pricing-hero-matrix,
 html[data-theme='light'] .idt-docs-search-preview,
 html[data-theme='light'] .idt-docs-preview-shell,
 html[data-theme='light'] .idt-blog-hero-featured,
@@ -20429,22 +20254,6 @@ html[data-theme='light'] .idt-blog-hero-radar {
   box-shadow: none;
 }
 
-.idt-pricing-hero-toggle strong,
-html[data-theme='light'] .idt-pricing-hero-toggle strong,
-.idt-pricing-hero-plans .is-featured,
-html[data-theme='light'] .idt-pricing-hero-plans .is-featured {
-  background: #ffffff;
-  color: #000000;
-}
-
-.idt-pricing-hero-plans .is-featured {
-  transform: none;
-}
-
-.idt-pricing-hero-plans span,
-.idt-pricing-hero-plans p,
-.idt-pricing-hero-matrix > *,
-.idt-pricing-hero-procurement strong,
 .idt-docs-search-preview span,
 .idt-docs-preview-shell nav span,
 .idt-docs-preview-shell article p,
@@ -20454,10 +20263,6 @@ html[data-theme='light'] .idt-pricing-hero-plans .is-featured {
 .idt-blog-hero-stack span,
 .idt-blog-hero-stack p,
 .idt-blog-hero-radar span,
-html[data-theme='light'] .idt-pricing-hero-plans span,
-html[data-theme='light'] .idt-pricing-hero-plans p,
-html[data-theme='light'] .idt-pricing-hero-matrix > *,
-html[data-theme='light'] .idt-pricing-hero-procurement strong,
 html[data-theme='light'] .idt-docs-search-preview span,
 html[data-theme='light'] .idt-docs-preview-shell nav span,
 html[data-theme='light'] .idt-docs-preview-shell article p,
@@ -20470,12 +20275,10 @@ html[data-theme='light'] .idt-blog-hero-radar span {
   color: #a1a1aa;
 }
 
-.idt-pricing-hero-plans strong,
 .idt-docs-search-preview strong,
 .idt-docs-preview-shell h3,
 .idt-blog-hero-featured h3,
 .idt-blog-hero-stack strong,
-html[data-theme='light'] .idt-pricing-hero-plans strong,
 html[data-theme='light'] .idt-docs-search-preview strong,
 html[data-theme='light'] .idt-docs-preview-shell h3,
 html[data-theme='light'] .idt-blog-hero-featured h3,
@@ -20483,30 +20286,12 @@ html[data-theme='light'] .idt-blog-hero-stack strong {
   color: #ffffff;
 }
 
-.idt-pricing-hero-plans .is-featured strong,
-.idt-pricing-hero-plans .is-featured span,
-.idt-pricing-hero-plans .is-featured p,
-html[data-theme='light'] .idt-pricing-hero-plans .is-featured strong,
-html[data-theme='light'] .idt-pricing-hero-plans .is-featured span,
-html[data-theme='light'] .idt-pricing-hero-plans .is-featured p {
-  color: #000000;
-}
-
-.idt-pricing-hero-matrix span,
-html[data-theme='light'] .idt-pricing-hero-matrix span,
 .idt-docs-preview-shell nav,
 html[data-theme='light'] .idt-docs-preview-shell nav {
   background: #000000;
 }
 
-.idt-pricing-hero-matrix b,
-html[data-theme='light'] .idt-pricing-hero-matrix b {
-  color: #ffffff;
-}
-
-.idt-pricing-hero-procurement span,
 .idt-blog-hero-radar strong,
-html[data-theme='light'] .idt-pricing-hero-procurement span,
 html[data-theme='light'] .idt-blog-hero-radar strong {
   border: 1px solid #303030;
   background: #ffffff;
@@ -20810,14 +20595,6 @@ html[data-theme='light'] .idt-docs-preview-shell code {
 
 .idt-pricing-hero-visual {
   align-content: stretch;
-}
-
-.idt-pricing-hero-matrix {
-  min-height: 240px;
-}
-
-.idt-pricing-hero-plans {
-  display: none;
 }
 
 .idt-pricing-page .idt-pricing-grid {
@@ -31560,142 +31337,6 @@ html[data-theme='light'] .idt-pricing-decision-console {
   line-height: 1.55;
 }
 
-.idt-pricing-decision-console .idt-pricing-hero-toggle,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-toggle {
-  border-color: #303030;
-  background: #0a0a0a;
-  box-shadow: none;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-toggle span,
-.idt-pricing-decision-console .idt-pricing-hero-toggle strong,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-toggle span,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-toggle strong {
-  min-height: 40px;
-  display: inline-flex;
-  align-items: center;
-  background: transparent;
-  color: #a1a1aa;
-  font-size: 0.78rem;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-toggle .is-active,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-toggle .is-active {
-  background: #ffffff;
-  color: #000000;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-plans,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-plans div,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans div {
-  min-height: 154px;
-  display: grid;
-  align-content: start;
-  gap: 0.48rem;
-  padding: 1rem;
-  border-color: #242424;
-  background: #090909;
-  box-shadow: none;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-plans .is-featured,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans .is-featured {
-  background: #ffffff;
-  color: #000000;
-  transform: none;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-plans span,
-.idt-pricing-decision-console .idt-pricing-hero-plans p,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans span,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans p {
-  color: #a1a1aa;
-  font-size: 0.82rem;
-  font-weight: 750;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-plans strong,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans strong {
-  margin: 0;
-  color: #ffffff;
-  font-size: clamp(2rem, 3.4vw, 3rem);
-  line-height: 0.94;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-plans small {
-  margin-left: 0.2rem;
-  font-size: 0.82rem;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-plans .is-featured span,
-.idt-pricing-decision-console .idt-pricing-hero-plans .is-featured p,
-.idt-pricing-decision-console .idt-pricing-hero-plans .is-featured strong,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans .is-featured span,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans .is-featured p,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans .is-featured strong {
-  color: #000000;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-matrix,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-matrix {
-  min-height: 176px;
-  grid-template-columns: minmax(180px, 1.25fr) repeat(3, minmax(116px, 0.75fr));
-  border-color: #242424;
-  background: #242424;
-  box-shadow: none;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-matrix > *,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-matrix > * {
-  display: flex;
-  align-items: center;
-  min-height: 44px;
-  border-right: 1px solid #242424;
-  border-bottom: 1px solid #242424;
-  background: #090909;
-  color: #d4d4d8;
-  font-size: 0.9rem;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-matrix span,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-matrix span {
-  background: #111111;
-  color: #ffffff;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-matrix b,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-matrix b {
-  color: #ffffff;
-  font-size: 0.95rem;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-procurement,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-procurement {
-  border-color: #242424;
-  background: #090909;
-  box-shadow: none;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-procurement strong,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-procurement strong {
-  color: #ffffff;
-  font-size: 0.92rem;
-}
-
-.idt-pricing-decision-console .idt-pricing-hero-procurement span,
-html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-procurement span {
-  border-color: #ffffff;
-  background: #ffffff;
-  color: #000000;
-  font-size: 0.78rem;
-}
-
 @media (max-width: 1180px) {
   .idt-pricing-page > .idt-page-hero-rich,
   html[data-theme='light'] .idt-pricing-page > .idt-page-hero-rich {
@@ -31719,15 +31360,8 @@ html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-procure
     transform: translateX(-3rem);
   }
 
-  .idt-pricing-console-top,
-  .idt-pricing-decision-console .idt-pricing-hero-plans,
-  html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-plans {
+  .idt-pricing-console-top {
     grid-template-columns: 1fr;
-  }
-
-  .idt-pricing-decision-console .idt-pricing-hero-matrix,
-  html[data-theme='light'] .idt-pricing-decision-console .idt-pricing-hero-matrix {
-    overflow-x: auto;
   }
 
   .idt-pricing-page .idt-table-wrap,
@@ -34311,5 +33945,23 @@ html[data-theme='light'] .idt-pricing-decision-console {
   .idt-pricing-page > .idt-page-hero-rich,
   html[data-theme='light'] .idt-pricing-page > .idt-page-hero-rich {
     grid-template-columns: 1fr;
+  }
+}
+
+/* This must remain after the shared marketing hero rules so the pricing hierarchy wins. */
+.idt-pricing-page .idt-page-hero-copy h1,
+html[data-theme='light'] .idt-pricing-page .idt-page-hero-copy h1 {
+  max-width: 10ch;
+  font-size: clamp(3.7rem, 7vw, 7.1rem);
+  letter-spacing: -0.055em;
+  line-height: 0.88;
+  text-wrap: balance;
+}
+
+@media (max-width: 720px) {
+  .idt-pricing-page .idt-page-hero-copy h1,
+  html[data-theme='light'] .idt-pricing-page .idt-page-hero-copy h1 {
+    max-width: 10ch;
+    font-size: clamp(3.25rem, 16vw, 5rem);
   }
 }

@@ -15,10 +15,28 @@ if (typeof globalThis.IntersectionObserver === 'undefined') {
     readonly rootMargin = '';
     readonly thresholds: number[] = [];
 
-    constructor(_callback: IntersectionObserverCallback) {}
+    constructor(private readonly callback: IntersectionObserverCallback) {}
 
     disconnect(): void {}
-    observe(_target: Element): void {}
+    observe(target: Element): void {
+      queueMicrotask(() => {
+        const rect = target.getBoundingClientRect();
+        this.callback(
+          [
+            {
+              boundingClientRect: rect,
+              intersectionRatio: 1,
+              intersectionRect: rect,
+              isIntersecting: true,
+              rootBounds: null,
+              target,
+              time: 0
+            }
+          ],
+          this as unknown as IntersectionObserver
+        );
+      });
+    }
     takeRecords(): IntersectionObserverEntry[] {
       return [];
     }
