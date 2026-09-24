@@ -31963,7 +31963,7 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
 
   .idt-app-console-layout .idt-app-shell-nav {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.18rem;
     overflow: visible;
     padding-bottom: 0;
@@ -32021,6 +32021,12 @@ html[data-theme='light'] .idt-docs-page .idt-booking-prompt-slot-row span {
   .idt-app-console-layout .idt-app-sidebar-footer,
   .idt-app-console-layout .idt-app-sidebar-resize-handle {
     display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .idt-app-console-layout .idt-app-shell-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
